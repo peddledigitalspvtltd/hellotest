@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const db = require("@hellotest/platform/backend/src/db");
 const batches = require("../../backend/services/batchProcess.service");
 const mockDatabase = context => {
+  context.mock.method(require('@hellotest/automation/authoring-admission'), 'assertNoRecorder', async()=>({state:'idle'}));
   context.mock.method(db.pool, 'connect', async () => ({
     query: async input => {
       const sql = typeof input === 'string' ? input : input.text;

@@ -25,10 +25,11 @@ test('automation stock guidance requires exported validation evidence independen
   for (const feature of profiles) {
     controls.validate(feature.defaults, feature.id);
     const actor = feature.defaults.instruction_blocks[keys[0]], reviewer = feature.defaults.instruction_blocks[keys[1]];
-    assert.match(actor, /value assertion checks content only/);
-    assert.match(actor, /Current page context is not a replacement for an executable check in the exported program/);
-    assert.match(actor, /unrelated required fields or alerts do not justify filling later inputs/);
-    assert.match(actor, /When the discovered browser_assert schema advertises valid\/invalid/);
+    assert.match(actor, /Value proves content only/);
+    assert.match(actor, /Locator validation, subject correction and page context prove no outcome/);
+    assert.match(actor, /No unrelated\/later fill, replay or invented setup/);
+    assert.match(actor, /same-field value\+field_valid when supported/);
+    assert.match(reviewer, /valid\/invalid proves targeted native constraints/);
     assert.match(reviewer, /Reject a value-only program when that validation clause is not checked/);
     assert.match(reviewer, /cannot substitute for an executable predicate retained in the exported program/);
     assert.match(reviewer, /do not require entire-form validity/);

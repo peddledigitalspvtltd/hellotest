@@ -252,10 +252,10 @@ workflow node.
 | --- | --- |
 | Case and workflow entry points | [aiAutomationBuilder.service](../../services/automation/backend/services/aiAutomationBuilder.service.js), [artifactTasks](../../services/agentic/backend/workflows/artifactTasks.js) |
 | HelloTest MCP domain wrapper | [domainTools](../../services/mcp/backend/domainTools.js) |
-| Browser/model host | [automationUpstreamEngineer](../../services/automation/backend/lib/automationUpstreamEngineer.js) |
-| Native MCP transport/runtime | [automationUpstreamMcpClient](../../services/automation/backend/lib/automationUpstreamMcpClient.js), [automationPlaywrightMcp](../../testengine/backend/src/lib/automationPlaywrightMcp.ts) |
-| Input and private bindings | [automationBuildContext](../../services/automation/backend/lib/automationBuildContext.js), [automationBrowserParameters](../../services/automation/backend/lib/automationBrowserParameters.js), [private binding scope](../../services/automation/backend/lib/automationUpstreamPrivateBindings.js) |
-| Source and LLM display mapping | [section source](../../services/automation/backend/lib/automationUpstreamSectionSource.js), [instruction mapping](../../services/automation/backend/lib/automationInstructionMapping.js) |
+| Browser/model host | [automationUpstreamEngineer](../../services/automation/backend/lib/upstream/automationUpstreamEngineer.js) |
+| Native MCP transport/runtime | [automationUpstreamMcpClient](../../services/automation/backend/lib/upstream/automationUpstreamMcpClient.js), [automationPlaywrightMcp](../../testengine/backend/src/lib/automationPlaywrightMcp.ts) |
+| Input and private bindings | [automationBuildContext](../../services/automation/backend/lib/build/automationBuildContext.js), [automationBrowserParameters](../../services/automation/backend/lib/parameters/automationBrowserParameters.js), [private binding scope](../../services/automation/backend/lib/upstream/automationUpstreamPrivateBindings.js) |
+| Source and LLM display mapping | [section source](../../services/automation/backend/lib/upstream/automationUpstreamSectionSource.js), [instruction mapping](../../services/automation/backend/lib/build/automationInstructionMapping.js) |
 | Readiness and portable output | [automationReadiness](../../services/automation/backend/services/automationReadiness.service.js), [playwrightArtifact](../../services/automation/shared/playwrightArtifact.mjs) |
 | Actual execution | [webEngine](../../testengine/backend/src/lib/webEngine.ts), [queue dispatch](../../services/automation/backend/services/testEngineDispatch.service.js) |
 

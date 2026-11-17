@@ -1,5 +1,7 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .defect-triage-backdrop { padding: 24px; }
-.defect-triage-dialog { display: flex; flex-direction: column; width: min(1120px, 100%); max-height: calc(100dvh - 48px); min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-strong); color: var(--text); box-shadow: 0 20px 70px rgb(0 0 0 / 18%); }
+.defect-triage-dialog { display: flex; flex-direction: column; width: min(1120px, 100%); max-height: calc(100dvh - 48px); min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-strong); color: var(--text); box-shadow: 0 20px 70px color-mix(in srgb, var(--ui-shadow) 18%, transparent); }
 .defect-triage-header { display: flex; align-items: flex-start; gap: 14px; flex-shrink: 0; padding: 22px 24px; border-bottom: 1px solid var(--line); }
 .defect-triage-mark { display: grid; place-items: center; flex: 0 0 44px; height: 44px; color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong)); border-radius: 10px; }
 .defect-triage-header > div { flex: 1; min-width: 0; }
@@ -26,7 +28,7 @@
 .defect-triage-summary strong { font-size: 23px; font-weight: 650; line-height: 1; }
 .defect-triage-summary span { color: var(--muted); font-size: 11px; }
 .defect-triage-summary p { flex: 1 1 300px; margin: 0; font-size: 12px; line-height: 1.65; color: var(--muted); }
-.defect-triage-notice { padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warning, #b78103); border-radius: 8px; background: var(--panel); font-size: 13px; line-height: 1.5; }
+.defect-triage-notice { padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warning, var(--ui-amber-border)); border-radius: 8px; background: var(--panel); font-size: 13px; line-height: 1.5; }
 .defect-triage-notice p { margin: 4px 0 0; }
 .defect-triage-notice.is-error { border-left-color: var(--danger); }
 .defect-triage-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }

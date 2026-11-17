@@ -971,14 +971,14 @@ test('native branch fan-in rejects changed revisions or case arrays instead of s
   assert.equal(mergeExecutionContext(sources).data.length,1);
 });
 
-test('For each rejects unimplemented batch sizes instead of ignoring the setting',()=>{
+test('For each accepts bounded read-only batches and rejects invalid sizes',()=>{
   const graph=workflow();graph.nodes[1]=node('story','loop',{loopSourceKey:'input.items',loopAction:'transform',loopMaxIterations:2,transformMapping:'{}'});
-  for(const batch of [undefined,'',1,'1']) {
+  for(const batch of [undefined,1,'1',2,'10',100]) {
     graph.nodes[1].data.loopBatchSize=batch;
     assert.equal(runtime.readiness(graph).ready,true,String(batch));
   }
-  for(const batch of [0,2,'10','invalid']) {
+  for(const batch of ['',0,true,false,-1,1.5,101,'invalid']) {
     graph.nodes[1].data.loopBatchSize=batch;
-    assert.match(runtime.readiness(graph).blockers.map(item=>item.message).join(' '),/one item at a time/);
+    assert.match(runtime.readiness(graph).blockers.map(item=>item.message).join(' '),/integer from 1 to 100/);
   }
 });

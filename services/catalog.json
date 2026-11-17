@@ -138,7 +138,8 @@
       "requires": [
         "automation",
         "knowledge",
-        "integration"
+        "integration",
+        "trace"
       ]
     },
     {

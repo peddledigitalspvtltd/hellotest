@@ -36,7 +36,7 @@ test('paired browser owns real local case/suite execution, outbound claims, pers
   const capabilities=await registerPairedLocalExecutionRoutes(agent,{directory:path.join(directory,'agent'),origin,apiOrigin:origin,token:pairToken});await agent.listen({host:'127.0.0.1',port:0});
   const actor={id:'paired-owner'},headers={authorization:'Bearer '+require('../../src/utils/token').createToken(actor),origin};
   const localHeaders={origin,'x-hellotest-agent-token':pairToken};
-  const dispatch=require('@hellotest/automation/backend/services/testEngineDispatch.service');
+  const dispatch=require('@hellotest/automation/dispatch');
   const actualPrepare=dispatch.preparePairedLocalDispatch;
   // Keep the actual native executor while avoiding visible test windows. This
   // fixture changes only browser display/video policy, never commands/results.
@@ -91,7 +91,7 @@ test('paired browser owns real local case/suite execution, outbound claims, pers
   const bridgeResponse=await api.inject({method:'POST',url:'/automation/browser-bridges',headers,payload:{test_case_ids:[generatedCases[0]],local_agent_id:capabilities.agent_id,paired_origin:origin}});
   assert.equal(bridgeResponse.statusCode,200,bridgeResponse.body);const bridge=bridgeResponse.json();
   const bridged=await agent.inject({method:'POST',url:'/api/v1/local-browser-bridges',headers:localHeaders,payload:bridge});assert.equal(bridged.statusCode,202,bridged.body);
-  const browser=require('@hellotest/automation/backend/services/pairedBrowserBridge.service');
+  const browser=require('@hellotest/automation/browser-bridge');
   const scope={bridgeId:bridge.id,projectId:'paired-project',appTypeId:'paired-app',userId:actor.id,caseId:generatedCases[0],jobId:'paired-fixture-job'};
   const initialized=await browser.exchange({scope,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'paired-fixture',version:'1'},_meta:{hellotest:{start_url:origin+'/fixture-target',headless:true}}},timeoutMs:15000});
   assert.equal(initialized.status,200,JSON.stringify(initialized));assert.ok(initialized.session_id);

@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
-const {buildParameterValues,parameterPlanKey,assertParameterPlanKey}=require('../../backend/lib/automationBuildParameterPlan');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const {buildParameterValues,parameterPlanKey,assertParameterPlanKey}=require("../../backend/lib/build/automationBuildParameterPlan");
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 
 test('reviewed build values preserve exact namespaces and intentional blanks without accepting ambiguous aliases',()=>{
  assert.deepEqual(buildParameterValues({'@T.Name':'Reader','r.optional':'','@s.region':'East',unscoped:'Run input'}),{'t.name':'Reader','r.optional':'','s.region':'East','r.unscoped':'Run input'});
@@ -23,7 +23,7 @@ function fixture(){
   if(id.endsWith('/db'))return {prepare:sql=>({all:async()=>{reads++;return[section];},get:async(id)=>{reads++;return sql.includes('FROM automation_case_links')?(linked?{manual_test_case_id:'manual'}:null):sql.includes('source_idempotency_key')?target:id==='manual'?{...testCase,id:'manual',automated:'no'}:testCase;}})};
   if(id.endsWith('optionalEvidenceAccess.service'))return{getOptionalEvidenceAccess:async()=>({'automation.build':true,'data.view':allowed,'testcase.view':caseAccess})};
   if(id.endsWith('/automationBuildContext'))return{loadAutomationManualContext:async()=>[],loadAutomationParameterContext:async()=>{parameterReads++;return{runtime_parameter_values:allowed?caseValues:{},source_key:allowed?JSON.stringify(caseValues):null};}};
-  if(id.endsWith('/automationBrowserParameters'))return{referencedParameterNames:require('../../backend/lib/automationBrowserParameters').referencedParameterNames,loadBrowserParameterResolver:async input=>{
+  if(id.endsWith('/automationBrowserParameters'))return{referencedParameterNames:require("../../backend/lib/parameters/automationBrowserParameters").referencedParameterNames,loadBrowserParameterResolver:async input=>{
    assert.equal(input.materialize,false);assert.equal(input.defaultMissingInputs,undefined);
    return createBrowserParameterResolver({...input,caseOptions:input.testCase.test_data_options,environment:allowed?environment:null});
   }};

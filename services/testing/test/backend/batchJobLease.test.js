@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createBatchJobLease}=require('../../backend/services/batchJobLease');
+const {createBatchJobLease}=require('@hellotest/contracts/runtime/lease');
 test('durable agent leases renew while active and stop polling when the handler finishes',async()=>{
  let tick,renewals=0,cancelled=false;
  const guard=createBatchJobLease({renew:async()=>{renewals++;return {changes:1};},schedule:callback=>{tick=callback;return {unref(){}};},cancel:()=>{cancelled=true;}});

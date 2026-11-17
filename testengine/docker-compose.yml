@@ -6,6 +6,7 @@ x-testengine-worker: &testengine-worker
     PORT: 4301
     NODE_ENV: ${TESTENGINE_NODE_ENV:-development}
     ARTIFACT_ROOT: /artifacts
+    TESTENGINE_API_RESPONSE_MAX_BYTES: ${TESTENGINE_API_RESPONSE_MAX_BYTES:-8388608}
     HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-http://host.docker.internal:3000}
     HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
     TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}}

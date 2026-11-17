@@ -8,7 +8,7 @@ const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/ai
 const nodes = require('../../backend/workflows/nodeAiConfiguration');
 const definitions = require('../../backend/agents/agentDefinition');
 const { instructionFor } = require('../../backend/workflows/specialistPolicy');
-const profiles = require('../../shared/workflowSpecialists.json');
+const profiles = require('@hellotest/contracts/agents/workflowSpecialists.json');
 
 const node = (id, prompt) => ({ id, data: { kind: 'artifactTask', artifactTask: 'test-case-generation', task: prompt,
   instructions: 'Return complete journeys with explicit expected results.', guardrails: 'Use supplied acceptance evidence.',

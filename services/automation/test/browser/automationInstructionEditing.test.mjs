@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,rm,mkdir} from 'node:fs/promises';
@@ -21,7 +22,7 @@ test('section and instruction editors select, copy, reorder and save complete mu
  try{
   await writeFile(new URL(name+'.tsx',root),fixture);await writeFile(new URL(name+'.html',root),`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
-  const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',route=>{errors.push('Unexpected API '+route.request().url());return route.abort();});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API '+route.request().url());return route.abort();});
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);await page.getByRole('tab',{name:/^Plan/}).click();
   const section=page.locator('.automation-program-section').first();const toggle=section.locator('button[aria-controls="automation-plan-step-s1"]');if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();
   await expect(section.locator('.automation-instruction-line')).toHaveCount(5);await expect(section.locator('.automation-instruction-line').last()).toContainText('Verify text');

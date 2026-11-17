@@ -17,6 +17,7 @@ import {
   IconClock,
   IconPlayerStop,
 } from "@tabler/icons-react";
+import nodeKinds from '../../shared/workflowNodeKinds.json';
 const icons: Record<string, typeof IconRobot> = {
   trigger: IconPlayerPlay,
   agent: IconRobot,
@@ -48,6 +49,7 @@ export function WorkflowNodeIcon({
   kind: string;
   size?: number;
 }) {
-  const Icon = icons[kind] || IconRobot;
+  const descriptor = nodeKinds.kinds[kind as keyof typeof nodeKinds.kinds];
+  const Icon = icons[descriptor?.ui.icon || kind] || IconRobot;
   return <Icon size={size} stroke={1.7} aria-hidden="true" />;
 }

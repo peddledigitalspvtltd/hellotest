@@ -1,7 +1,7 @@
 const service = require("../services/testDataSet.service");
 const appTypeService = require("@hellotest/platform/backend/public/applicationAccess");
 const projectService = require("@hellotest/platform/backend/public/projectAccess");
-const aiTestDataGenerationService = require("@hellotest/ai/backend/services/aiTestDataGeneration.service");
+const aiTestDataGenerationService = require("@hellotest/ai/services/aiTestDataGeneration");
 const { TEST_DATA_SET_MODE_VALUES } = require("@hellotest/platform/backend/src/domain/catalog");
 
 module.exports = async function (fastify) {

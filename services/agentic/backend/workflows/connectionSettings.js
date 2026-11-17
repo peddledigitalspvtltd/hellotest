@@ -132,5 +132,5 @@ async function save(input, id, userId) {
 module.exports = { list: async projectId => { projectScope(projectId); return (await store.list()).filter(row => row.projectIds?.includes(projectId)).map(row => publicRow(row, projectId)); }, all: () => store.list(), get, save,
   preview: async (input, id) => normalize(input, id ? await get(id, projectScope(input.project_id)) : undefined),
   remove: async (id, projectId) => { await get(id, projectId); await store.remove(id); return { deleted: true }; },
-  credential, headers, publicRow, _internals: { store, normalize, encrypt, key },
+  sealCredential: encrypt, credential, headers, publicRow, _internals: { store, normalize, encrypt, key },
 };

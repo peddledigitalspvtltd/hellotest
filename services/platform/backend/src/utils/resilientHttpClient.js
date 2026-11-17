@@ -147,6 +147,7 @@ const normalizePolicy = (url, init, options) => {
     resetTimeoutMs: clampInteger(options.resetTimeoutMs, DEFAULT_RESET_TIMEOUT_MS, 1_000, 30 * 60_000),
     baseDelayMs: clampInteger(options.baseDelayMs, 200, 10, 10_000),
     maxDelayMs: clampInteger(options.maxDelayMs, 5_000, 10, MAX_RETRY_DELAY_MS),
+    retryableError: typeof options.retryableError === 'function' ? options.retryableError : null,
     retryableStatuses: options.retryableStatuses instanceof Set ? options.retryableStatuses : RETRYABLE_STATUSES,
     now: typeof options.now === "function" ? options.now : Date.now,
     fetchImpl: options.fetchImpl || globalThis.fetch,
@@ -205,7 +206,8 @@ const acquireCircuit = (state, policy) => {
       operation: policy.operation,
       retryable: true,
       statusCode: 503,
-      retryAfterSeconds: 1
+      retryAfterSeconds: 1,
+      upstreamStatus: state.lastUpstreamStatus
     });
   }
   if (state.circuit !== "open") return;
@@ -217,7 +219,8 @@ const acquireCircuit = (state, policy) => {
       operation: policy.operation,
       retryable: true,
       statusCode: 503,
-      retryAfterSeconds: Math.max(1, Math.ceil((nextProbeAt - policy.now()) / 1_000))
+      retryAfterSeconds: Math.max(1, Math.ceil((nextProbeAt - policy.now()) / 1_000)),
+      upstreamStatus: state.lastUpstreamStatus
     });
   }
   if (state.probeInFlight) {
@@ -227,7 +230,8 @@ const acquireCircuit = (state, policy) => {
       operation: policy.operation,
       retryable: true,
       statusCode: 503,
-      retryAfterSeconds: 1
+      retryAfterSeconds: 1,
+      upstreamStatus: state.lastUpstreamStatus
     });
   }
   state.circuit = "half-open";
@@ -400,7 +404,7 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
           if (cause?.generation_received === true || acceptedResponse && !policy.retryAfterAcceptedResponse) error.generation_received = true;
         }
         lastError = error;
-        const canRetry = error.retryable && policy.replaySafe && attempt < policy.maxAttempts && !init.signal?.aborted;
+        const canRetry = error.retryable && (!policy.retryableError || policy.retryableError(error, cause)) && policy.replaySafe && attempt < policy.maxAttempts && !init.signal?.aborted;
         if (canRetry) {
           const delayMs = fullJitterDelayMs(attempt, policy.baseDelayMs, policy.maxDelayMs);
           if (delayMs < policy.deadlineMs - (policy.now() - startedAt)) {

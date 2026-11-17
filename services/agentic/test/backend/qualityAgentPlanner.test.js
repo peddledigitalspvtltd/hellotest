@@ -11,7 +11,7 @@ function planner(options={}) {
   const stubs={
     '@hellotest/platform/backend/services/permission.service':{hasPermission:async(u,p)=>options.permissions?.[p]??true},
     '@hellotest/integration/backend/services/aiLlmSelection.service':{resolveLlmIntegrationForUsage:async args=>{selected.push(args);return Object.hasOwn(options,'integration')?options.integration:integration;}},
-    '@hellotest/automation/backend/services/aiAutomationBuilder.service':{listLearningCache:async scope=>{repositoryReads.push(scope);return options.rows||[];}},
+    '@hellotest/automation/build':{listLearningCache:async scope=>{repositoryReads.push(scope);return options.rows||[];}},
     '@hellotest/platform/backend/services/settings.service':{getWorkspacePreferences:async()=>assert.fail('Agent planning must not read legacy admin prompt settings.')},
     '@hellotest/platform/backend/src/utils/llmHttpClient':{fetchLlmWithRetry:async(url,init,policy)=>{const profile=await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve(policy.featureKey);requests.push({url,body:JSON.parse(init.body),policy,profile});return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({steps:[{action:'click',selector:'#search'}]})},...(options.choices?.[requests.length-1]||options.choice)}]});}}
   };

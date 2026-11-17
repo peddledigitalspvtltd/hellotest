@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {completeAutomationBuild}=require('../../backend/lib/automationBuildCompletion');
+const {completeAutomationBuild}=require("../../backend/lib/build/automationBuildCompletion");
 const steps=[{id:'one',step_order:1,action:'Open page',expected_result:'Page loaded',step_type:'web'},{id:'two',step_order:2,action:'Submit',expected_result:'Saved',step_type:'web'}];
 const candidate=(id,code='await web.click("#submit");')=>({step_id:id,automation_code:code});
 function validate(payload,required){
@@ -51,7 +51,7 @@ test('unmapped or foreign manual coverage never becomes a silently complete gene
  }
 });
 test('identical repeated source steps map to distinct saved occurrences rather than silently collapsing a flow',()=>{
- const {matchManualCoverage}=require('../../backend/lib/automationBuildCompletion');
+ const {matchManualCoverage}=require("../../backend/lib/build/automationBuildCompletion");
  const repeated=[{id:'a',action:'Click next',expected_result:'Next page'},{id:'b',action:'Click next',expected_result:'Next page'}];
  const mapped=matchManualCoverage(repeated,[{id:'m1',test_case_id:'case',action:'Click next',expected_result:'Next page'},{id:'m2',test_case_id:'case',action:'Click next',expected_result:'Next page'},{id:'m3',test_case_id:'case',action:'Click next',expected_result:'Different page'}]);
  assert.deepEqual([...mapped],[['m1','a'],['m2','b']]);
@@ -69,7 +69,7 @@ test('invalid dependency reports are corrected within the normal budget and cont
 });
 
 test('incremental sections publish validated previews before later browser actions and correct invalid drafts in the same attempt',async()=>{
- const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+ const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
  const previews=[],events=[],receipts=[];let turns=0,requests=0;
  const browser={tools:[{name:'browser_snapshot'}],call:async()=>{
   assert.deepEqual(previews,['one'],'the first section is inspectable before the next browser observation');
@@ -160,7 +160,7 @@ test('supplied exact runtime parameters correct false parameter blockers within 
 });
 
 test('missing and other-namespace parameters remain unavailable rather than guessed',async()=>{
- const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+ const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
  for(const caseValues of [{},{'r.password':'configured-for-another-scope'}]){
   const resolver=createBrowserParameterResolver({caseValues});
   let calls=0;
@@ -170,7 +170,7 @@ test('missing and other-namespace parameters remain unavailable rather than gues
 });
 
 test('bound blank inputs correct a false parameter blocker without changing data or adding a case',async()=>{
- const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+ const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
  for(const value of ['','   ']){
   const resolver=createBrowserParameterResolver({caseValues:{'t.password':value}});
   let calls=0;
@@ -261,7 +261,7 @@ test('sequential sections advance beyond the old whole-case three-request bound 
 });
 
 test('sequential current browser actions and resulting evidence precede validation and the next section request',async()=>{
- const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+ const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
  const browserCalls=[],requests=[],order=[];let browserState='initial',current;
  const browser={tools:[{name:'browser_click'},{name:'browser_snapshot'}],call:async(name,args)=>{
   browserCalls.push(name);

@@ -6,7 +6,7 @@ import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_ENDPOINT } from '../../
 
 const require = createRequire(import.meta.url);
 const upstream = createRequire(require.resolve('@playwright/mcp/package.json'))('playwright');
-const { preActionSelectorError } = require('../../../../services/automation/backend/lib/automationUpstreamEngineer.js');
+const { preActionSelectorError } = require("../../../../services/automation/backend/lib/upstream/automationUpstreamEngineer.js");
 const invoke = (app, method, params, session, id = 1) => app.inject({ method: 'POST', url: PLAYWRIGHT_MCP_ENDPOINT,
   headers: session ? { 'mcp-session-id': session } : {}, payload: { jsonrpc: '2.0', id, method, params } });
 const text = result => result.content.filter(block => block.type === 'text').map(block => block.text).join('\n');

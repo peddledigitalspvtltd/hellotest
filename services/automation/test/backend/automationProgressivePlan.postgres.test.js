@@ -8,6 +8,7 @@ const { randomUUID } = require('node:crypto');
 test('validated Plan sections and generated defaults persist progressively without losing concurrent edits or advancing failed commits', {
   skip: process.env.AUTOMATION_PROGRESSIVE_PLAN_POSTGRES !== '1', timeout: 120000
 }, async t => {
+
   const target = new URL(process.env.DATABASE_URL);
   assert.equal(target.pathname, '/agent_verify_progressive_plan');
   assert.ok(['localhost', '127.0.0.1'].includes(target.hostname));
@@ -26,9 +27,9 @@ test('validated Plan sections and generated defaults persist progressively witho
     await db.prepare("INSERT INTO project_members(id,project_id,user_id,role_id) VALUES(?,?,?,'role-admin')").run(randomUUID(), project, author);
     const cases = require('@hellotest/testing/backend/services/testCase.service');
     const testSteps = require('@hellotest/testing/backend/services/testStep.service');
-    const context = require('../../backend/lib/automationBuildContext');
-    const snapshots = require('../../backend/lib/automationBuildDataSnapshot');
-    const { completeAutomationBuild } = require('../../backend/lib/automationBuildCompletion');
+    const context = require("../../backend/lib/build/automationBuildContext");
+    const snapshots = require("../../backend/lib/build/automationBuildDataSnapshot");
+    const { completeAutomationBuild } = require("../../backend/lib/build/automationBuildCompletion");
     const filename = require.resolve('../../backend/services/aiAutomationBuilder.service');
     const loaded = { exports: {} };
     new Function('require', 'exports', 'module', `${fs.readFileSync(filename, 'utf8')}\nmodule.exports._applyBuild=applyBuild;module.exports._normalizeLlmBuild=normalizeLlmBuild;`)(createRequire(filename), loaded.exports, loaded);

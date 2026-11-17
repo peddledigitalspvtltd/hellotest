@@ -6,10 +6,10 @@ import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../dist/lib/testEngineSecurity.js';
 
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const {createAutomationCaseJourney}=require('../../../../services/automation/backend/lib/automationCaseJourney.js');
-const {projectModelSnapshot,modelTargetForLocator}=require('../../../../services/automation/backend/lib/automationBrowserModelTargets.js');
-const {reviewAutomationPrerequisite,approvedAutomationPrerequisite}=require('../../../../services/automation/backend/lib/automationPrerequisiteRecovery.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const {createAutomationCaseJourney}=require("../../../../services/automation/backend/lib/build/automationCaseJourney.js");
+const {projectModelSnapshot,modelTargetForLocator}=require("../../../../services/automation/backend/lib/browser/automationBrowserModelTargets.js");
+const {reviewAutomationPrerequisite,approvedAutomationPrerequisite}=require("../../../../services/automation/backend/lib/browser/automationPrerequisiteRecovery.js");
 const allow={decision:'allow',reason:'The observed disclosure is needed to reach the current login form.',necessary_for_current_step:true,changes_expected_result:false,executes_later_step:false,requires_new_data:false};
 const payload=result=>JSON.parse(result.content.find(part=>part.type==='text').text);
 

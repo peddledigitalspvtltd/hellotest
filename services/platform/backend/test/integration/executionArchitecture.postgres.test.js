@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 test("execution batching and worker ownership on disposable PostgreSQL", { skip: process.env.EXECUTION_ARCH_POSTGRES !== "1", timeout: 120_000 }, async t => {
+
   const database = new URL(process.env.DATABASE_URL);
   assert.match(database.pathname, /^\/agent_verify_execution_arch_[a-z0-9_]+$/);
   if (process.env.POSTGRES_URL) assert.equal(process.env.POSTGRES_URL, process.env.DATABASE_URL);

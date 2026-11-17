@@ -164,7 +164,7 @@ test('every native task passes saved task, instructions and guardrails to its ac
     assert.match(text,/Guardrails:\nReport unsupported tax behavior as an evidence gap/);
     assert.doesNotMatch(text,/Retired prompt/);
   }
-  assert.equal(builds[0].inspect_browser,true);
+  assert.equal(builds[0].inspect_browser,false,'Native API generation does not request a browser inspection.');
 });
 
 test('a configured automation node supplies its guidance once while retaining complete Story context',async t=>{
@@ -388,7 +388,7 @@ test('finite aliases preserve native literal values, normalized key precedence a
   assert.equal(build.mock.callCount(),1);
   assert.deepEqual(build.mock.calls[0].arguments[0].draft.parameter_values,item.parameter_values);
   assert.equal(output.verification.status,'passed');
-  const resolver=require('../../../automation/backend/lib/automationBrowserParameters').createBrowserParameterResolver({caseValues:item.parameter_values,materialize:false});
+  const resolver=require("../../../automation/backend/lib/parameters/automationBrowserParameters").createBrowserParameterResolver({caseValues:item.parameter_values,materialize:false});
   assert.equal(resolver.projectText('Use @t.first'),'Use @t.second','workflow preflight must not introduce recursive runtime substitution');
 });
 
@@ -468,6 +468,7 @@ test('declared native input errors become gaps and per-case incomplete builds ar
 });
 
 test('workflow runtime retains the output for native automation input gaps while only assessed manual drafts can be accepted', async t => {
+
   setup(t);
   const runtime=require('../../../agentic/backend/services/agenticWorkflowExecution.service');
   const rows=new Map();

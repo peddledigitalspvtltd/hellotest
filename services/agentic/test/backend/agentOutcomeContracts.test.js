@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {normalizeArtifacts,outcomeContract,outcomeIssues,planFollowups}=require('../../backend/services/agentArtifacts');
 const definition=require('../../backend/agents/agentDefinition');
-const profiles=require('../../shared/workflowSpecialists.json');
+const profiles=require('@hellotest/contracts/agents/workflowSpecialists.json');
 const catalog=require('../../shared/agentOutcomeContracts.json');
 const citations=[{id:'case-source'}],base={title:'Retry once',description:'Verify the approved retry boundary.',priority:'P2',citation_ids:['case-source']};
 const caseDraft={...base,kind:'test_case',test_case_type:'functional',parameter_values:{'t.email':'reviewed@example.test'},steps:[{action:'Enter @t.email and retry the request.',expected_result:'One request remains.'}]};

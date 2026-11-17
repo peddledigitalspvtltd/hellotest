@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { selectAutomationBrowserSkills: select } = require('../../backend/lib/automationBrowserSkills');
+const { selectAutomationBrowserSkills: select } = require("../../backend/lib/browser/automationBrowserSkills");
 const featureKey = 'ai.agentic.automation-engineer';
 const ref = index => `ref:abcdef123456:${index}`;
 const target = (index, values = {}) => ({ ref: ref(index), tag: 'button', role: 'button', name: 'Open', ...values });

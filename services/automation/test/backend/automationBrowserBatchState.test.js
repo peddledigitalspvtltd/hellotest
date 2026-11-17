@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { captureBrowserBatchState, browserBatchBoundary } = require('../../backend/lib/automationBrowserBatchState');
+const { captureBrowserBatchState, browserBatchBoundary } = require("../../backend/lib/browser/automationBrowserBatchState");
 
 const control = (id, label = id, extra = {}) => ({ tag: 'input', role: 'textbox', label, attributes: { id, type: 'text' }, locator_candidates: [`#${id}`], displayed: true, ...extra });
 const snapshot = (elements, extra = {}) => ({ url: 'https://app.test/auth', scope: 'body', elements, ...extra });

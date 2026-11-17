@@ -5,7 +5,7 @@ test.after(()=>Promise.all([db.close(),obs.close()]));
 test('generator cancellation checks authenticated project membership and current build/AI permission before scoped domain work',async t=>{
  const app=require('fastify')();t.after(()=>app.close());
  const projects=require('@hellotest/platform/backend/public/projectAccess'),transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service');
- const generator=require('@hellotest/automation/backend/services/automationGenerator.service');
+ const generator=require('@hellotest/automation/generator');
  let denied='',foreign=false,category='automation_build',authenticated=true;const received=[],permissions=[];
  t.mock.method(transactions,'getTransaction',async id=>({id,project_id:'project',category}));
  t.mock.method(projects,'getProject',async(projectId,userId)=>{

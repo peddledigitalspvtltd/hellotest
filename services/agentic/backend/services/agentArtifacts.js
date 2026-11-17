@@ -3,7 +3,7 @@ const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils
 const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
 const { validGherkinCase } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { outcomeContract } = require('./agentOutcomeContracts');
-const profiles = require('../../shared/workflowSpecialists.json');
+const profiles = require('@hellotest/contracts/agents/workflowSpecialists.json');
 const artifactKinds = new Set(require('../../shared/agentOutcomeContracts.json').artifact_kinds);
 const CONTRACT = aiInstructionBlock("ai.agentic.workflow", "agentArtifacts.nativeProposalContract");
 const fail=validation_path=>Object.assign(new Error('The model returned an invalid structured artifact.'),{code:'AI_INVALID_RESPONSE',...(validation_path?{validation_path}:{})});

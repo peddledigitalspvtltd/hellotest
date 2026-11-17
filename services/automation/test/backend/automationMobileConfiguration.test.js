@@ -1,8 +1,9 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const {buildMobileEngineConfiguration:build}=require('../../backend/lib/automationMobileConfiguration');
+const {buildMobileEngineConfiguration:build}=require("../../backend/lib/build/automationMobileConfiguration");
 const {configurationTargetsForRead}=require('../../../platform/backend/src/utils/configurationTargets');
 const {resolveAutomationCaseType}=require('../../../platform/backend/src/utils/automationCaseType');
 const {containsMobileIntegrationConfig}=require('../../../platform/backend/src/utils/mobileFeature');
@@ -38,13 +39,13 @@ test('native setup and teardown receive their own frozen target even when the ma
 
 test('actual dispatch envelope retains the desktop browser while freezing both native platform snapshots',async()=>{
   const source=fs.readFileSync(path.resolve(__dirname,'../../backend/services/testEngineDispatch.service.js'),'utf8');
-  const body=source.slice(source.indexOf('const buildEngineEnvelope ='),source.indexOf('const summarizeWarnings ='));
+  const body=implementationFunctionSource('dispatch/engineEnvelope','buildEngineEnvelope');
   const normalizeText=value=>typeof value==='string'&&value.trim()?value.trim():null;
-  const dependencies={executionWithCaseEnvironment:require('../../backend/lib/automationExecutionEnvironment').executionWithCaseEnvironment,configurationTargetsForRead,resolveAutomationCaseType,normalizeText,normalizeEngineBrowser:value=>value==='Chrome'?'chromium':value,
+  const dependencies={executionWithCaseEnvironment:require("../../backend/lib/build/automationExecutionEnvironment").executionWithCaseEnvironment,configurationTargetsForRead,resolveAutomationCaseType,normalizeText,normalizeEngineBrowser:value=>value==='Chrome'?'chromium':value,
     normalizeInteger:(value,fallback)=>Number.isFinite(Number(value))&&value!==undefined?Number(value):fallback,normalizeSessionMode:(_value,fallback)=>fallback,
     resolveExecutionPolicy:async()=>({}),resolveCaseDataSetContext:()=>null,resolveExecutionHooks:()=>[],preserveFrozenEngineEnvelope:value=>value,
     normalizeStoredReferenceList:()=>[],normalizeTestEngineWebEngine:()=> 'playwright',buildManualSpec:()=>({}),configuredRepairBrief:async()=>({}),
-    normalizeStringRecord:value=>value||{},toEngineKeyValueEntries:value=>value||[],require:id=>{assert.equal(id,'../lib/automationMobileConfiguration');return {buildMobileEngineConfiguration:build};}};
+    normalizeStringRecord:value=>value||{},toEngineKeyValueEntries:value=>value||[],require:id=>{if(id.startsWith("@hellotest/contracts/"))return require(id);assert.equal(id,'../lib/build/automationMobileConfiguration');return {buildMobileEngineConfiguration:build};}};
   const envelopeBuilder=new Function(...Object.keys(dependencies),body+'\nreturn buildEngineEnvelope;')(...Object.values(dependencies));
   const envelope=await envelopeBuilder({engineRunId:'run',execution:{id:'execution',test_configuration:{name:'Matrix',snapshot:configuration}},project:{id:'project',name:'Project'},appType:{id:'app',type:'web'},caseSnapshot:{test_case_id:'case',test_case_title:'Unified checkout',test_data_options:{automation_case_type:'unified'}},steps:[{step_type:'ios'},{step_type:'web'},{step_type:'android'}],integration:{config:integration}});
   assert.equal(envelope.automation_case_type,'unified');assert.equal(envelope.browser,'chromium');assert.equal(envelope.configuration.os,'Linux');

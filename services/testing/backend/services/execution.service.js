@@ -9,9 +9,9 @@ const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/
 const { randomUUID: uuid } = require("crypto");
 const { sanitizeVariablesForRead } = require("@hellotest/platform/backend/src/utils/contextVariables");
 const integrationService = require("@hellotest/integration/backend/services/integration.service");
-const testEngineDispatchService = require("@hellotest/automation/backend/services/testEngineDispatch.service");
+const testEngineDispatchService = require("@hellotest/automation/dispatch");
 const executionResultService = require("./executionResult.service");
-const apiRequestExecutionService = require("@hellotest/automation/backend/services/apiRequestExecution.service");
+const apiRequestExecutionService = require("@hellotest/automation/requests");
 const executionStepRuntimeService = require("@hellotest/platform/backend/src/domain/executionStepEvidence");
 const opsTelemetryService = require("@hellotest/trace/backend/services/opsTelemetry.service");
 const mobileFeatureService = require("@hellotest/platform/backend/services/mobileFeature.service");
@@ -1744,7 +1744,7 @@ exports.createExecution = async ({
 
 exports.createLocalRun = async (input = {}) => {
   if(input.local_transport==='paired-agent') {
-    const paired=require('@hellotest/automation/backend/services/pairedLocalExecution.service');
+    const paired=require('@hellotest/automation/paired-execution');
     paired.security.id(input.request_id,'request');paired.security.id(input.local_agent_id,'agent');paired.security.origin(input.paired_origin);
     const requestHash=paired.security.digest(Object.fromEntries(Object.entries(input).filter(([key])=>!['request_id','created_by'].includes(key))));
     const sourceKey=`paired-local:${paired.security.digest([input.project_id,input.created_by,input.request_id])}`;
@@ -1786,7 +1786,7 @@ exports.createLocalRun = async (input = {}) => {
 
 exports.preparePairedLocalExecution = async(id,options={})=>{
   const execution=await exports.getExecution(id,true);
-  const paired=require('@hellotest/automation/backend/services/pairedLocalExecution.service');
+  const paired=require('@hellotest/automation/paired-execution');
   const configuredIntegration=await integrationService.getActiveIntegrationByTypeForProject('testengine',execution.project_id);
   const configuredOptions=configuredIntegration?.config && typeof configuredIntegration.config==='object' && !Array.isArray(configuredIntegration.config) ? configuredIntegration.config : {};
   const result=await paired.prepare({execution,expectedRevision:options.expected_revision,

@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm } from 'node:fs/promises';
@@ -37,7 +38,7 @@ test('Engineer separates real actions from draft generation and refreshes a save
     const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', route => { errors.push('Unexpected API ' + route.request().url()); return route.abort(); });
+    await page.route('**/api/**', async route => {if (await fulfillAutomationFixtureRequest(page, route)) return; errors.push('Unexpected API ' + route.request().url()); return route.abort(); });
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
     await page.getByRole('tab', { name: /^Build tools/ }).click();
     const mode = page.getByRole('combobox', { name: 'Browser build mode', exact: true });

@@ -3,7 +3,7 @@ const {normalizeAutomationStartUrl,requiresAutomationStartUrl}=require('../../..
 function fixture({allowed=true,moved=false,savedUrl='https://old.test/',sourceKey}={}){
  const writes=[],module={exports:{}};
  const current={id:'auto',app_type_id:moved?'other-app':'app',automation_start_url:savedUrl,source_idempotency_key:sourceKey,revision:7};
- const source=fs.readFileSync(require.resolve('../../backend/lib/automationBuildStartUrl'),'utf8');
+ const source=fs.readFileSync(require.resolve("../../backend/lib/build/automationBuildStartUrl"),'utf8');
  new Function('require','module','exports',source)(id=>id.endsWith('/automationCaseType')?require('../../../platform/backend/src/utils/automationCaseType'):id.endsWith('/automationStartUrl')?{normalizeAutomationStartUrl,requiresAutomationStartUrl}:id.endsWith('/optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async()=>({'testcase.update':allowed})}:{getTestCase:async()=>current,updateTestCase:async(...args)=>writes.push(args)},module,module.exports);
  return {...module.exports,writes};
 }

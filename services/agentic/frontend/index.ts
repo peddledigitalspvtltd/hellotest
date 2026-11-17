@@ -3,5 +3,5 @@ import type { ServiceDefinition } from "@hellotest/platform/frontend/src/service
 export const agenticService: ServiceDefinition = {
   id: "agentic",
   envKey: "VITE_AGENTIC_SERVICE_URL",
-  matches: (pathname) => /^\/(?:agentic-|repository-agents|repository-inspection)/.test(pathname)
+  matches: (pathname) => /^\/(?:agentic-|agent-runs|repository-agents|repository-inspection)/.test(pathname)
 };

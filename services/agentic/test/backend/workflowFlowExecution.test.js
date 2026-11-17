@@ -163,7 +163,7 @@ test('a body failure records a terminal failed iteration and preserves earlier w
 
 test('unknown operation outcomes stop before an Error handler or downstream action can redispatch', async t => {
   setup(t);
-  const operations=require('../../backend/workflows/nodeOperations'),original=operations.execute;
+  const operations=require('../../backend/workflows/nodeRegistry').get('transform').implementation,original=operations.execute;
   t.mock.method(operations,'execute',async input=>{if(input.node.id==='uncertain')throw Object.assign(new Error('PRIVATE_REMOTE_BODY'),{
     statusCode:502,code:'AGENT_HTTP_OUTCOME_UNKNOWN',outcome_unknown:true,retryable:false,operation_id:'http-original-operation',publicMessage:'The original operation was not acknowledged. Verify its outcome before sending it again.'});return original(input);});
   const definition=graph([node('request','trigger'),node('uncertain','transform',{transformMapping:'{}',onError:'errorOutput'}),node('recover','errorHandler'),node('finish','output')],
@@ -289,4 +289,17 @@ test('Wait preserves connected data and cancellation aborts the actual pending d
   assert.ok(Date.now() - cancellationStarted < 1000, 'Cancellation waited for the pending delay.');
   assert.equal(cancelled.status, 'cancelled'); assert.equal(result(cancelled, 'wait').status, 'cancelled');
   assert.equal(result(cancelled, 'finish').status, 'skipped'); assert.equal(result(cancelled, 'finish').attempts, 0);
+});
+
+
+test('legacy read-only AI review accepts 100 items as five truthful batches and rejects overflow before dispatch',async t=>{
+ setup(t);let calls=0;
+ t.mock.method(require('../../backend/agents/agentRegistry.service'),'resolveModel',async()=>({id:'fixture-model',model:'fixture'}));
+ t.mock.method(require('../../backend/services/agenticAssistant.service'),'respond',async()=>({transaction:{id:`batch-${++calls}`},result:{response:'Reviewed the supplied batch.',citation_ids:[],readiness:{status:'ready_for_review'}},provenance:{generation_mode:'llm'}}));
+ const definition=graph([node('request','trigger'),node('review','loop',{loopAction:'customAI',loopSourceKey:'input.items',loopMaxIterations:100,loopBatchSize:20,prompt:'Review the complete supplied batch.'}),node('finish','output')],[wire('request','review'),wire('review','finish')]);
+ const saved=await execute(definition,{items:Array.from({length:100},(_,index)=>index)});
+ assert.equal(calls,5);assert.equal(result(saved,'review').output.processed,100);assert.equal(result(saved,'review').output.total_batches,5);
+ assert.deepEqual(result(saved,'review').output.items.map(item=>item.input_item_count),[20,20,20,20,20]);
+ const overflow=await execute(definition,{items:Array.from({length:101},(_,index)=>index)});
+ assert.equal(overflow.status,'failed');assert.equal(calls,5,'No successful prefix is dispatched for oversized input.');
 });

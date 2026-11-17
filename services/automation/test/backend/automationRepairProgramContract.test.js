@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { nativeProgramPatch, nativeLocatorPatch, nativeRepairProgramSummary } = require('../../backend/lib/automationRepairProgramContract');
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { nativeProgramPatch, nativeLocatorPatch, nativeRepairProgramSummary } = require("../../backend/lib/verification/automationRepairProgramContract");
 
 const operations = locator => [
   { name: 'browser_fill', arguments: { locator, value: '@r.password' } },

@@ -33,7 +33,7 @@ function readLlmRetryAfterMs({ headers, detail = '', now = Date.now() } = {}) {
   return waits.length ? Math.max(...waits) : null;
 }
 
-const isLlmCapacityError = error => error?.retryable !== false && error?.nonRetryable !== true && statusOf(error) === 429;
+const isLlmCapacityError = error => error?.retryable !== false && error?.nonRetryable !== true && require('@hellotest/contracts/runtime/retry').isAiCapacityError(error);
 
 const waitForCapacity = (delay, signal) => new Promise((resolve, reject) => {
   const cancelled = () => { clearTimeout(timer); signal?.removeEventListener('abort', cancelled); reject(signal?.reason || Object.assign(new Error('The model request was cancelled.'), { name: 'AbortError' })); };

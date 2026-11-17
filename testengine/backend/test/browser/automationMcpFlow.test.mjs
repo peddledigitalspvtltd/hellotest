@@ -5,9 +5,9 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 import { createRequire } from 'node:module';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const {completeAutomationBuild}=require('../../../../services/automation/backend/lib/automationBuildCompletion.js');
-const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const {completeAutomationBuild}=require("../../../../services/automation/backend/lib/build/automationBuildCompletion.js");
+const {createBrowserParameterResolver}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
 
 test('backend agent uses real MCP Chromium snapshots, validates strict locators and closes its session', {timeout:60000}, async t=>{
   const old=process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;process.env.RECORDER_ALLOWED_PRIVATE_HOSTS='127.0.0.1';

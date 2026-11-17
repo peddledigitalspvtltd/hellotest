@@ -1,0 +1,6 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+.repository-members-table { min-width: 0; overflow: auto; }
+.repository-members-table .ui-button--plain { padding: 0; color: var(--ui-text); text-align: left; }
+.repository-members-table tr.is-active { background: var(--ui-primary-surface); }
+.repository-members-table tr.is-highlighted { outline: 2px solid var(--ui-primary); outline-offset: -2px; }
+.repository-member-locator { overflow-wrap: anywhere; white-space: normal; }

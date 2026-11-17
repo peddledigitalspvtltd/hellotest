@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { renderedTransition, canonicalReviewEvidence } = require('../../backend/lib/automationReviewEvidence');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
+const { renderedTransition, canonicalReviewEvidence } = require("../../backend/lib/build/automationReviewEvidence");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const receipt = (value, isError = false) => ({ isError, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const target = (id, role, name, attributes = {}) => ({ tag: role === 'textbox' ? 'input' : role === 'heading' ? 'h2' : 'button', accessible_role: role, accessible_name: name,

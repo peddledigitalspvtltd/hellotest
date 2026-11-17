@@ -1,11 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { automationSectionIssue, observedValidationFeedback, sectionIssueOutcomeReviewFeedback } = require('../../backend/lib/automationSectionIssue');
-const { projectModelSnapshot } = require('../../backend/lib/automationBrowserModelTargets');
-const { recordBrowserCheck, browserRecoveryState, browserVerificationBoundary } = require('../../backend/lib/automationBrowserRecovery');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { buildFailureProgress } = require('../../backend/lib/automationBuildFailureProgress');
-const { stepBuildError } = require('../../backend/lib/automationStepBuildErrors');
+const { automationSectionIssue, observedValidationFeedback, sectionIssueOutcomeReviewFeedback } = require("../../backend/lib/build/automationSectionIssue");
+const { projectModelSnapshot } = require("../../backend/lib/browser/automationBrowserModelTargets");
+const { recordBrowserCheck, browserRecoveryState, browserVerificationBoundary } = require("../../backend/lib/browser/automationBrowserRecovery");
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { buildFailureProgress } = require("../../backend/lib/build/automationBuildFailureProgress");
+const { stepBuildError } = require("../../backend/lib/build/automationStepBuildErrors");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/auth', ...value }) }] });
 const snapshot = () => ({ tool: 'browser_snapshot', result: receipt({ observation_id: 'signup', accessibility: '- heading "Sign up"\n- alert: Password is required.', elements: [
@@ -66,7 +66,7 @@ test('current page and target evidence may be combined without becoming browser 
   const observation = snapshot(), page = projectModelSnapshot(observation), response = report(page.observation_id);
   response.section_issue.evidence_refs.push(page.targets[0].ref, page.observation_id);
   assert.equal(automationSectionIssue({ response, execution, snapshot: observation }).details.evidence_count, 2);
-  const { resolveModelToolRequest } = require('../../backend/lib/automationBrowserModelTargets');
+  const { resolveModelToolRequest } = require("../../backend/lib/browser/automationBrowserModelTargets");
   assert.equal(resolveModelToolRequest({ arguments: { locator: page.observation_id } }, observation).arguments.locator, page.observation_id);
   const malformed = { tool: 'browser_snapshot', result: { content: [{ type: 'text', text: JSON.stringify({ source: 'model', observation_id: page.observation_id, elements: [] }) }] } };
   assert.throws(() => automationSectionIssue({ response: report(page.observation_id), execution, snapshot: malformed }), { code: 'AUTOMATION_BROWSER_SECTION_ISSUE_INVALID' });

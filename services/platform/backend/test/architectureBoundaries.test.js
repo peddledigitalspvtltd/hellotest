@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { initializationImports } = require("../../../../scripts/lib/initialization-imports.cjs");
 
 const sourceRoot = path.resolve(__dirname, "../src");
 const serviceRoot = path.resolve(__dirname, "../../..");
@@ -26,15 +27,19 @@ const resolveLocalModule = (fromFile, request, sourceFiles) => {
     .find((candidate) => sourceFiles.has(candidate)) || null;
 };
 
-const buildDependencyGraph = () => {
+const buildDependencyGraph = (initializationOnly = false) => {
   const files = backendRoots.flatMap(walkJavaScript).map((file) => path.normalize(file));
   const sourceFiles = new Set(files);
   const graph = new Map(files.map((file) => [file, []]));
 
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
-    for (const match of source.matchAll(/require\(["']((?:\.{1,2}\/|@hellotest\/)[^"']+)["']\)/g)) {
-      const dependency = resolveLocalModule(file, match[1], sourceFiles);
+    // Layer ownership applies to deferred runtime imports too. Only the
+    // initialization-cycle check uses the narrower eager execution graph.
+    const imports = initializationOnly ? initializationImports(source)
+      : [...source.matchAll(/require\(["']((?:\.{1,2}\/|@hellotest\/)[^"']+)["']\)/g)].map(match => match[1]);
+    for (const specifier of imports.filter(value => value.startsWith('.') || value.startsWith('@hellotest/'))) {
+      const dependency = resolveLocalModule(file, specifier, sourceFiles);
       if (dependency) graph.get(file).push(dependency);
     }
   }
@@ -87,8 +92,8 @@ const findCycles = (graph) => {
 
 const relative = (file) => path.relative(sourceRoot, file);
 
-test("backend local dependencies remain acyclic", () => {
-  const graph = buildDependencyGraph();
+test("backend eager module initialization dependencies remain acyclic; deferred runtime calls are audited separately", () => {
+  const graph = buildDependencyGraph(true);
   const cycles = findCycles(graph).map((component) => component.map(relative));
   assert.deepEqual(cycles, []);
 });

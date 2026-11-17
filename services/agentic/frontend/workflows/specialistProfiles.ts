@@ -1,4 +1,4 @@
-import profiles from "../../shared/workflowSpecialists.json";
+import profiles from "@hellotest/contracts/agents/workflowSpecialists.json";
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 
 export type WorkflowSkill = { id: string; name: string; instructions: string; enabled?: boolean };

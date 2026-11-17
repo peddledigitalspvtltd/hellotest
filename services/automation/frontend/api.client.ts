@@ -2,7 +2,9 @@ import { request } from "@hellotest/platform/frontend/src/lib/httpClient";
 
 
 
+export type AutomationAuthoringState = { case_id:string;state:'idle'|'building'|'recording'|'conflict';build:{activity_id:string;status:string;phase?:string}|null;recording:{activity_id:string;status:string;phase?:string}|null;can_build:boolean;can_record:boolean };
 export const automationApi = {
+  authoringState: (caseId:string, signal?:AbortSignal) => request<AutomationAuthoringState>(`/test-cases/${encodeURIComponent(caseId)}/automation/authoring-state`,{signal,cache:'no-store'}),
 localAgent: {
     status: () =>
       request<{

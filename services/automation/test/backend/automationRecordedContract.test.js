@@ -1,9 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { createRecordedSectionContract, recordedContractMetadata, readRecordedSectionArtifacts, validateRecordedContractMetadata } = require('../../backend/lib/automationRecordedContract');
-const { createGenerationManifest, generationApplicability } = require('../../backend/lib/automationGenerationManifest');
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { createRecordedSectionContract, recordedContractMetadata, readRecordedSectionArtifacts, validateRecordedContractMetadata } = require("../../backend/lib/browser/automationRecordedContract");
+const { createGenerationManifest, generationApplicability } = require("../../backend/lib/build/automationGenerationManifest");
 
 const operation = (name, args) => ({ name, arguments: args });
 const obligation = { id: 'section', source: 'section', action: 'Enter @t.name', expected_result: 'The name retains @t.name' };

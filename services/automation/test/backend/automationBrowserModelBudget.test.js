@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/address', ...value }) }] });
 const snapshot = () => receipt({ observation_id: 'address-page', accessibility: '- button "Save address"\n- heading "Account"\n- status "Address saved"\n- row "Updated address"', elements: [

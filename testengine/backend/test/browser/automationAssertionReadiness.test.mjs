@@ -5,7 +5,7 @@ import {chromium} from 'playwright';
 import Fastify from 'fastify';
 import {registerAutomationMcp,assertAutomationBrowserCondition} from '../../dist/lib/automationMcp.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const receipt=result=>JSON.parse(result.content.find(block=>block.type==='text').text);
 const success=async(browser,name,args={})=>{const result=await browser.call(name,args);assert.notEqual(result.isError,true,JSON.stringify(result));return receipt(result);};
 

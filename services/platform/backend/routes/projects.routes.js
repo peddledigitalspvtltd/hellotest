@@ -13,7 +13,7 @@ module.exports = async function (fastify) {
       description: { required: false, type: "string" },
       visibility: { required: false, type: "string", enum: ["private", "public"] },
       members: { required: false, type: "array" },
-      app_types: { required: false, type: "array" }
+      app_types: { required: true, type: "array", minItems: 1 }
     }, req.body || {});
     return service.createProject({
       ...req.body,

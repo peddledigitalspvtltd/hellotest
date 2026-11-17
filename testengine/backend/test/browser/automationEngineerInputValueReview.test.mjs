@@ -13,11 +13,11 @@ import { buildPlaywrightArtifact, createPlaywrightExecutionOptions } from '../..
 import { assertTypeScriptExportCompiles } from '../../../../services/automation/test/browser/playwrightExportFixture.mjs';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { createBrowserParameterResolver } = require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
-const { browserCurrentSnapshotObservation, browserPromptContext } = require('../../../../services/automation/backend/lib/automationBrowserContext.js');
-const { canonicalReviewEvidence } = require('../../../../services/automation/backend/lib/automationReviewEvidence.js');
-const { recordedSectionRequests } = require('../../../../services/automation/backend/lib/automationBrowserRecording.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { createBrowserParameterResolver } = require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
+const { browserCurrentSnapshotObservation, browserPromptContext } = require("../../../../services/automation/backend/lib/browser/automationBrowserContext.js");
+const { canonicalReviewEvidence } = require("../../../../services/automation/backend/lib/build/automationReviewEvidence.js");
+const { recordedSectionRequests } = require("../../../../services/automation/backend/lib/browser/automationBrowserRecording.js");
 const actorState = prompt => JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]);
 const execution = { required: true, semantic_review_required: true, step_id: 'full-name', action: 'Enter the configured @r.name',
   expected_result: 'The configured full name is entered and the field reports Name accepted without submitting the form' };

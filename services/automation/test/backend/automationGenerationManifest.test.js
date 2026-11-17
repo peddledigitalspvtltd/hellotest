@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createGenerationManifest, generationApplicability } = require('../../backend/lib/automationGenerationManifest');
+const { createGenerationManifest, generationApplicability } = require("../../backend/lib/build/automationGenerationManifest");
 
 const step = { id: 'section', test_case_id: 'automation', step_order: 2, step_type: 'web', action: 'Save @t.address', expected_result: 'The address is saved' };
 const update = { automation_code: 'await page.getByRole("button", {name:"Save"}).click(); await expect(page.getByRole("status")).toContainText("Saved");', api_request: null, step_type: 'web' };

@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
 const {resolveLinkedManualParameters}=require('@hellotest/platform/backend/src/utils/linkedManualParameters');
 const {resolveParameterLayers}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const {normalizeDataOptions}=require('@hellotest/platform/backend/src/utils/scopedTestData');

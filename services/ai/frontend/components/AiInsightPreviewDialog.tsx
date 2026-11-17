@@ -12,7 +12,7 @@ import {
   AiEvidenceFlyout,
   AiRunBrief,
   type AgenticFeatureProfileId
-} from "@hellotest/agentic/frontend/components/AgenticExperience";
+} from "@hellotest/ai/agent-experience";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { SparkIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import "./AiInsightPreviewDialog.css";

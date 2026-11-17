@@ -122,12 +122,9 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
       throw error;
     }
   }
-  if (payload.choices?.[0]?.finish_reason === "length") throw Object.assign(new Error("The answer provider reached its output limit."), { code: "MODEL_OUTPUT_TRUNCATED" });
-  const content = completionContent(payload);
-  if (!content) throw Object.assign(new Error("The answer provider returned no answer."), { code: "MODEL_EMPTY_RESPONSE" });
-  let parsed;
-  try { parsed = extractJson(content); }
-  catch { throw Object.assign(new Error("The answer provider returned invalid answer JSON."), { code: "MODEL_INVALID_RESPONSE" }); }
+  const parsed=require('@hellotest/platform/model-boundary').decodeStructuredCompletion(payload,{
+    parse:extractJson,invalidCode:'MODEL_INVALID_RESPONSE',invalidMessage:'The answer provider returned invalid answer JSON.',truncatedCode:'MODEL_OUTPUT_TRUNCATED',truncatedMessage:'The answer provider reached its output limit.'
+  });
   await aiLlmSelectionService.recordSuccessfulLlmIntegration?.(integration);
   return parsed;
 };

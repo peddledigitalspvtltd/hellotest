@@ -88,3 +88,15 @@ test('identical inline locators on query/hash routes require the exact current c
  const routeScopedLocatorKeys=collectRouteScopedLocatorKeys([member,generic]);
  assert.equal(isRepositoryMemberUsed(generic,'case',steps,{includeCaseOwned:false,routeScopedLocatorKeys}),false,'a generic identical selector cannot steal a confirmed route binding');
 });
+
+test('semantic locator generation preserves exact names and literal syntax without evaluating supplied values', async()=>{
+ const {buildSemanticRepositoryLocator:build}=await import('../../frontend/lib/repositoryLocators.ts');
+ assert.equal(build('role','Save','button'),'getByRole("button", {name:"Save", exact:true})');
+ assert.equal(build('label','Email', '',1),'getByLabel("Email", {exact:true}).nth(1)');
+ assert.equal(build('testid','customer"name'),'getByTestId("customer\\"name")');
+ assert.equal(build('testid',' account '),'getByTestId(" account ")','A captured test ID retains its exact attribute value.');
+ assert.equal(build('xpath','//button[@type="submit"]'),'xpath=//button[@type="submit"]');
+ assert.throws(()=>build('role','Save','button);danger()'),/valid accessible role/);
+ assert.throws(()=>build('text','  '),/captured value/);
+ assert.throws(()=>build('text','Save','',-1),/whole number/);
+});

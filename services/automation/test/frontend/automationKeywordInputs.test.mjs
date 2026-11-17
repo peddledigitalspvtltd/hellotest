@@ -27,6 +27,8 @@ test("navigation, browser controls, and mobile system actions do not require rep
   assert.equal(getAutomationKeywordInputSpec("android.startActivity").valueLabel, "Activity");
   assert.equal(getAutomationKeywordInputSpec("tap", "ios").showValue, false);
   assert.equal(getAutomationKeywordInputSpec("android.waitForDisplayed").valueRequired, false);
+  assert.match(getAutomationKeywordInputSpec("web.waitForSelector").valueLabel, /attached, detached/);
+  assert.equal(getAutomationKeywordInputSpec("web.expectCount").valueRequired, true);
 });
 
 test("repository selection lists usable fields with screen identities and resolves executable locators", () => {

@@ -1,4 +1,4 @@
-import specialistProfiles from "../../shared/workflowSpecialists.json";
+import specialistProfiles from "@hellotest/contracts/agents/workflowSpecialists.json";
 export type AgentCategory = "repository" | "planning" | "design" | "investigation" | "quality";
 export type AgentExperience = {
   category: AgentCategory;

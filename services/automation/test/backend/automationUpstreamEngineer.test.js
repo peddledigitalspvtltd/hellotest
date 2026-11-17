@@ -1,9 +1,10 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const expressionProgram=source=>'// @hellotest-parameter-bindings expressions-v1\n'+source;
-const {buildWithUpstreamPlaywright,preserveNativeActions,resolveSecretReferences}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright,preserveNativeActions,resolveSecretReferences}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
-const {validSavedInstructionMapping}=require('../../backend/lib/automationInstructionMapping');
+const {validSavedInstructionMapping}=require("../../backend/lib/build/automationInstructionMapping");
 
 const startUrl='https://app.test/start';
 const step={id:'save',step_order:1,step_type:'web',action:'Save the form',expected_result:'The saved confirmation appears'};
@@ -61,6 +62,32 @@ test('configured model uses native MCP first, then preserves source and maps com
   assert.equal(result.side_effects.browser_actions,1);assert.equal(state.closes,1);assert.ok(state.checks>4);
 });
 
+test('every buffered browser phase inherits the remaining case deadline',async()=>{
+  const state=fixture();
+  await state.run({deadlineMs:Date.now()+4000});
+  assert.ok(state.requests.length>1);
+  for(const request of state.requests){
+    assert.ok(request.timeoutMs>0&&request.timeoutMs<=4000,`${request.phase} receives only the remaining case budget`);
+  }
+});
+
+test('cancellation during progress or a late actor result cannot dispatch or save another operation',async()=>{
+  const progressAbort=new AbortController(),beforeDispatch=fixture();
+  await assert.rejects(beforeDispatch.run({signal:progressAbort.signal,onProgress:async event=>{
+    if(event.phase==='automation.agent.upstream.tool')progressAbort.abort();
+  }}),{name:'AbortError'});
+  assert.equal(beforeDispatch.dispatched.length,0);
+  assert.equal(beforeDispatch.saved.length,0);
+  assert.equal(beforeDispatch.closes,1);
+
+  const modelAbort=new AbortController();
+  const afterModel=fixture({actor:()=>{modelAbort.abort();return {done:true};}});
+  await assert.rejects(afterModel.run({signal:modelAbort.signal}),{name:'AbortError'});
+  assert.deepEqual(afterModel.dispatched.map(item=>item.name),['browser_navigate']);
+  assert.equal(afterModel.requests.some(item=>item.phase==='upstream_source'),false);
+  assert.equal(afterModel.saved.length,0);
+});
+
 test('native actor and source guidance retain full authored record identity and final assertions without replay or ambiguity masking',async()=>{
   const state=fixture();
   const result=await state.run();
@@ -97,7 +124,7 @@ test('a native focus outcome is admitted on its first source proposal without re
 });
 
 test('a source validator failure retains bounded actionable diagnostics without adding provider or source payloads',()=>{
-  const {validateSectionSource}=require('../../backend/lib/automationUpstreamEngineer');
+  const {validateSectionSource}=require("../../backend/lib/upstream/automationUpstreamEngineer");
   const issues=Array.from({length:20},(_,index)=>`Step 5: application validator issue ${index}. ${'x'.repeat(1000)}`);
   assert.throws(()=>validateSectionSource(click,{...step,step_order:5},()=>issues),error=>{
     assert.equal(error.code,'AUTOMATION_UPSTREAM_SOURCE_INVALID');
@@ -176,7 +203,7 @@ test('a display mapping retry receives exact validation feedback and can repair 
 });
 
 test('two invalid display mappings retain validated source once with parser fallback and warning metadata while the next section continues',async()=>{
-  const {sectionPreview}=require('../../backend/lib/automationWorkspacePreview');
+  const {sectionPreview}=require("../../backend/lib/build/automationWorkspacePreview");
   const steps=[step,{...step,id:'verify',step_order:2,action:'Verify the saved state'}],previews=[];
   const state=fixture({actor:(request,count)=>request.step.id==='save'&&count===1?{tool:{name:'browser_click',arguments:{ref:'save-button'}}}:{done:true},
     source:request=>({automation_code:request.step.id==='save'?[goto,click,assertion].join('\n'):assertion}),
@@ -191,12 +218,13 @@ test('two invalid display mappings retain validated source once with parser fall
     }});
   const result=await state.run({steps,onSection:async(update,evidence)=>{state.saved.push(update);previews.push(sectionPreview({testCaseId:'case',step:update.step,update,evidence,attempt:1}));}});
   assert.equal(state.saved.length,2);assert.deepEqual(result.updates.map(update=>update.step.id),['save','verify']);
-  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion,modelMappedRead].join('\n')));assert.equal(result.updates[0].automation_instructions,undefined);
-  assert.equal(previews[0].automation_instructions,undefined);assert.equal(previews[0].evidence.instruction_mapping.display_mode,'source_parser');
+  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion,modelMappedRead].join('\n')));
+  assert.ok(validSavedInstructionMapping(result.updates[0].automation_instructions,{source:result.updates[0].automation_code,stepId:'save'}));
+  assert.ok(previews[0].automation_instructions.instructions.every(row=>row.label==='Run custom code'));assert.equal(previews[0].evidence.instruction_mapping.display_mode,'custom_source');
   assert.equal(previews[0].evidence.instruction_mapping.attempts,2);assert.equal(result.updates[0].instruction_mapping_warning.error_code,'AUTOMATION_INSTRUCTION_MAPPING_INVALID');
   assert.ok(result.updates[1].automation_instructions);assert.equal(result.warnings.length,1);
   const warning=state.progress.find(event=>event.phase==='automation.agent.instructions.fallback');
-  assert.equal(warning.level,'warning');assert.equal(warning.details.active_step_id,'save');assert.equal(warning.details.display_mode,'source_parser');
+  assert.equal(warning.level,'warning');assert.equal(warning.details.active_step_id,'save');assert.equal(warning.details.display_mode,'custom_source');
   assert.equal(state.requests.filter(item=>item.phase==='upstream_source').length,2);assert.equal(state.requests.filter(item=>item.phase==='upstream_instruction_mapping').length,3);
   assert.deepEqual(state.dispatched.map(item=>item.name),['browser_navigate','browser_click']);assert.equal(state.closes,1);
   assert.doesNotMatch(JSON.stringify({previews,warnings:result.warnings,progress:state.progress}),/PRIVATE_BAD_DISPLAY_LABEL/);
@@ -385,8 +413,8 @@ test('authored per-step references disambiguate equal scoped values and prior so
 });
 
 test('native observations reach the actual case hook with redacted snapshot text and retained refs follow the saved section',async()=>{
-  const fs=require('node:fs'),{parse}=require('acorn'),{reduceActivityProgress}=require('../../backend/lib/automationActivityProgress');
-  const serviceSource=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8');
+  const fs=require('node:fs'),{parse}=require('acorn'),{reduceActivityProgress}=require("../../backend/lib/build/automationActivityProgress");
+  const serviceSource=implementationSource('builder/programGeneration');
   let hook;
   const visit=node=>{
     if(!node||typeof node!=='object')return;
@@ -419,7 +447,7 @@ test('native observations reach the actual case hook with redacted snapshot text
 });
 
 test('terminal upstream failure persists the active step error while previously saved sections stay complete',async()=>{
-  const {reduceActivityProgress}=require('../../backend/lib/automationActivityProgress');
+  const {reduceActivityProgress}=require("../../backend/lib/build/automationActivityProgress");
   const steps=[step,{...step,id:'second',step_order:2}];
   let metadata=reduceActivityProgress({}, {phase:'automation.agent.plan',details:{test_case_id:'case',steps:steps.map(step=>({step_id:step.id,step_order:step.step_order}))}}),clicks=0;
   const progress=async event=>{metadata={...metadata,...reduceActivityProgress(metadata,{...event,details:{test_case_id:'case',...event.details}})};};

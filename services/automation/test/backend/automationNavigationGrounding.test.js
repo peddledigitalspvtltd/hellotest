@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationNavigationGrounding } = require('../../backend/lib/automationNavigationGrounding');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
+const { createAutomationNavigationGrounding } = require("../../backend/lib/browser/automationNavigationGrounding");
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const startUrl = 'https://app.test/entry';
 const execution = extra => ({ required: true, step_id: 'current', action: 'Open the registration page',

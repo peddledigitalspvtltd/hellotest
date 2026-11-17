@@ -409,7 +409,7 @@ module.exports = async function (fastify) {
     await requireSelectedTestDataAccess(fastify, req, req.body.project_id, req.body.test_data_set_id);
 
     if(req.body.local_transport==='paired-agent') {
-      const security=require('@hellotest/automation/backend/services/pairedLocalExecution.service').security;
+      const security=require('@hellotest/automation/paired-execution').security;
       if(security.origin(req.headers.origin)!==security.origin(req.body.paired_origin))throw security.fail('Pair this Run from its current HelloTest browser origin.',403,'PAIRED_LOCAL_ORIGIN');
       if(!req.body.test_case_ids?.length&&!req.body.suite_ids?.length)throw security.fail('Select a Test Case or Suite for local execution.');
     }
@@ -434,7 +434,7 @@ module.exports = async function (fastify) {
     const execution=await ensureExecutionPermission(fastify,req,'run.execute');
     await requireFeaturePermission(fastify,req,'automation.run.local',execution.project_id);
     await requireSelectedTestDataAccess(fastify,req,execution.project_id,execution.test_data_set_id);
-    const input=req.body||{},security=require('@hellotest/automation/backend/services/pairedLocalExecution.service').security;
+    const input=req.body||{},security=require('@hellotest/automation/paired-execution').security;
     if(security.origin(req.headers.origin)!==security.origin(input.paired_origin))throw security.fail('Pair this Run from its current HelloTest browser origin.',403,'PAIRED_LOCAL_ORIGIN');
     return service.preparePairedLocalExecution(execution.id,{initiated_by:req.user.id,paired_origin:input.paired_origin,local_agent_id:input.local_agent_id,expected_revision:input.expected_revision});
   });
@@ -443,11 +443,11 @@ module.exports = async function (fastify) {
     agentCapabilities:String(req.headers['x-hellotest-local-agent-capabilities']||'').slice(0,1024).split(',').map(value=>value.trim())});
   fastify.post('/executions/:id/local-dispatch/claim',async(req,reply)=>{
     reply.header('Cache-Control','no-store');
-    return require('@hellotest/automation/backend/services/pairedLocalExecution.service').claim(localGrant(req));
+    return require('@hellotest/automation/paired-execution').claim(localGrant(req));
   });
   fastify.get('/executions/:id/local-dispatch/control',async(req,reply)=>{
     reply.header('Cache-Control','no-store');
-    return require('@hellotest/automation/backend/services/pairedLocalExecution.service').control(localGrant(req));
+    return require('@hellotest/automation/paired-execution').control(localGrant(req));
   });
 
 

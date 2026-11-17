@@ -12,13 +12,13 @@ import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../dist/lib/testEngineSecurity.js';
 import {assertTypeScriptExportCompiles} from '../../../../services/automation/test/browser/playwrightExportFixture.mjs';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
-const {createBrowserParameterResolver,referenceKey}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const {normalizeGeneratedProgram}=require('../../../../services/automation/backend/lib/automationGeneratedProgram');
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools');
-const {exactLinearCoverage}=require('../../../../services/automation/backend/lib/automationActionReconciliation');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
+const {createBrowserParameterResolver,referenceKey}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters");
+const {normalizeGeneratedProgram}=require("../../../../services/automation/backend/lib/build/automationGeneratedProgram");
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools");
+const {exactLinearCoverage}=require("../../../../services/automation/backend/lib/build/automationActionReconciliation");
 const {resolveLinkedManualParameters}=require('../../../../services/platform/backend/src/utils/linkedManualParameters');
-const {createPortableAutomationArtifact}=require('../../../../services/automation/backend/lib/automationPortableArtifact');
+const {createPortableAutomationArtifact}=require("../../../../services/automation/backend/lib/build/automationPortableArtifact");
 const legacyBindingSource='await page.getByTestId("binding-name").fill("@name"); await expect(page.getByTestId("binding-name")).toHaveValue("@t.name"); '
  +'expect(() => page.getByTestId("binding-name").fill("@r.name")).toThrow(/Missing parameter @r\\.name/); '
  +'await page.getByTestId("binding-name").fill("@r.empty"); await expect(page.getByTestId("binding-name")).toHaveValue(""); await expect(page.getByTestId("binding-name")).not.toHaveValue("@t.empty");';

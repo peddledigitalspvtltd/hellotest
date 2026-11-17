@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { browserPromptContext } = require('../../backend/lib/automationBrowserContext');
-const { browserRecoveryState, recordBrowserCheck, browserCheckPromptDetails, repeatedUnsuccessfulCheck, unsuccessfulBrowserCheck } = require('../../backend/lib/automationBrowserRecovery');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { browserPromptContext } = require("../../backend/lib/browser/automationBrowserContext");
+const { browserRecoveryState, recordBrowserCheck, browserCheckPromptDetails, repeatedUnsuccessfulCheck, unsuccessfulBrowserCheck } = require("../../backend/lib/browser/automationBrowserRecovery");
 
 const receipt = (value, isError = false) => ({ isError, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/auth', ...value }) }] });
 const page = () => ({ observation_id: 'auth-page', url: 'https://app.test/auth', accessibility: '- textbox "Email"', elements: [{ tag: 'input', accessible_role: 'textbox', accessible_name: 'Email', attributes: { id: 'email-input' }, locators_validated:true, locator_candidates: ['#email-input'] }] });

@@ -69,7 +69,7 @@ export function buildAcceptedRun(envelope: EngineRunEnvelope): EngineRunRecord {
 
 export function buildCapabilities() {
   const workerClass = String(process.env.TESTENGINE_WORKER_CLASS || "").trim().toLowerCase() || "hybrid";
-  return {
+  const capabilities = {
     runner: workerClass,
     control_plane: "hellotest",
     browsers: ["chromium", "firefox", "webkit"],
@@ -138,6 +138,8 @@ export function buildCapabilities() {
       "expectNotDisplayed",
       "expectEnabled",
       "expectValue",
+      "captureText",
+      "screenshot",
       "pushFile",
       "pushRemoteFile",
       "pullFile",
@@ -159,5 +161,9 @@ export function buildCapabilities() {
     hellotest_inline_step_evidence: true,
     healing_scope: ["locator", "wait", "popup", "navigation"],
     blocked_auto_changes: ["assertion", "business-rule", "test-data-mutation"]
+  };
+  return {
+    ...capabilities,
+    ios_keywords: capabilities.android_keywords.filter((keyword) => !["pressBack", "pressKeyCode", "startActivity", "openDeepLink", "deepLink", "aiStep"].includes(keyword))
   };
 }

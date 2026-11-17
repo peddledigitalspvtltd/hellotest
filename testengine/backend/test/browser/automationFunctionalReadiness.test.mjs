@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../dist/lib/testEngineSecurity.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const read=result=>JSON.parse(result.content.find(part=>part.type==='text').text);
 
 for(const status of[200,401])test(`functional${status} login readiness does not wait for an external image or background stream load`,{timeout:60_000},async t=>{

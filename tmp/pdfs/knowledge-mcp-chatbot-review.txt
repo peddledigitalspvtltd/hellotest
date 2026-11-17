@@ -1,0 +1,1392 @@
+
+===== PAGE 1 =====
+Knowledge, MCP and Chatbot Architecture 
+Review
+ Nov 15, 2026  ·  @MJ
+Verdict
+The control side of this system is production-grade; the retrieval and reasoning side is not
+yet. Authorization, provenance, budgets and the approved-plan write path are stronger
+than most systems of this kind. Answer quality is held back by a lexical search defect, a
+thin graph, untuned ranking and a chatbot that uses one tool in a fixed pipeline.
+Seven changes matter most, in this order:
+1. Fix the lexical search query so it matches on an index and tolerates sentence-length
+questions.
+2. Build an end-to-end retrieval evaluation set, then replace the hand-set score weights
+with rank fusion plus a reranker.
+Area Maturity Main gap
+Authorization and
+provenance
+Strong Repeated permission reads on every
+call
+MCP write path Strong No credential scopes or per-client
+limits
+Knowledge graph Sound model, thin
+coverage
+Two automatic relation types; display
+IDs do not resolve
+Context graph Sound ledger Records what was retrieved, not what
+was used
+Knowledge derivation Correct, slow Polling refresh; no re-embedding
+when the model changes
+Context retrieval Works, unmeasured Lexical channel defect; hand-set
+weights; no reranker
+Chatbot Safe, rigid One tool, fixed pipeline, entailment
+check not wired
+Engineering Uneven A 3,543-line service, package cycles,
+no turn-level tests
+Knowledge, MCP and Chatbot Architecture Review
+Page 1 of 21
+
+===== PAGE 2 =====
+3. Make graph retrieval start from the entities named in the question and return the
+neighbours' content, not only the link proof.
+4. Replace polling refresh with change events from native writes, run under a service
+principal.
+5. Give the chatbot and external hosts one context_build  contract, with no private
+side channel.
+6. Wire the claim verifier or label answers "cited, not verified", and add tests that run a
+full chat turn.
+7. Split knowledgeRag.service.js  and break the dependency cycle between the three
+packages.
+How it is built today
+Three packages share one PostgreSQL database, and the chatbot reaches Knowledge
+through a single MCP tool.
+The chatbot also calls the model provider directly for planning and synthesis. In a single-
+process deployment its full retrieval input travels beside the tool call, not inside it. That is
+finding 1 under MCP tools.
+architecture · three packages and what they depend on
+Knowledge, MCP and Chatbot Architecture Review
+Page 2 of 21
+
+===== PAGE 3 =====
+Knowledge graph
+The graph model is sound, but it holds too little to change answers. Nodes are knowledge
+sources, one node per source, in nine kinds. Edges carry one of eight relation types, a
+provenance level and a validity interval, and every active edge needs a chunk-span
+witness pinned to a document version hash.
+Keep these as they are: composite keys that stop an edge borrowing another project's
+proof, the database constraint that an LLM candidate can never be active, the access
+recheck after each walk, and the limitation notes returned with every result.
+# Severity Finding Where Change
+1 High Only TESTS  and
+HAS_DEFECT  are
+projected
+automatically.
+EXECUTED_IN ,
+PART_OF ,
+DEPENDS_ON ,
+USES ,
+DERIVED_FROM
+and RELATED_TO
+exist only through
+manual curation.
+Runs, suites,
+modules, releases
+and sprints never
+connect.
+extractReferences  in
+knowledgeGraphProjection.service.js
+Project
+EXECUTED_IN  from
+run results in a
+separate chunk with
+its own access rule.
+Add suites, modules,
+releases and sprints
+as node kinds with
+PART_OF  edges from
+the native link tables.
+2 High Uploaded files,
+URLs and notes
+never link to
+native records, so
+they sit as
+isolated nodes.
+Same file; the comment rules out text
+mentions on purpose
+Add a weaker
+MENTIONS  relation
+with
+SOURCE_EXPLICIT
+provenance when a
+document contains
+an exact display ID.
+Keep TESTS  and
+DEPENDS_ON  for
+verified links.
+Knowledge, MCP and Chatbot Architecture Review
+Page 3 of 21
+
+===== PAGE 4 =====
+# Severity Finding Where Change
+3 High The resolver
+matches source
+ID, native record
+ID, exact title or
+curated alias. It
+never reads
+display_id , so a
+reference such as
+STORY-12 does
+not resolve.
+readNodes  in
+knowledgeGraph.service.js ;
+upsertNode  writes no aliases
+Write the display ID
+into aliases  at
+projection time, or
+add it to the resolver
+predicate.
+4 Medium Edges are found
+by re-parsing the
+serializer's text
+lines, such as
+"Linked Test Case
+IDs: ...". A label
+change in a
+serializer silently
+turns every edge
+into "unresolved".
+proofFor  against the four serializers in
+knowledgeRag.service.js
+Have the serializer
+emit structured link
+records with span
+offsets. Share the
+label constants and
+add a contract test.
+5 Medium A document with
+unresolved links
+is re-projected
+every 60 seconds,
+with no backoff
+or cap. Links to
+records that are
+never indexed
+retry forever.
+processBackfill ; next_attempt_at  set
+to now plus 60 seconds
+Use exponential
+backoff with a
+ceiling, and re-queue
+when the target
+source arrives.
+6 Medium Expansion runs
+one adjacency
+query per frontier
+node. Each query
+carries two
+visibility sub-
+queries and a
+lateral witness
+join.
+adjacent  in
+knowledgeGraph.service.js
+Run one query per
+hop over an ID array,
+with a per-node row
+number for the
+fanout limit.
+7 Medium Trace expands
+from the source
+only, then
+searches in
+memory. A path
+through an edge
+beyond the
+fanout cap is
+missed.
+trace  in the same file Expand from both
+ends and meet in the
+middle. Prefer
+relation types
+implied by the two
+endpoint kinds.
+Knowledge, MCP and Chatbot Architecture Review
+Page 4 of 21
+
+===== PAGE 5 =====
+Context graph
+The context graph is a per-user provenance ledger, and it stops one step short of being
+useful for learning. Each delivered context packet becomes one trace holding up to 30
+evidence references with version and chunk hashes. Up to seven event types attach to it,
+and exploring a trace rechecks current access and freshness.
+It stores no prompts, source bodies or model reasoning. The write is best-effort with a 1.5-
+second limit, so it never fails the read it describes. Both choices are right.
+# Severity Finding Where Change
+8 Low Graph "token"
+budgets are UTF-
+8 byte counts, so
+8,000 means
+about 2,000
+model tokens.
+packGraph  in
+knowledgeGraphPacking.js
+Name it a byte
+budget, or convert,
+so callers can plan
+model context.
+# Severity Finding Where Change
+1 High A trace records what
+retrieval returned, not
+what the model
+received or cited. The
+only chat event is
+OUTCOME_RECORDED
+with a status.
+rememberDecision  call in
+knowledgeAssistant.service.js ;
+selectionMetadata  marks the stage
+as retrieval_result
+Add two edge
+sets per trace:
+evidence sent to
+the model after
+packing, and
+evidence cited in
+the saved
+answer. The ratio
+is retrieval
+precision,
+measured on real
+traffic.
+2 Medium Traces are private to
+their owner and nothing
+aggregates them. The
+product cannot learn
+which sources get
+cited, go stale or are
+never used.
+list  and explore  are scoped to the
+actor
+Add a de-
+identified
+aggregate per
+source and per
+query class. Feed
+it to evaluation
+and to the
+Knowledge Repo
+health view.
+Knowledge, MCP and Chatbot Architecture Review
+Page 5 of 21
+
+===== PAGE 6 =====
+Deriving the knowledge repo
+The ingestion pipeline is correct but learns about change too slowly. A source becomes an
+immutable document version, then chunks of 1,600 characters with 220 overlap, then
+provider embeddings with a local hashed fallback. Graph and Qdrant projections follow
+from PostgreSQL, which stays canonical.
+Stories, test cases, runs and defects are turned into labelled text by four serializers. Keep
+the immutable versions, the snapshot fingerprint that includes linked children,
+embedding reuse by input hash, lease-based job claims, and the rule that run summaries
+and result logs sit behind different permissions.
+# Severity Finding Where Change
+3 Medium Every context build
+writes a trace, including
+model calls that the
+gateway enriches for
+other features. Rows
+are kept until the user
+or project is deleted.
+backplane.context  calls
+rememberContext ; retention text in
+knowledgeContextGraph.service.js
+Set a retention
+window per
+feature, partition
+by month, and
+sample non-chat
+features.
+4 Medium Traces link neither to
+each other nor to the
+knowledge-graph
+edges that retrieval
+used. A follow-up turn
+and a graph-expanded
+answer look like
+unrelated stars.
+explore  in
+knowledgeContextGraph.service.js
+Link traces in
+session order.
+Store the
+packet's
+relationship IDs
+as edges into the
+knowledge
+graph.
+5 Low The name promises a
+model of the user's
+working context. The
+implementation is a
+trace of retrieval.
+API and UI naming Call it a context
+trace, or decide
+to grow it into a
+real context
+model with task
+state and focus.
+Knowledge, MCP and Chatbot Architecture Review
+Page 6 of 21
+
+===== PAGE 7 =====
+# Severity Finding Where Change
+1 High Change
+detection is
+polling. Each
+pass walks
+every story,
+test case,
+defect and run,
+then reloads
+and re-
+serializes each
+one to
+compare
+fingerprints. It
+handles 30
+records per 5-
+second tick
+and one
+project per tick
+per worker,
+about 360
+records a
+minute across
+all projects. A
+10,000-record
+project takes
+about 28
+minutes per
+pass.
+RECORDS_SQL , BATCH_SIZE  and
+processDue  in
+knowledgeRefresh.service.js ;
+workers.js
+Publish change events
+from native writes into a
+transactional outbox.
+Knowledge items
+already have one. Keep
+the scan as a nightly
+reconciliation.
+2 High Refresh runs
+as the user
+who
+configured it
+and is off by
+default.
+Records that
+user cannot
+view are
+skipped, and
+refresh blocks
+if the account
+is deactivated.
+authorize(created_by)  and
+totals.inaccessible  in the same file
+Run ingestion under a
+project service
+principal. Read-time
+enforcement through
+each source's
+required_permission
+already protects
+access.
+Knowledge, MCP and Chatbot Architecture Review
+Page 7 of 21
+
+===== PAGE 8 =====
+# Severity Finding Where Change
+3 Medium I found no job
+that re-
+embeds
+existing
+chunks when
+the embedding
+model
+changes.
+Dense search
+filters on the
+current model,
+so older
+chunks fall
+back to hashed
+vectors.
+chunks.embedding_model = ?  in
+search ; isApplicationRecordIndexed
+compares the snapshot only
+Add the embedding
+configuration hash to
+the reuse fingerprint.
+Run a background re-
+embed backfill with
+visible progress.
+4 Medium Native records
+become prose,
+and the graph
+and filters then
+parse that
+prose back.
+Status, release,
+sprint and
+priority are
+searchable
+only as text.
+The four serializers; proofFor Store typed facts per
+source for filters,
+counts and graph
+projection. Generate
+the prose from them.
+5 Medium Link windows
+truncate: 100
+test cases per
+story, 50 links
+per test case
+or defect, 100
+steps per test
+case. The text
+says so, but
+the graph
+never sees the
+rest.
+loadApplicationRecord ,
+serializeTestCase , serializeBug
+Page links into
+dedicated relationship
+chunks instead of
+truncating.
+Knowledge, MCP and Chatbot Architecture Review
+Page 8 of 21
+
+===== PAGE 9 =====
+Context retrieval
+Retrieval is carefully bounded but its ranking has never been measured, and the lexical
+channel is broken for sentence-length questions. Each round runs indexed search and live
+project facts in parallel, fuses the results, re-authorizes them, and may expand parents or
+relationships once. Defaults are 15 seconds, 2 rounds, 10 tool calls and 250 candidates.
+# Severity Finding Where Change
+6 Medium After a revision
+is published,
+the same job
+makes an
+optional
+enrichment
+model call of
+up to 8
+seconds per
+document,
+then requests
+provider
+embeddings.
+Publishing first
+is right, but the
+job slot stays
+busy and
+refresh waits
+until the
+project's jobs
+clear.
+persistDocument in
+knowledgeRag.service.js;
+enrichDocument in
+knowledgeEnrichment.service.js
+Move enrichment and
+provider embedding to
+a separate low-priority
+queue. Skip enrichment
+for short native records.
+7 Low Deleted-
+record
+reconciliation
+runs an anti-
+join over all
+sources every
+5 seconds.
+archiveMissingApplicationSources  in
+knowledgeSourceLifecycle.service.js
+Drive it from delete
+events and keep a slow
+sweep.
+8 Low The hashed
+fallback
+embedding is
+word hashing,
+yet its
+similarity is
+reported and
+weighted as a
+semantic
+score.
+localEmbedding  in
+knowledgeProcessing.service.js
+Label it lexical in
+diagnostics and leave it
+out of the semantic
+weight.
+Knowledge, MCP and Chatbot Architecture Review
+Page 9 of 21
+
+===== PAGE 10 =====
+Keep the per-channel deadlines, the time reserved for the access recheck, the candidate
+budget reserved for live facts, and the explicit termination reasons and degraded flags.
+# Severity Finding Where Change
+1 High The lexical query has no match
+predicate. It computes ts_rank_cd
+for every chunk in scope and sorts,
+so no index can help.
+lexicalPromise  in search ,
+knowledgeRag.service.js
+Add search_vector @@
+query , backed by a GIN
+index.
+2 High The query uses
+plainto_tsquery('simple', ...) ,
+which requires every word and
+drops no stop words. For a full
+question most chunks rank zero and
+ties fall to newest first. The lexical
+candidates are then, in effect, the
+newest 250 chunks.
+Same query Use OR semantics with
+ranking over extracted key
+terms, or BM25 through a
+search extension or Qdrant
+sparse vectors. Use a
+language configuration for
+prose and simple  for
+identifiers. Weight titles
+and headings.
+3 High Ranking is two layers of hand-set
+weights (0.45, 0.31, 0.24, then 0.82
+plus up to 0.18) and two thresholds
+(0.10 and 0.06). Nothing exists to
+tune them against. No reranker runs,
+although the budget contract
+reserves one.
+scoredAll  in search ;
+mergeRetrievalResults ;
+max_reranker_candidates  in the
+contracts
+Build the evaluation set
+first. Then use plain
+reciprocal rank fusion and
+a cross-encoder rerank of
+the top 40.
+4 High With Qdrant, access control travels
+as a list of allowed chunk IDs,
+capped at 10,000. Larger scopes skip
+Qdrant and use an exact pgvector
+scan.
+has_id  in
+knowledgeVectorStore.service.js ; the
+10,000 check in search
+Filter in Qdrant on payload:
+project, permission scope,
+source kind, application,
+current flag and ACL
+principals. The PostgreSQL
+recheck that already
+follows stays.
+5 Medium Sufficiency is a count: hits, distinct
+sources and top score against a
+threshold of 65. Six loosely related
+hits from three sources pass. The
+plan's information needs are never
+checked.
+assessEvidenceSufficiency  in
+knowledgeRetrieval.service.js
+Check coverage per
+information need. Let the
+follow-up planning call
+return which needs remain
+open.
+6 Medium Graph expansion seeds from the top
+search hits, not from entities named
+in the question. It takes three edges
+per node and returns the witness
+line with 60 characters of context,
+not the neighbour's content.
+expandRelationships  (2 hops, fanout 3, 12
+edges); compactGraphEvidence
+Resolve identifiers in the
+question as seeds. Pick
+relation types from the
+intent. After expansion,
+fetch the lead chunk of
+each new neighbour. Once
+seeds come from the
+question, run the graph
+walk as a third channel in
+parallel with lexical and
+dense search, and rank
+edges by relevance to the
+question.
+7 Medium Count and aggregate questions run
+through passage retrieval plus the
+live snapshot. Whatever the
+snapshot does not pre-compute is
+answered from text.
+knowledgeContextEngine.service.js Route aggregate intents to
+typed projections. Return a
+computed fact with its
+query as provenance.
+Knowledge, MCP and Chatbot Architecture Review
+Page 10 of 21
+
+===== PAGE 11 =====
+Finding 4 has a second part to confirm. The dense SQL filters on vector_dims , which
+suggests an untyped vector column that cannot carry an approximate index. The table
+definition lives outside this archive. If the column is untyped, add a typed vector column
+per embedding dimension with an HNSW index.
+MCP tools
+The MCP layer is the strongest part of the design, with one structural flaw: the chatbot
+does not really use it as a tool contract. The server is a stateless POST endpoint with
+about 70 tools. Every call rechecks the account, project membership, feature flags and
+permission, validates output against a published schema, and writes one audit row.
+The write path deserves to stay exactly as built. A plan is prepared with a digest, catalog
+revision and captured target version. A person approves it. It executes once under a row
+lock with an idempotency key, then a read-back verifies the effect, and an uncertain
+outcome is recorded as unknown for reconciliation.
+# Severity Finding Where Change
+8 Low At most three chunks per source
+survive, in search and again in
+fusion. A user who pins one long
+specification gets little depth.
+The per-source cap in search ;
+MAX_HITS_PER_SOURCE
+Raise the cap when
+sources are pinned.
+# Severity Finding Where Change
+1 High The chatbot's in-process call
+sends only {question}  as tool
+arguments. The real retrieval
+input rides on the actor object.
+The audited tool call does not
+describe what ran.
+privateInput  in
+gateway.js ;
+actor.retrievalInput  in
+backplane.js
+Put conversation,
+Smart Context and
+planning mode into
+the public
+context_build
+schema. Or call the
+retrieval service
+directly and keep
+MCP for external
+hosts. Either way,
+one contract.
+2 High The two transports behave
+differently. With
+HELLOTEST_MCP_INTERNAL_URL
+set, retrieval loses conversation
+history, the Smart Context query
+and the model-planned follow-up
+rounds. It runs a single round.
+packetArguments  in
+gateway.js ;
+planningMode:
+'deterministic'  in
+backplane.js ; remote.js
+refuses private input
+Same fix as finding
+1. Add a parity test
+that sends one
+question through
+both transports and
+compares the
+packets.
+Knowledge, MCP and Chatbot Architecture Review
+Page 11 of 21
+
+===== PAGE 12 =====
+Chatbot: from intent to answer
+The chatbot is safe and repeatable, but it is a fixed pipeline rather than an assistant that
+uses tools. A turn runs these steps, capped at 120 seconds and delivered as one result:
+1. Sanitize the question and make the turn idempotent by client turn ID and fingerprint.
+2. Refuse out-of-domain and sensitive-disclosure requests with pattern checks, before
+any retrieval.
+3. Optionally ask the model for a plan: up to three queries, source kinds, information
+needs and a strategy. Each query must share a word with the question.
+4. Make one context_build  call through the MCP gateway.
+5. Make one synthesis call against a JSON output schema, with one repair attempt.
+6. Re-authorize every cited source and drop claims whose evidence is no longer visible.
+7. Save the answer, then record the outcome on the context trace.
+# Severity Finding Where Change
+3 Medium Credentials carry no scopes. Any
+credential exposes every tool the
+user's permissions allow,
+including write preparation.
+issue  in auth.js ;
+scopes: []  in plugin.js
+Issue credentials
+with tool-set
+scopes, read-only
+by default. Filter the
+tool list by scope.
+4 Medium Every host sees about 70 tools.
+Thirty-eight are near-identical list
+and get pairs, and
+hellotest_graph_expand  is an
+older one-hop read beside
+hellotest_graph_context .
+resources  in
+domainTools.js ;
+mcpServer.js
+Publish tool sets for
+knowledge, records,
+actions and
+automation. Retire
+graph_expand .
+5 Medium Concurrency is one in-flight
+counter per process, 16 by
+default, with no per-credential or
+per-project limit. In remote mode
+the chatbot shares it with
+external hosts.
+capacity  in plugin.js Add a per-credential
+token bucket and
+reserve a share for
+internal calls.
+6 Medium Each permission check reloads
+the user and the project, and one
+tool call makes several. Remote
+calls also mint and revoke a
+credential every time.
+permit  and principal  in
+auth.js ; remote.js
+Cache the principal
+and flags for one
+request. Reuse a
+short-lived internal
+credential for a
+whole turn.
+7 Low Authentication is a pasted one-
+hour bearer token, and OAuth is
+declared unsupported.
+client_contract  in
+plugin.js
+Add OAuth before
+offering the server
+to third-party hosts.
+Knowledge, MCP and Chatbot Architecture Review
+Page 12 of 21
+
+===== PAGE 13 =====
+Keep the idempotent replay, the access recheck after generation, the refusal to answer
+from model memory, and the single budget shared by planning, retrieval and synthesis.
+# Severity Finding Where Change
+1 High The model never chooses a tool.
+Traceability, comparison and count
+questions all receive the same
+passage retrieval, while the graph,
+record and query tools go unused.
+respondInternal  in
+knowledgeAssistant.service.js
+Add a bounded read-only
+tool loop for analytical
+and traceability intents:
+three or four calls from
+graph resolve and trace,
+record reads, typed
+queries and
+context_build , inside
+the existing budget. Keep
+the single-shot path for
+lookups and product help.
+Give the model five or six
+read tools, not the full
+catalog. Run independent
+calls in parallel with a
+deadline each, and report
+a missed call as a gap.
+2 High Entailment checking is not wired.
+requestGroundedVerification  is
+defined but never called, and no
+claim verifier is passed to the answer
+contract. A claim is labelled
+extractive only on a verbatim match
+and citation-bound otherwise.
+knowledgeAssistant.service.js ;
+validateGroundedClaims  in
+knowledgeGrounding.service.js
+Run a cheap verifier on
+non-extractive claims, or
+show "cited, not verified"
+in the answer. A stage
+called validation should
+not imply more than it
+does.
+3 High No backend test runs a chat turn. The
+12 backend tests cover filter
+merging, routing and streaming, not
+the 1,449-line orchestration.
+chatbot/test/backend Add turn tests with a fake
+gateway and model:
+replay, provider failure,
+access revoked mid-
+answer, empty evidence,
+budget exhausted.
+4 Medium Intent is decided in four places:
+pattern gates, a rule-based router, a
+model planner in the chatbot, and a
+second model planner in Knowledge
+for other callers.
+knowledgeAssistant.service.js ;
+knowledgeIntentPlanning.service.js ;
+the platform router
+Define one intent
+contract that holds one or
+more sub-intents, so a
+compound question is not
+forced into one class.
+Each sub-intent has a
+class, typed entities,
+scopes, time range,
+information needs and
+strategy. Extract entities
+deterministically, classify
+with one structured
+model call, validate once.
+5 Medium The out-of-domain gate is a phrase
+list. "Recipe for" refuses a question
+about a recipe for a stable regression
+suite, and anything off the list
+passes.
+EXPLICITLY_OUTSIDE_DOMAIN Fold scope classification
+into the intent call. Keep
+patterns only for sensitive
+disclosure.
+Knowledge, MCP and Chatbot Architecture Review
+Page 13 of 21
+
+===== PAGE 14 =====
+Structure, tests and operations
+The code is defensive line by line but hard to change safely, because structure and
+measurement lag behind the safeguards.
+# Severity Finding Where Change
+6 Medium The user waits for planning, retrieval
+and synthesis before seeing any
+answer text.
+Single terminal result described in the
+README
+Skip the planning call
+when the rule-based
+route is confident. Stream
+evidence cards first, then
+sections as each passes
+the citation check. Before
+streaming, batch stream
+updates per animation
+frame and render the
+active turn in its own
+memoized component.
+Progress state now sits in
+the top-level component
+and message items are
+not memoized.
+7 Medium Planning runs to completion before
+retrieval starts, and the planning call
+may take 12 seconds.
+requestRetrievalPlan, then retrieveContext,
+in respondInternal
+Start the first retrieval
+round on the raw question
+while the planner runs.
+Use the plan's extra
+queries and source kinds
+only if that round is
+insufficient.
+8 Medium A follow-up carries message text
+only. Evidence and entities from
+earlier turns are not reused, and
+earlier answers built on live facts are
+dropped from history.
+readConversationHistory in
+knowledgeAssistant.service.js
+Keep a session focus: the
+sources and entities cited
+in recent turns. Use them
+as graph seeds and
+ranking boosts, re-read
+and re-authorized on
+every turn.
+9 Medium When synthesis fails after its repair
+attempt, the turn ends in an error.
+The retrieved evidence is discarded,
+and a retry repeats planning and
+retrieval.
+The catch around requestGroundedAnswer
+in respondInternal
+Return the existing
+extractive fallback,
+marked as model
+unavailable. Keep the
+packet for a same-turn
+retry, subject to the
+access recheck.
+10 Low buildSeedQueries  and
+requestGroundedVerification  are
+exported and unused.
+knowledgeAssistant.service.js Remove them or wire
+them in.
+11 Low Chat is read-only. A request to
+change a record cannot be carried
+out or handed off.
+respondInternal in
+knowledgeAssistant.service.js
+When chat gains actions,
+show the prepared plan
+as an approval card in the
+conversation. Approval
+stays a signed-in user
+action on the existing
+plan, and the model never
+holds an approval token.
+Knowledge, MCP and Chatbot Architecture Review
+Page 14 of 21
+
+===== PAGE 15 =====
+Topic Finding Change
+File size knowledgeRag.service.js  is 3,543
+lines covering ingestion, serialization,
+embedding, search and collections.
+KnowledgeContextStudio.tsx  is 78
+KB and GroundedAssistant.tsx  is
+60 KB.
+Split along the pipeline: ingest,
+serialize, embed, search,
+collections. Split the two
+components by panel.
+Dependencies Knowledge depends on MCP and
+Chatbot, MCP depends on
+Knowledge, and Chatbot depends on
+both. require  calls inside functions
+hide the cycle.
+Put ontology, packet and budget
+contracts in a small package at
+the bottom. Knowledge exposes
+a retrieval port; MCP and
+Chatbot sit above it as adapters.
+Ontology Node kinds, relation types and the
+kind-to-permission map are repeated
+in at least six files and two SQL
+CHECK  constraints.
+Define them once and generate
+the Zod enums and the migration
+from that definition.
+Schema
+changes
+Tables are created with CREATE
+TABLE IF NOT EXISTS , and
+enumerations live in CHECK
+constraints. Adding a kind or relation
+needs an ALTER  that these files
+cannot express.
+Use versioned migrations.
+Validate enumerations in code or
+in lookup tables.
+Tests Backend tests: 153 for Knowledge,
+127 for MCP, 12 for Chatbot.
+Authorization and contracts are well
+covered. One file targets real
+PostgreSQL. The graph SQL runs
+against a fake database, and no test
+calls the hybrid search function itself.
+Add PostgreSQL-backed tests for
+the visibility predicate,
+adjacency and search queries.
+Add the turn tests named above.
+Evaluation The evaluation service scores packet
+assembly over fixture candidates. Its
+recall, MRR and NDCG describe what
+the packer keeps, not what search
+finds.
+Build a golden set of 100 to 200
+real questions with expected
+sources. Run search end to end
+in CI. Track recall at 10, MRR,
+citation precision and answer
+faithfulness.
+Knowledge, MCP and Chatbot Architecture Review
+Page 15 of 21
+
+===== PAGE 16 =====
+Roadmap
+Do the five items marked Now first, then build the evaluation set before touching ranking
+or orchestration. Effort is my rough estimate: S is days, M is one to two weeks, L is three
+weeks or more.
+Topic Finding Change
+Workers Five polling loops run every 5
+seconds per worker process, with
+throughput fixed in code: 2 ingestion
+jobs, 4 graph documents and 4 vector
+jobs per tick.
+Move to a queue with per-project
+fairness and configurable
+concurrency. Export lag per
+stage.
+Observability Progress events and model usage are
+saved on the message row. I saw no
+metrics or trace export in these three
+packages.
+Emit stage latency, candidate
+counts, degraded flags and
+termination reasons as metrics.
+Chat service knowledgeAssistant.service.js is 87
+KB in one module. It holds turn
+idempotency, intent, the retrieval call,
+synthesis, the answer contract,
+fallback formatting and persistence.
+Split it into stages with one
+interface each: turn store, intent,
+context, synthesis, validation. Do
+this before parallel planning and
+the tool loop.
+Naming In the MCP package, contextGraph.js
+adapts the trace ledger and
+graphContext.js adapts the
+knowledge graph. The two are easy
+to confuse.
+Rename each after what it wraps,
+for example contextTraceTools.js
+and knowledgeGraphTools.js.
+Phase Change Why here Effort
+Now Lexical search: match predicate, OR
+semantics, GIN index
+Largest quality and latency
+gain for the least code
+S
+Now Make display IDs resolvable in the
+graph
+Unblocks every ID-based graph
+question
+S
+Now Label answers "cited, not verified" or
+wire the verifier; remove dead code
+The validation stage should
+mean what it says
+S
+Now Turn-level tests for the chatbot Safety net before the
+orchestration changes
+M
+Knowledge, MCP and Chatbot Architecture Review
+Page 16 of 21
+
+===== PAGE 17 =====
+Phase Change Why here Effort
+Now Return the extractive fallback when
+synthesis fails
+Retrieval work is no longer
+thrown away on a model error
+S
+Next End-to-end retrieval evaluation set in CI Precondition for every ranking
+change
+M
+Next Rank fusion plus reranker, tuned on that
+set
+Replaces the hand-set weights M
+Next Outbox-driven indexing under a service
+principal; re-embed backfill
+Freshness and coverage stop
+depending on one user and a
+timer
+L
+Next One context_build  contract for both
+transports, with a parity test
+Removes the side channel and
+the remote gap
+M
+Next Graph coverage: EXECUTED_IN ,
+PART_OF , MENTIONS ; entity-anchored
+expansion that returns neighbour
+content
+Makes the graph change
+answers
+L
+Next Split knowledgeAssistant.service.js into
+stages
+Precondition for parallel
+planning and the tool loop
+M
+Next Run planning and the first retrieval
+round in parallel
+Takes a model call of up to 12
+seconds out of the wait for
+evidence
+M
+Next Session focus for follow-up questions Follow-ups stop depending on
+text-only reference resolution
+M
+Next Move enrichment and provider
+embedding off the ingestion job
+Frees ingestion slots during
+large refreshes
+S
+Later Bounded tool loop in the chatbot for
+analytical intents
+Needs the evaluation set, the
+single contract and the richer
+graph
+L
+Later ACL filtering on Qdrant payload Needed once a project passes
+10,000 authorized chunks
+M
+Later Context trace: sent and cited edges,
+retention, aggregates
+Closes the learning loop M
+Later Split knowledgeRag.service.js ,
+contracts package, credential scopes,
+per-client limits
+Maintainability and safe
+external exposure
+L
+Knowledge, MCP and Chatbot Architecture Review
+Page 17 of 21
+
+===== PAGE 18 =====
+Second review: what was taken up
+The second review is right about waiting time, follow-up questions and the size of the chat
+service, and those points are now in the sections above. Several of its other claims
+describe things the code already does, or parts that do not exist, so they were set aside.
+Phase Change Why here Effort
+Later Section streaming, with frame-batched
+updates and an isolated active turn
+Needs validation per section
+first
+M
+Later In-chat approval card for prepared
+plans
+Only once chat gains write
+actions
+M
+Proposal or claim What the code shows Outcome
+Run planning and
+retrieval in parallel
+Planning finishes before retrieval
+starts and may take 12 seconds. Inside
+retrieval, the lexical, exact-ID and
+dense channels already run in parallel
+with live facts.
+Adopted: Chatbot
+finding 7
+Session working
+memory for follow-ups
+History carries message text only.
+Answers built on live facts are
+dropped from it.
+Adapted as a session
+focus that is re-read
+and re-authorized each
+turn: Chatbot finding 8
+Degrade gracefully
+instead of stalling
+Retrieval already degrades per
+channel. Synthesis does not: the turn
+errors and the evidence is discarded.
+Adopted for synthesis:
+Chatbot finding 9
+Handle compound
+questions
+The planner returns one plan with a list
+of information needs.
+Adopted: sub-intents in
+the intent contract,
+Chatbot finding 4
+Split the chat service
+into stages
+knowledgeAssistant.service.js  is
+87 KB, not 35 KB.
+Adopted: Structure
+table
+Batch UI updates and
+isolate the active turn
+There is no token streaming today, so
+no per-token re-render. Progress
+events do re-render the whole
+conversation.
+Adopted as a
+precondition for
+streaming: Chatbot
+finding 6
+Approval cards in the
+stream
+Chat cannot write. Plans are approved
+outside chat, and no text confirmation
+flow exists.
+Adopted for when chat
+gains actions: Chatbot
+finding 11
+Knowledge, MCP and Chatbot Architecture Review
+Page 18 of 21
+
+===== PAGE 19 =====
+Proposal or claim What the code shows Outcome
+A few tool signatures
+per turn
+The chatbot passes no tool schemas to
+the model today.
+Adapted: a fixed set of
+five or six read tools in
+the tool loop, Chatbot
+finding 1
+Three-way parallel
+retrieval with a graph
+walk
+The graph walk needs seeds, which
+today come from search results.
+Adapted: possible once
+seeds come from the
+question, Retrieval
+finding 6
+pgvector HNSW index The dense query looks like an exact
+scan.
+Adopted, pending the
+schema check: note
+under Context retrieval
+Head-of-line blocking
+in ingestion
+Entity extraction is on demand, not
+part of ingestion. Enrichment is: one
+model call of up to 8 seconds per
+document inside the job.
+Adapted: Derivation
+finding 6
+Merkle-hash
+incremental ingestion
+Each record already has a snapshot
+fingerprint, and embeddings are
+reused per chunk hash. The gap is the
+trigger, not the diff.
+Already built
+One transaction for
+graph and vector
+projection
+Graph projection runs inside the
+activation transaction. The Qdrant job
+is queued in that same transaction,
+and every Qdrant hit is re-read from
+PostgreSQL.
+Already built
+Thinking drawer and
+inline citation pills
+The activity list and the per-answer
+trace are already collapsed. Citations
+are already numbered links on each
+claim.
+Already built; a hover
+preview of the cited
+excerpt is a small
+optional addition
+Merge duplicate
+context-graph code
+The MCP files are thin adapters over
+the Knowledge services. Only the
+names contextGraph.js  and
+graphContext.js  invite confusion.
+Not adopted; a rename
+is in the Structure table
+MCP keeps separate
+read projections that
+lag
+projections.js  reads the live tables
+through its own small pool. The lag is in
+the knowledge index.
+Not adopted; covered
+by Derivation finding 1
+Knowledge, MCP and Chatbot Architecture Review
+Page 19 of 21
+
+===== PAGE 20 =====
+Its roadmap puts interface polish in the first week. I kept the order in the Roadmap
+section, because a faster answer built on the lexical defect is still a wrong answer.
+Scope and limits of this review
+This is a code-reading review of the uploaded archive; nothing was run. I read the backend
+services, routes and schemas of the knowledge , mcp  and chatbot  packages and the
+test names. The frontends were checked for size and structure only.
+Proposal or claim What the code shows Outcome
+Resolve a capability
+bitmap once at ingress
+Access is rechecked after generation
+on purpose, because it can change
+during a 120-second turn.
+Not adopted; per-
+request caching in MCP
+finding 6 gets the cost
+saving
+Session overlay graph
+for read-your-writes
+MCP reads and live facts already see
+current records. Change events fix the
+index.
+Not adopted; session
+focus covers the
+conversational part
+Start answering from
+cached context and
+inject results mid-
+generation
+Every claim must cite retrieved
+evidence, and streamed text cannot be
+recalled.
+Not adopted; stream
+evidence first instead
+Warm context on hover
+or after three typed
+words
+Each context build costs embedding
+calls and writes a trace.
+Not adopted; warm only
+permissions and the
+embedding runtime on
+composer focus
+PageRank or Steiner-
+tree pruning, triple
+compression
+Expansion in retrieval is capped at 12
+edges, and relationships already travel
+as structured edges.
+Not adopted; the real
+gap is which edges are
+chosen, Retrieval
+finding 6
+Parallel execution
+across remote MCP
+servers
+There is one MCP server. remote.js
+reaches the same server in another
+process.
+Not applicable
+Strict contract
+schemas drop
+unstructured
+repository content
+The contract services define retrieval
+and answer contracts. They do not
+parse repository files.
+Not applicable
+Pre-model overhead of
+400 to 1,200 ms
+Nothing in the code supports the
+figure.
+Not used
+Knowledge, MCP and Chatbot Architecture Review
+Page 20 of 21
+
+===== PAGE 21 =====
+The archive does not include the platform , integration  or ai  packages. I could
+not read the rule-based router, the live project evidence builder, the text sanitization
+policy, the prompt blocks, the evaluation fixtures, or the table and index definitions
+for sources, documents and chunks.
+Performance findings come from reading the SQL, not from measurements. Confirm
+findings 1 and 2 under Context retrieval with EXPLAIN ANALYZE  and one sentence-
+length question on a real project.
+The lexical ranking finding rests on how PostgreSQL defines plainto_tsquery  and
+ts_rank_cd . It is worth a ten-minute check before planning work around it.
+Test counts are counts of test declarations in the files, not of passing tests.
+Knowledge, MCP and Chatbot Architecture Review
+Page 21 of 21

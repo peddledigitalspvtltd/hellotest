@@ -9,12 +9,14 @@ import {
 
 export type MobileExecutionResult = {
   status: "passed" | "failed" | "blocked";
+  capture_warnings?: string[];
   results: Array<{
     step_id: string;
     status: "passed" | "failed" | "blocked";
     note?: string;
     captures?: Record<string, string>;
     duration_ms?: number;
+    evidence_warning?: string;
     evidence?: { dataUrl: string; fileName: string; mimeType: string } | null;
   }>;
 };
@@ -80,12 +82,16 @@ export async function executeMobileSteps(
     }
   });
   if (!payload || !["passed", "failed", "blocked"].includes(payload.status) || !Array.isArray(payload.results)) throw new Error("Mobile Engine returned an invalid execution result contract.");
-  const expectedIds = new Set(steps.map((step) => step.id));
-  const seen = new Set<string>();
-  for (const result of payload.results) {
-    if (!result || !expectedIds.has(result.step_id) || seen.has(result.step_id) || !["passed", "failed", "blocked"].includes(result.status)) throw new Error("Mobile Engine returned invalid or duplicate step results.");
-    seen.add(result.step_id);
+  // A native response is a receipt for an ordered prefix, never an unordered
+  // successful subset. After a failed/blocked step, later steps did not execute.
+  if (payload.results.length > steps.length || !payload.results.length) throw new Error("Mobile Engine returned invalid or incomplete step execution receipts.");
+  for (const [index, result] of payload.results.entries()) {
+    if (!result || result.step_id !== steps[index].id || !["passed", "failed", "blocked"].includes(result.status)
+      || index < payload.results.length - 1 && result.status !== "passed") throw new Error("Mobile Engine returned invalid or out-of-order step results.");
+    if (result.evidence_warning) result.note = [result.note, result.evidence_warning].filter(Boolean).join("\n");
   }
+  const finalStatus = payload.results.at(-1)!.status;
+  if (payload.status !== finalStatus || finalStatus === "passed" && payload.results.length !== steps.length) throw new Error("Mobile Engine returned an inconsistent or incomplete execution outcome.");
   return payload;
 }
 

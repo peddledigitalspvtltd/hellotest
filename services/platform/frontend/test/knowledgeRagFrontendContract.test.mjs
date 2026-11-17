@@ -170,7 +170,7 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   const [workbench, promptPanel, experience, workflows, sharedSteps, richText, testData, dashboard, issues, storyStudio, executions, api, designStudio] = await Promise.all([
     readSource("../../../ai/frontend/components/SmartContextWorkbench.tsx"),
     readSource("../../../ai/frontend/components/AiPromptContextPanel.tsx"),
-    readSource("../../../agentic/frontend/components/AgenticExperience.tsx"),
+    readSource("../../../ai/frontend/components/AgentExperiencePrimitives.tsx"),
     readSource("../../../agentic/frontend/pages/AgenticWorkflowsPage.tsx"),
     readSource("../../../testing/frontend/pages/SharedStepsPage.tsx"),
     readSource("../src/platform/components/RichTextEditor.tsx"),

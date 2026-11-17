@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
-const { recordBrowserOperation, recordedSectionRequests } = require('../../backend/lib/automationBrowserRecording');
+const { createAutomationSemanticReviewer } = require("../../backend/lib/browser/automationSemanticReview");
+const { recordBrowserOperation, recordedSectionRequests } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const execution = { required: true, step_id: 'section', action: 'Save address', expected_result: 'Address saved is displayed' };
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });

@@ -1,11 +1,12 @@
+import { automationOwnerSource, automationWorkspaceSource, findAutomationBinding } from "./helpers/automationWorkspaceSources.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 const require=createRequire(import.meta.url),ts=require('typescript');
-const source=await readFile(new URL('../../frontend/pages/AutomationPage.tsx',import.meta.url),'utf8');
-const declaration=source.slice(source.indexOf('  const stopLiveInspect ='),source.indexOf('  const highlightRepositoryLocator ='));
+const {node:stopBinding,ast:stopAst}=findAutomationBinding('stopLiveInspect','workspaces/repository/useRepositoryInspectionActions.tsx');
+const declaration=`const stopLiveInspect = ${stopBinding.initializer.getText(stopAst)};`;
 
 test('saving while selection polling has drained the queue waits for that result before pausing',async()=>{
   const calls=[],selected=[];let finishPoll,cancelled=false,complete=false;

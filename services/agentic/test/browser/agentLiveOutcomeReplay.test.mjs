@@ -12,7 +12,7 @@ const root=new URL('../../../platform/frontend/',import.meta.url);
 // This is a renderer check over retained REAL provider outputs. It never
 // invokes a model, accepts a proposal or substitutes a fixture for a live call.
 test('retained live specialist outcomes render their complete results and export typed outcomes', {skip:!directory,timeout:180000},async()=>{
-  const profiles=JSON.parse(await readFile(new URL('../../shared/workflowSpecialists.json',import.meta.url),'utf8'));
+  const profiles=JSON.parse(await readFile(new URL('../../../contracts/agents/workflowSpecialists.json',import.meta.url),'utf8'));
   const recordings=[];
   for(const name of (await readdir(directory)).filter(name=>name.endsWith('.json')).sort()){
     const id=name.slice(0,-5),recording=JSON.parse(await readFile(path.join(directory,name),'utf8'));

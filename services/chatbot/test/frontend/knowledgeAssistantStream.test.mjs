@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendKnowledgeProgressEvent, consumeKnowledgeAssistantStream, isKnowledgeAnswerDelta, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeProgressDescription, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../../frontend/lib/knowledgeAssistantStream.ts";
+import { appendKnowledgeProgressEvent, consumeKnowledgeAssistantStream, isKnowledgeAnswerDelta, isKnowledgeAnswerSources, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeProgressDescription, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../../frontend/lib/knowledgeAssistantStream.ts";
 
 const progress = { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "LEXICAL_SEARCH", status: "IN_PROGRESS", message: "Searching café notes" };
 const result = { assistant_message: { id: "answer", role: "assistant", content: "Answer", citations: [] } };
@@ -92,13 +92,14 @@ test("live progress uses reported stages and real elapsed time; model failures n
   assert.equal(knowledgeProgressLabel({ stage: "GENERATION" }), "Writing an answer from the evidence");
   assert.equal(knowledgeProgressLabel({ stage: "LEXICAL_SEARCH" }), "Searching project records and documents");
   assert.equal(knowledgeElapsedLabel(65_400), "1m 05s");
-  for (const code of ["MODEL_AUTHENTICATION_FAILED", "MODEL_NOT_FOUND", "MODEL_QUOTA_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_TIMEOUT", "MODEL_INVALID_RESPONSE"]) {
+  for (const code of ["MODEL_AUTHENTICATION_FAILED", "MODEL_NOT_FOUND", "MODEL_QUOTA_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_PROVIDER_LIMITED", "MODEL_TIMEOUT", "MODEL_INVALID_RESPONSE"]) {
     const explanation = knowledgeModelFailureMessage(code);
     assert.doesNotMatch(explanation, /retrieval failed|context timed out/i);
     assert.match(explanation, /sources|evidence/);
   }
   assert.match(knowledgeModelFailureMessage("MODEL_AUTHENTICATION_FAILED"), /credentials/);
   assert.match(knowledgeModelFailureMessage("MODEL_QUOTA_EXCEEDED"), /quota/);
+  assert.match(knowledgeModelFailureMessage("MODEL_PROVIDER_LIMITED"), /rate limits, usage and billing/);
 });
 
 test("retry progress reports real attempts without implying a final model or retrieval failure", () => {
@@ -132,6 +133,21 @@ test("checked answer delivery preserves split Unicode and completes only with th
   const answer = await consumeKnowledgeAssistantStream(streamed(`${event("answer_delta", delta("Café 🧪 "))}${event("answer_delta", delta("evidence", 1))}${event("result", final)}`), { onAnswerDelta: item => received.push(item) });
   assert.equal(received.map(item => item.text).join(""), final.assistant_message.content);
   assert.deepEqual(answer, final);
+});
+
+test("evidence cards are accepted only for the answer that precedes the checked sections", async () => {
+  const sources = { contract_type: "AnswerSources", contract_version: "1.0", verification: "complete", answer_id: "answer", citations: [{ id: "e1", title: "Checkout policy", source_id: "source-1", source_kind: "text" }] };
+  const received = [];
+  const delta = { ...JSON.parse(JSON.stringify({ contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete", answer_id: "answer", sequence: 0, section_index: 0, section_count: 1, text: "Answer" })) };
+  assert.equal(isKnowledgeAnswerSources(sources), true);
+  assert.equal(isKnowledgeAnswerSources({ ...sources, answer_id: "" }), false);
+  assert.equal(isKnowledgeAnswerDelta(delta), true);
+  const final = { assistant_message: { ...result.assistant_message, content: "Answer" } };
+  await consumeKnowledgeAssistantStream(streamed(`${event("answer_sources", sources)}${event("answer_delta", delta)}${event("result", final)}`), {
+    onAnswerSources: value => received.push(["sources", value.answer_id]), onAnswerDelta: value => received.push(["section", value.section_index])
+  });
+  assert.deepEqual(received, [["sources", "answer"], ["section", 0]]);
+  await assert.rejects(consumeKnowledgeAssistantStream(streamed(`${event("answer_sources", { ...sources, answer_id: "other" })}${event("answer_delta", delta)}${event("result", final)}`)), error => error.code === "INVALID_ANSWER_SEQUENCE");
 });
 
 test("unchecked, reordered, mixed-answer and mismatched deltas never complete a turn", async () => {

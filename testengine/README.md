@@ -115,6 +115,25 @@ Case outcomes and durations live in `execution_results`; structured logs retain 
 
 Browser trace/video bundles and their manifests also depend on the engine's artifact directory and configured policy. Retain that storage for as long as its references are needed. A worker restart, a passing step or a disabled capture policy does not promise every artifact exists. Native screenshots are supported for configured failures; native per-line traces and device video are not implemented.
 
+API assertions and captures use the complete decoded response, bounded by
+`TESTENGINE_API_RESPONSE_MAX_BYTES` (8 MiB by default; configurable up to 32 MiB).
+An oversized response fails explicitly, retains its HTTP status and headers,
+and is never evaluated as a successful prefix. The caller's cancellation/deadline
+remains active while reading the body. Saved API response diagnostics retain at
+most 64 KiB of UTF-8 text and report retained byte counts and the original size
+when known; a truncated prefix is not presented as parsed JSON. Large assertion
+diagnostic values are also bounded.
+Raw capture values remain available to the next step. Generated API diagnostic
+images redact private data before encoding.
+
+Owned browser video is optionally transcoded through the image's installed
+`ffmpeg` VP9 encoder before upload; the original file remains available on the
+engine. Compression failure preserves the original artifact and upload status
+reports attachment limits instead of claiming successful retention. Native PNG
+screenshots are already compressed images; one mobile execution block retains
+at most 8 MiB of encoded screenshot evidence and reports per-step warnings for
+unavailable or over-budget captures, preserving completed device results.
+
 ## Core Decisions
 
 - Runtime: Playwright for Web, native REST for API, WebdriverIO/Appium for Android and iOS

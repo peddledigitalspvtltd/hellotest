@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,rm,mkdir} from 'node:fs/promises';
@@ -34,7 +35,7 @@ test('binding hardcoded inputs keeps Instructions, Source, Gherkin and saved par
     await writeFile(new URL(name+'.tsx',root),fixture);await writeFile(new URL(name+'.html',root),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
     browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
     page=await browser.newPage({viewport:{width:1440,height:1050}});page.setDefaultTimeout(15000);
-    const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',route=>{errors.push('Unexpected API: '+route.request().url());return route.abort();});
+    const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API: '+route.request().url());return route.abort();});
     const url=(process.env.VITE_TEST_URL||'http://127.0.0.1:5199')+'/'+name+'.html';
     await page.goto(url);await page.getByRole('tab',{name:/^Plan/}).click();
     await page.getByRole('button',{name:'Bind parameters for section 1',exact:true}).click();

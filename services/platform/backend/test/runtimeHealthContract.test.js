@@ -87,3 +87,10 @@ test("health status aggregation respects dependency criticality", () => {
   assert.equal(aggregateStatus([{ critical: true, status: "blocked" }]), "blocked");
   assert.equal(aggregateStatus([{ critical: false, status: "ready" }]), "ready");
 });
+
+test('repository compiler availability is an explicit optional capability without blocking core API readiness',async()=>{
+ for(const available of [true,false]){
+  const service=createRuntimeHealthService(createDependencies({repositoryRuntime:async()=>({available,detail:available?'Python compiler ready':'Python unavailable'})}));
+  const snapshot=await service.runChecks({includeOptional:false});assert.equal(snapshot.status,'ready');assert.equal(snapshot.capabilities.repository_analysis.available,available);assert.equal(snapshot.capabilities.repository_analysis.status,available?'ready':'unavailable');
+ }
+});

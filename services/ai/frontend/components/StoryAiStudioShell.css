@@ -1,7 +1,9 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 /* Story authoring shares the Test Case Generator workbench geometry and palette. */
 .story-studio-shell {
-  --story-studio-text: #051a3e;
-  --story-studio-text-subtle: #434654;
+  --story-studio-text: var(--ui-blue-text);
+  --story-studio-text-subtle: var(--ui-text);
   display: grid;
   width: 100%;
   height: 100%;
@@ -9,12 +11,12 @@
   min-height: 0;
   grid-template-rows: 60px minmax(0, 1fr) 40px;
   overflow: hidden;
-  color: #051a3e;
-  background: #faf9ff;
+  color: var(--ui-blue-text);
+  background: var(--ui-surface);
   font-family: "Inter", "Segoe UI", sans-serif;
 }
 .story-studio-shell, .story-studio-shell * { box-sizing: border-box; }
-html body .modal-backdrop.story-ai-workbench-backdrop { padding: 24px !important; background: rgb(10 20 38 / .54); backdrop-filter: blur(7px); }
+html body .modal-backdrop.story-ai-workbench-backdrop { padding: 24px !important; background: color-mix(in srgb, var(--ui-blue-strong) 54%, transparent); backdrop-filter: blur(7px); }
 html body .modal-backdrop > .modal-card.story-ai-workbench-dialog {
   display: block !important;
   width: min(1480px, calc(100vw - 48px)) !important;
@@ -23,9 +25,9 @@ html body .modal-backdrop > .modal-card.story-ai-workbench-dialog {
   max-height: 860px !important;
   padding: 0 !important;
   overflow: hidden !important;
-  border: 1px solid rgb(205 213 227 / .9) !important;
+  border: 1px solid color-mix(in srgb, var(--ui-border) 90%, transparent) !important;
   border-radius: 18px !important;
-  box-shadow: 0 28px 90px rgb(3 14 35 / .32), 0 8px 24px rgb(3 14 35 / .16) !important;
+  box-shadow: 0 28px 90px color-mix(in srgb, var(--ui-blue-strong) 32%, transparent), 0 8px 24px color-mix(in srgb, var(--ui-blue-strong) 16%, transparent) !important;
 }
 .story-studio-shell .story-studio-workbench { position: relative; grid-template-columns: 300px minmax(0, 1fr); }
 .story-studio-shell .story-studio-workbench.is-intelligence-open { grid-template-columns: 300px minmax(0, 1fr) 280px; }
@@ -40,30 +42,30 @@ html body .modal-backdrop > .modal-card.story-ai-workbench-dialog {
 .story-studio-settings-group .ai-test-generator-section__heading > small { max-width: 110px; text-align: right; line-height: 14px; }
 .story-studio-shell .story-studio-model-grid { grid-template-columns: minmax(0, 1fr); display: grid; min-width: 0; gap: 12px; }
 .story-studio-shell .story-studio-settings-pane .form-field { min-width: 0; gap: 5px; }
-.story-studio-shell .story-studio-settings-pane .form-field-label { color: #434654; font-size: 12px; }
-.story-studio-shell .story-studio-settings-pane :is(select, input[type="number"]) { width: 100%; min-height: 38px; padding: 8px 10px; color: #051a3e; background: #fff; border: 1px solid #c3c6d6; border-radius: 5px; font-size: 12px; }
+.story-studio-shell .story-studio-settings-pane .form-field-label { color: var(--ui-text); font-size: 12px; }
+.story-studio-shell .story-studio-settings-pane :is(select, input[type="number"]) { width: 100%; min-height: 38px; padding: 8px 10px; color: var(--ui-blue-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 5px; font-size: 12px; }
 .story-studio-gherkin-control { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
-.story-studio-shell input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; margin: 0; accent-color: #003d9b; }
-.story-studio-shell .story-ai-dialog-scope-section { margin: 0 16px; padding: 20px 0; background: transparent; border: 0; border-bottom: 1px solid #c3c6d6; border-radius: 0; box-shadow: none; }
+.story-studio-shell input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; margin: 0; accent-color: var(--ui-blue-text); }
+.story-studio-shell .story-ai-dialog-scope-section { margin: 0 16px; padding: 20px 0; background: transparent; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; box-shadow: none; }
 .story-studio-shell .story-ai-dialog-scope-section .issue-form-section-head { display: grid; gap: 6px; margin-bottom: 10px; }
 .story-studio-shell .story-ai-dialog-scope-section .issue-form-section-head strong { font-size: 12px; text-transform: capitalize; }
-.story-studio-shell .story-ai-dialog-scope-section .issue-form-section-head span { color: #434654; font-size: 12px; line-height: 18px; }
+.story-studio-shell .story-ai-dialog-scope-section .issue-form-section-head span { color: var(--ui-text); font-size: 12px; line-height: 18px; }
 .story-studio-shell .story-ai-dialog-scope-section .issue-form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .story-studio-command-bar { min-width: 0; }
 .story-studio-shell .story-studio-command-bar > div { flex-wrap: wrap; justify-content: flex-end; }
 .story-studio-command-bar__secondary { display: contents; }
-.story-studio-shell .story-studio-command-bar .story-studio-accept-button { color: #fff; background: #003d9b; border-color: #003d9b; }
+.story-studio-shell .story-studio-command-bar .story-studio-accept-button { color: var(--ui-on-solid); background: var(--ui-blue-strong); border-color: var(--ui-blue-border); }
 .story-studio-shell .ai-test-generator-intelligence { display: block; }
 .story-studio-flow-pane .agent-process-rail { height: auto; border: 0; box-shadow: none; }
 .story-studio-flow-pane .ai-test-generator-session p, .story-studio-flow-pane .ai-test-generator-session dl { margin: 0; font-size: 12px; line-height: 18px; }
 .story-studio-flow-pane .ai-test-generator-session dt { margin-top: 10px; font-weight: 600; }
-.story-studio-flow-pane .ai-test-generator-session dd { margin: 2px 0 0; color: #434654; }
+.story-studio-flow-pane .ai-test-generator-session dd { margin: 2px 0 0; color: var(--ui-text); }
 .story-studio-shell .ai-test-generator-header__actions input { min-width: 0; }
-.story-studio-shell button:focus-visible, .story-studio-shell input:focus-visible, .story-studio-shell select:focus-visible { outline: 2px solid #1966cf; outline-offset: 2px; }
+.story-studio-shell button:focus-visible, .story-studio-shell input:focus-visible, .story-studio-shell select:focus-visible { outline: 2px solid var(--ui-blue-border); outline-offset: 2px; }
 .story-studio-shell button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 1240px) {
   .story-studio-shell .story-studio-workbench, .story-studio-shell .story-studio-workbench.is-intelligence-open { grid-template-columns: 280px minmax(0, 1fr); }
-  .story-studio-shell .story-studio-flow-pane { position: absolute; z-index: 8; top: 0; right: 0; bottom: 0; width: min(320px, 90%); box-shadow: -12px 0 32px rgb(5 26 62 / .15); }
+  .story-studio-shell .story-studio-flow-pane { position: absolute; z-index: 8; top: 0; right: 0; bottom: 0; width: min(320px, 90%); box-shadow: -12px 0 32px color-mix(in srgb, var(--ui-blue-strong) 15%, transparent); }
 }
 @media (max-width: 720px) {
   html body .modal-backdrop.story-ai-workbench-backdrop { padding: 0 !important; }
@@ -82,14 +84,14 @@ html body .modal-backdrop > .modal-card.story-ai-workbench-dialog {
 }
 @media (prefers-reduced-motion: reduce) { .story-studio-shell * { scroll-behavior: auto !important; transition: none !important; } }
 .story-studio-shell .ai-prompt-context-panel { display: grid !important; gap: 10px !important; padding: 0 !important; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
-.story-studio-shell .ai-smart-context-card { background: #f1f3ff !important; border-color: #c3c6d6 !important; }
+.story-studio-shell .ai-smart-context-card { background: var(--ui-surface) !important; border-color: var(--ui-border) !important; }
 
 .story-studio-review-actions { display: contents; border: 0; padding: 0; margin: 0; }
-.story-studio-shell { --story-studio-text: var(--app-text, #172433); --story-studio-text-subtle: var(--app-text-muted, #64737e); color: var(--app-text, #172433); background: var(--app-surface, #fff); }
+.story-studio-shell { --story-studio-text: var(--app-text, var(--ui-text)); --story-studio-text-subtle: var(--app-text-muted, var(--ui-text-muted)); color: var(--app-text, var(--ui-text)); background: var(--app-surface, var(--ui-surface)); }
 .story-studio-shell .story-studio-workbench,
 .story-studio-shell .story-studio-workbench.is-intelligence-open { grid-template-columns: 320px minmax(0, 1fr); }
 .story-studio-shell .story-studio-workbench.is-context-collapsed { grid-template-columns: minmax(0, 1fr); }
-.story-studio-shell .story-studio-flow-pane { position: absolute; z-index: 8; inset: 0 0 0 auto; width: min(330px, 100%); color: var(--app-text, #172433); background: var(--app-surface, #fff); border-color: var(--app-border, #dce5e4); box-shadow: -18px 0 40px rgb(20 40 40 / .08); }
+.story-studio-shell .story-studio-flow-pane { position: absolute; z-index: 8; inset: 0 0 0 auto; width: min(330px, 100%); color: var(--app-text, var(--ui-text)); background: var(--app-surface, var(--ui-surface)); border-color: var(--app-border, var(--ui-border)); box-shadow: -18px 0 40px color-mix(in srgb, var(--ui-shadow) 8%, transparent); }
 .story-studio-shell .story-studio-output-workspace > .ai-generation-progress { margin: 16px 20px; }
 @media (max-width: 1000px) {
   .story-studio-shell .story-studio-workbench,
@@ -97,45 +99,45 @@ html body .modal-backdrop > .modal-card.story-ai-workbench-dialog {
   .story-studio-shell .story-studio-workbench.is-context-collapsed { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
-  .story-studio-shell .story-studio-settings-pane:not([hidden]) { position: absolute; z-index: 7; inset: 0; background: var(--app-surface, #fff); }
+  .story-studio-shell .story-studio-settings-pane:not([hidden]) { position: absolute; z-index: 7; inset: 0; background: var(--app-surface, var(--ui-surface)); }
 }
-.story-studio-gherkin-inclusion-note { margin: 12px 16px; color: #434654; font-size: 12px; line-height: 18px; }
+.story-studio-gherkin-inclusion-note { margin: 12px 16px; color: var(--ui-text); font-size: 12px; line-height: 18px; }
 html body .story-studio-shell .ai-test-generator-header__actions input { height: 20px !important; min-height: 20px !important; padding: 0 !important; background: transparent !important; background-color: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
 /* Match the rendered Test Case workbench's inner frame and fixed rows. */
 @media (min-width: 721px) {
-  html body .modal-backdrop > .modal-card.story-ai-workbench-dialog { padding: 18px !important; background: var(--app-surface, #fff) !important; }
-  .story-studio-shell { gap: 14px; background: var(--app-surface, #fff); }
+  html body .modal-backdrop > .modal-card.story-ai-workbench-dialog { padding: 18px !important; background: var(--app-surface, var(--ui-surface)) !important; }
+  .story-studio-shell { gap: 14px; background: var(--app-surface, var(--ui-surface)); }
   .story-studio-shell .story-studio-main-pane { grid-template-rows: 76px auto minmax(0, 1fr) 84px; }
   .story-studio-shell .story-studio-queue { grid-template-rows: 52px minmax(0, 1fr); }
 }
 .story-studio-shell .ai-prompt-context-toolbar { order: 0; }
 .story-studio-shell .ai-prompt-context-tab-panel { order: 1; }
 .story-studio-shell .ai-prompt-context-head { order: 2; justify-content: flex-end; }
-.story-studio-shell .ai-smart-context-button { color: #fff !important; background: #475569 !important; border-color: #475569 !important; }
+.story-studio-shell .ai-smart-context-button { color: var(--ui-on-solid) !important; background: var(--ui-inverse-surface) !important; border-color: var(--ui-border-emphasis) !important; }
 html body .story-ai-workbench-dialog .story-studio-shell .ai-test-generator-header__actions label > input.story-studio-search { background: transparent !important; background-color: transparent !important; min-height: 20px !important; padding: 0 !important; border-radius: 0 !important; border: 0 !important; box-shadow: none !important; }
 
 .story-ai-workbench-dialog {
-  --dialog-canvas: var(--app-surface-muted, #f5f8f7);
-  --dialog-surface: var(--app-surface, #fff);
-  --dialog-surface-subtle: var(--app-surface-muted, #f5f8f7);
-  --dialog-ink: var(--app-text, #172433);
-  --dialog-text: var(--app-text, #172433);
-  --dialog-muted: var(--app-text-muted, #64737e);
-  --dialog-divider: var(--app-border, #dce5e4);
-  --text-primary: var(--app-text, #172433);
-  --text-secondary: var(--app-text-muted, #64737e);
-  --surface-color: var(--app-surface, #fff);
-  --border-color: var(--app-border, #dce5e4);
+  --dialog-canvas: var(--app-surface-muted, var(--ui-surface-subtle));
+  --dialog-surface: var(--app-surface, var(--ui-surface));
+  --dialog-surface-subtle: var(--app-surface-muted, var(--ui-surface-subtle));
+  --dialog-ink: var(--app-text, var(--ui-text));
+  --dialog-text: var(--app-text, var(--ui-text));
+  --dialog-muted: var(--app-text-muted, var(--ui-surface-inset));
+  --dialog-divider: var(--app-border, var(--ui-border));
+  --text-primary: var(--app-text, var(--ui-text));
+  --text-secondary: var(--app-text-muted, var(--ui-text-muted));
+  --surface-color: var(--app-surface, var(--ui-surface));
+  --border-color: var(--app-border, var(--ui-border));
 }
-html body .story-ai-workbench-dialog .story-studio-shell :is(h1, h2, h3, label, .form-field-label, .ai-llm-select) { color: var(--app-text, #172433) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(h1, h2, h3, label, .form-field-label, .ai-llm-select) { color: var(--app-text, var(--ui-text)) !important; }
 html body .story-ai-workbench-dialog .story-studio-shell .ai-prompt-context-panel { background: transparent !important; background-image: none !important; box-shadow: none !important; }
-html body .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"])) { color: var(--app-text, #172433) !important; }
-html body .story-ai-workbench-dialog .story-studio-shell :is(input, textarea)::placeholder { color: var(--app-text-muted, #64737e) !important; opacity: 1; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"])) { color: var(--app-text, var(--ui-text)) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(input, textarea)::placeholder { color: var(--app-text-muted, var(--ui-text-muted)) !important; opacity: 1; }
 .story-studio-shell .story-studio-rovo-provider { grid-template-columns: auto minmax(0, 1fr); }
 .story-studio-shell .story-studio-rovo-provider > :is(.rovo-provider-state, .rovo-provider-actions, .rovo-provider-checked) { grid-column: 2; justify-self: start; }
-html body .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"]):not(.story-studio-search)) { background: var(--app-surface, #fff) !important; border-color: var(--app-border, #dce5e4) !important; }
-html body .story-ai-workbench-dialog .story-studio-shell :is(.story-studio-rovo-provider, .ai-smart-context-card, .ai-prompt-template-trigger) { background: var(--app-surface-muted, #f5f8f7) !important; border-color: var(--app-border, #dce5e4) !important; color: var(--app-text, #172433) !important; }
-html body .story-ai-workbench-dialog .story-studio-shell :is(.rovo-provider-copy, .rovo-provider-checked, .story-studio-gherkin-inclusion-note) { color: var(--app-text-muted, #64737e) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"]):not(.story-studio-search)) { background: var(--app-surface, var(--ui-surface)) !important; border-color: var(--app-border, var(--ui-border)) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(.story-studio-rovo-provider, .ai-smart-context-card, .ai-prompt-template-trigger) { background: var(--app-surface-muted, var(--ui-surface-subtle)) !important; border-color: var(--app-border, var(--ui-border)) !important; color: var(--app-text, var(--ui-text)) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(.rovo-provider-copy, .rovo-provider-checked, .story-studio-gherkin-inclusion-note) { color: var(--app-text-muted, var(--ui-text-muted)) !important; }
 /* Allow long generated proposals to scroll without losing the action footer. */
 .story-studio-shell .story-studio-main-pane { grid-template-rows:auto auto auto minmax(0,1fr) auto; }
 .story-studio-shell .story-studio-output-workspace { overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }

@@ -1,7 +1,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
-const { compileRecordedProgram, recordedLocatorSource } = require('../../backend/lib/automationRecordedProgram');
-const { normalizeGeneratedProgram, hasExecutableAssertion } = require('../../backend/lib/automationGeneratedProgram');
-const { deriveProgramTools } = require('../../backend/lib/automationProgramTools');
+const { compileRecordedProgram, recordedLocatorSource } = require("../../backend/lib/browser/automationRecordedProgram");
+const { normalizeGeneratedProgram, hasExecutableAssertion } = require("../../backend/lib/build/automationGeneratedProgram");
+const { deriveProgramTools } = require("../../backend/lib/build/automationProgramTools");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const op = (name, args) => ({ name, arguments: args });
 const check = (assertion, fields = {}) => op('browser_assert', { assertion, ...fields });

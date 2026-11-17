@@ -142,7 +142,7 @@ async function publishRun(id, input, user) {
           skippedItems.push({ finding_id: finding.id, reason: existing.locator === locator ? 'This locator already exists in the screen.' : 'An object with this name already exists. Review it in Object Repository.' });
           continue;
         }
-        const entry = await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').createLearningCacheEntry({
+        const entry = await require('@hellotest/automation/build').createLearningCacheEntry({
           project_id: run.project_id, app_type_id: run.app_type_id, screen_name: screen, page_key: screen,
           object_name: name, locator_intent: name, locator, locator_kind: text(finding.locator_kind, 80) || 'css',
           object_role: text(finding.object_role, 80) || 'field', page_url: null,

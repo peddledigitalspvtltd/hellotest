@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {preserveNativeActions}=require('../../backend/lib/automationUpstreamEngineer');
-const {auditAuthoredInputWrites}=require('../../backend/lib/automationUpstreamInputWrites');
+const {preserveNativeActions}=require("../../backend/lib/upstream/automationUpstreamEngineer");
+const {auditAuthoredInputWrites}=require("../../backend/lib/upstream/automationUpstreamInputWrites");
 
 const bindings={parameterValues:{'r.message':'Hello','r.label':'Message','s.message':'Other'},secretBindings:{},parameterExpressions:true};
 const fill='await page.frameLocator("#editor").getByLabel("Message",{exact:true}).fill(params["r.message"]);';

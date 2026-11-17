@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createAutomationCaseJourney,automationJourneyRequirements}=require('../../backend/lib/automationCaseJourney');
+const {createAutomationCaseJourney,automationJourneyRequirements}=require("../../backend/lib/build/automationCaseJourney");
 const makeSteps=n=>Array.from({length:n},(_,index)=>({id:'step-'+index,step_type:'web',action:'Perform action '+index,expected_result:'Preserve outcome '+index}));
 
 test('a host journey keeps whole intent and actual build progress separate from saved code and future work',()=>{

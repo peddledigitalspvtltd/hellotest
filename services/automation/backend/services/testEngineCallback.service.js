@@ -9,7 +9,7 @@ const opsTelemetryService = require("@hellotest/trace/backend/services/opsTeleme
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const attachInlineArtifacts = createInlineArtifactAttacher((id, ref) => workspaceTransactionService.createTransactionArtifact(id, ref));
 const { resolveTestEngineSecret } = require("@hellotest/platform/backend/src/security/runtimeSecrets");
-const { createExecutionDiagnosticRedactor } = require('../lib/automationExecutionDiagnostics');
+const { createExecutionDiagnosticRedactor } = require("../lib/build/automationExecutionDiagnostics");
 
 const selectTestCase = db.prepare(`
   SELECT id, title, app_type_id

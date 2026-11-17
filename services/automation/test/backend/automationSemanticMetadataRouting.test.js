@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
-const { reviewMetadataRequirements, pageState, canonicalReviewEvidence } = require('../../backend/lib/automationReviewEvidence');
+const { createAutomationSemanticReviewer } = require("../../backend/lib/browser/automationSemanticReview");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
+const { reviewMetadataRequirements, pageState, canonicalReviewEvidence } = require("../../backend/lib/build/automationReviewEvidence");
 
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const target = (tag, label, locator, type) => ({ tag, accessible_name: label, label, attributes: type ? { type } : {}, displayed: true,

@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {browserPromptContext}=require('../../backend/lib/automationBrowserContext');
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {browserPromptContext}=require("../../backend/lib/browser/automationBrowserContext");
 const receipt=value=>({content:[{type:'text',text:JSON.stringify({source:'playwright',...value})}]});
 const state=prompt=>JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]);
 function fixture(){

@@ -1,9 +1,9 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {generateUpstreamSectionSource}=require('../../backend/lib/automationUpstreamSectionSource');
-const {createUpstreamPrivateBindingScope}=require('../../backend/lib/automationUpstreamPrivateBindings');
+const {generateUpstreamSectionSource}=require("../../backend/lib/upstream/automationUpstreamSectionSource");
+const {createUpstreamPrivateBindingScope}=require("../../backend/lib/upstream/automationUpstreamPrivateBindings");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
-const {validSavedInstructionMapping}=require('../../backend/lib/automationInstructionMapping');
+const {validSavedInstructionMapping}=require("../../backend/lib/build/automationInstructionMapping");
 
 test('source-only correction gets precise runner and iframe feedback and preserves completed native actions without another browser call',async()=>{
  const step={id:'manage-events',step_order:13,action:'Open Manage Events/Templates',expected_result:'Owner(s), Is Template and Rows per page are visible in the embedded document',parameter_references:[]};

@@ -51,19 +51,19 @@ new claims about this follow-up:
 - [Retired custom actor prompt](../architecture/automation-workflow.md#retired-and-shared-code) (removed in the 9 November 2026 upstream-generator cleanup)
   projects authorized task data without saved source or cached executable
   locators. Linked manual actions and expected results remain available.
-- [`automationBrowserModelTargets.js`](../../services/automation/backend/lib/automationBrowserModelTargets.js)
+- [`automationBrowserModelTargets.js`](../../services/automation/backend/lib/browser/automationBrowserModelTargets.js)
   maps current observed targets to private locator bindings; stale/unknown
   references fail rather than silently selecting another element.
-- [`automationBrowserContext.js`](../../services/automation/backend/lib/automationBrowserContext.js)
+- [`automationBrowserContext.js`](../../services/automation/backend/lib/browser/automationBrowserContext.js)
   supplies one current snapshot, bounded receipt history, current failure and
   completion requirements. Older snapshots and screenshot bytes are not
   repeatedly sent to the actor.
-- [`automationBrowserAgent.js`](../../services/automation/backend/lib/automationBrowserAgent.js)
+- [`automationBrowserAgent.js`](../../services/automation/backend/lib/browser/automationBrowserAgent.js)
   dispatches discovered typed tools, rejects unsupported arguments, refreshes
   after transitions, stops unknown-outcome replay, and logs prompt component
   sizes before managed instruction expansion.
-- [`automationBrowserRecording.js`](../../services/automation/backend/lib/automationBrowserRecording.js)
-  and [`automationRecordedProgram.js`](../../services/automation/backend/lib/automationRecordedProgram.js)
+- [`automationBrowserRecording.js`](../../services/automation/backend/lib/browser/automationBrowserRecording.js)
+  and [`automationRecordedProgram.js`](../../services/automation/backend/lib/browser/automationRecordedProgram.js)
   preserve private operation provenance and compile confirmed actions and
   assertions into source. Model-reported success cannot replace those receipts.
 - [`automationMcp.ts`](../../testengine/backend/src/lib/automationMcp.ts)
@@ -1403,7 +1403,7 @@ not replace HelloTest's user intent, access policy or typed execution contract.
 
 ### Bounded local strategies
 
-[`automationBrowserSkills.js`](../../services/automation/backend/lib/automationBrowserSkills.js)
+[`automationBrowserSkills.js`](../../services/automation/backend/lib/browser/automationBrowserSkills.js)
 selects independently written local decision cards from structured host phase,
 goal and current typed observations. It returns at most **two** cards in at most
 **1,800 serialized JSON characters**, and none for completion-only turns. It does

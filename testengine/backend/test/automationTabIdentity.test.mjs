@@ -5,7 +5,7 @@ import ts from 'typescript';
 import { canonicalAutomationTabUrl, TAB_IDENTITY_SCHEMA, automationTabIdentityUrl } from '../dist/lib/automationTabIdentity.js';
 import { buildPlaywrightArtifact } from '../../../services/automation/shared/playwrightArtifact.mjs';
 const require = createRequire(import.meta.url);
-const native = require('../../../services/automation/backend/lib/automationUpstreamTabs.js');
+const native = require("../../../services/automation/backend/lib/upstream/automationUpstreamTabs.js");
 
 test('native receipts, runner and standalone share the versioned semantic URL contract', () => {
   const artifact = buildPlaywrightArtifact({ testCase: { id: 'identity', title: 'Identity' }, steps: [{ id: 's', step_type: 'web', automation_code: 'await web.switchTab({index:1});' }] });

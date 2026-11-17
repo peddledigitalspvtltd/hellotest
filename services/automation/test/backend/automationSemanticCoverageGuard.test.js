@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
+const { createAutomationSemanticReviewer } = require("../../backend/lib/browser/automationSemanticReview");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const execution = { required: true, step_id: 'current', action: 'Enter @r.input', expected_result: 'The input is entered without errors.' };
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });

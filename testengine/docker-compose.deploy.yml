@@ -4,6 +4,7 @@ x-testengine-worker: &testengine-worker
     PORT: 4301
     NODE_ENV: production
     ARTIFACT_ROOT: /artifacts
+    TESTENGINE_API_RESPONSE_MAX_BYTES: ${TESTENGINE_API_RESPONSE_MAX_BYTES:-8388608}
     HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-http://host.docker.internal:3000}
     TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-${HELLOTEST_TESTENGINE_SECRET:?TESTENGINE_SHARED_SECRET or HELLOTEST_TESTENGINE_SECRET must be set to a non-default value of at least 32 characters}}
     MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:?MOBILE_ENGINE_SHARED_SECRET must be set to a non-default value of at least 32 characters}

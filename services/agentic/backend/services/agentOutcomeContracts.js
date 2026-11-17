@@ -1,5 +1,5 @@
 const catalog = require('../../shared/agentOutcomeContracts.json');
-const profiles = require('../../shared/workflowSpecialists.json');
+const profiles = require('@hellotest/contracts/agents/workflowSpecialists.json');
 const invalid = message => Object.assign(new Error(message), { publicMessage: message, code: 'AGENT_DEFINITION_INVALID', statusCode: 422 });
 
 function normalizeOutputContract(value) {

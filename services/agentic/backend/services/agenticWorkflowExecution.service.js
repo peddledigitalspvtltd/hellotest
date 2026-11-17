@@ -18,6 +18,7 @@ const { mapWithConcurrency } = require('@hellotest/platform/backend/src/utils/bo
 // Every offered node has a bounded adapter. Legacy unsupported definitions
 // fail readiness before a run starts; no simulated output is passed as real data.
 const operations = require("../workflows/nodeOperations");
+const nodeRegistry = require('../workflows/nodeRegistry');
 const { policy: specialistPolicy } = require("../workflows/specialistPolicy");
 const { contextFor, appendInputs, mergeInputs, mergeExecutionContext } = operations._internals;
 const events = require("../workflows/runtimeEvents");
@@ -27,8 +28,9 @@ const MAX_INPUT_BYTES = 16_384;
 const MAX_ARTIFACT_DURATION_MS = 3_600_000;
 const workflowDuration = workflow => Math.min(MAX_ARTIFACT_DURATION_MS, Math.max(1000, Number(workflow.settings?.maxDurationMs) || (workflow.nodes?.some(node => node.data?.kind === 'artifactTask') ? MAX_ARTIFACT_DURATION_MS : MAX_DURATION_MS)));
 const MAX_PARALLEL_RUNS = 2;
+const localQueue = require('../workflows/localRunQueue').createLocalRunQueue({ concurrency: MAX_PARALLEL_RUNS, maxQueued: 20 });
 const TERMINAL_SAVE_TIMEOUT_MS = 6000;
-const SUPPORTED_KINDS = new Set(["trigger", "agent", "llmAgent", "repositoryAgent", "aggregator", "output", ...operations.KINDS, ...flowOperations.KINDS]);
+const SUPPORTED_KINDS = new Set(Object.values(nodeRegistry.registry).filter(kind => kind.executable).map(kind => kind.kind));
 const active = new Map();
 const starting = new Map();
 // Only terminal snapshots produced by this worker may be recovered on a read.
@@ -55,8 +57,8 @@ const store = {
   get: async (id) => hydrate(await db.prepare("SELECT * FROM agentic_workflow_runs WHERE id = ?").get(id)),
   insert: async (run) => db.prepare(`INSERT INTO agentic_workflow_runs
     (id, workflow_id, project_id, app_type_id, workflow_name, status, trigger_kind, input_payload, output_payload, workflow_snapshot, node_results, created_by, started_at)
-    VALUES (?, ?, ?, ?, ?, 'running', 'manual', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT (id) DO NOTHING RETURNING id`).get(run.id, run.workflow_id, run.project_id, run.app_type_id, run.workflow_name, run.input_payload, run.output_payload, run.workflow_snapshot, run.node_results, run.created_by),
+    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT (id) DO NOTHING RETURNING id`).get(run.id, run.workflow_id, run.project_id, run.app_type_id, run.workflow_name, run.trigger_kind, run.input_payload, run.output_payload, run.workflow_snapshot, run.node_results, run.created_by),
   save: async (id, status, nodes, output, expectedNodes = null) => db.prepare(`UPDATE agentic_workflow_runs
     SET status = ?, node_results = ?, output_payload = ?, updated_at = CURRENT_TIMESTAMP,
       completed_at = CASE WHEN ? = 'running' THEN NULL ELSE CURRENT_TIMESTAMP END
@@ -152,6 +154,9 @@ const store = {
   }
 };
 
+store.activateLocal = (id, snapshot, output) => db.prepare(`UPDATE agentic_workflow_runs SET workflow_snapshot=?,output_payload=?,updated_at=CURRENT_TIMESTAMP,started_at=CURRENT_TIMESTAMP
+  WHERE id=? AND status='running' AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(node_results) node WHERE node->>'status' <> 'queued') RETURNING id`).get(snapshot,output,id);
+
 function recordFailure(run, phase, failure, nodeId = null) {
   const entry = { event: 'workflow.execution.failure', run_id: run.id, node_id: nodeId, phase,
     code: typeof failure?.code === 'string' && /^[A-Z0-9_]{1,100}$/.test(failure.code) ? failure.code
@@ -189,7 +194,9 @@ async function persistTerminal(run, status, nodes, output) {
 function readiness(workflow, targetNodeId = "") {
   const blockers = [];
   const warnings = [];
+  const runtimePolicy = require('../workflows/executionRuntimePolicy').executionRuntimePolicy({durable:require('../workflows/temporal/control').enabled()});
   const add = (node, message) => blockers.push({ node_id: node?.id || null, node_name: node ? nodeName(node) : null, message });
+  if (!runtimePolicy.available) add(null,runtimePolicy.message);
   try { require('../workflows/workflowCredentialPolicy').assertDefinition(workflow); } catch (failure) { add(null, failure.publicMessage || failure.message); }
   let ordered = [];
   try { ordered = require("@hellotest/platform/backend/src/utils/agenticWorkflowGraph").validateWorkflowGraph(workflow.nodes, workflow.edges, { requireNodes: true }); }
@@ -223,9 +230,10 @@ function readiness(workflow, targetNodeId = "") {
   if (settings.maxDurationMs != null && (!numericScalar(settings.maxDurationMs) || !Number.isInteger(Number(settings.maxDurationMs)) || Number(settings.maxDurationMs) < 1000 || Number(settings.maxDurationMs) > MAX_ARTIFACT_DURATION_MS)) add(null, 'Choose a workflow deadline between 1000 and 3600000 milliseconds.');
   if (settings.requiresApproval || settings.approvalRequired || settings.human_approval_required) add(null, "Approval gates are preview-only. Remove the execution approval gate; results will still require human review before any artifact change.");
   if (settings.execution_mode && !["review", "sequential", "preview"].includes(settings.execution_mode)) add(null, "Only sequential review execution is supported. Parallel or custom execution modes are preview-only.");
-  const specialists = nodes.filter(node => ["agent", "llmAgent", "repositoryAgent"].includes(kindOf(node)));
+  const specialists = nodes.filter(node => nodeRegistry.get(kindOf(node))?.specialist);
   if (["paused", "archived"].includes(workflow.status)) add(null, "Move this workflow to Draft or Active before executing a review.");
-  if (workflow.trigger_kind && workflow.trigger_kind !== "manual") add(null, "Review execution supports manual starts. Change the trigger to Manual; schedules and webhooks are preview-only.");
+  try { require("../workflows/triggerPolicy").config(workflow); } catch (error) { add(null,error.publicMessage || error.message); }
+  if (workflow.trigger_kind && workflow.trigger_kind !== "manual" && !require("../workflows/temporal/control").enabled()) add(null,"Unattended triggers require the durable Temporal worker. Manual workflows can use the development fallback.");
   if (nodes.length > 100) add(null, "A workflow supports at most 100 steps.");
   if (specialists.length > 4) add(null, "Include at most 4 registered specialist steps.");
   const triggers = nodes.filter(node => kindOf(node) === "trigger");
@@ -242,54 +250,33 @@ function readiness(workflow, targetNodeId = "") {
   for (const node of nodes) {
     const data = object(node.data);
     const kind = kindOf(node);
+    const nodeDefinition=nodeRegistry.get(kind),connectionPolicy=nodeDefinition?.connectionPolicy;
     const incoming = edges.filter(edge => edge.target === node.id && !scheduling.isReturn(edge));
     const outgoing = edges.filter(edge => edge.source === node.id);
-    if (!SUPPORTED_KINDS.has(kind)) add(node, `${kind} steps are preview-only. Use a registered specialist for evidence review.`);
+    if (!SUPPORTED_KINDS.has(kind)) add(node, `Unsupported ${kind} step. Replace it with a registered executable node.`);
     if (data.requiresApproval || data.approvalRequired || data.toolPolicy === "approval-required") add(node, "Approval gates are preview-only. Remove this gate before executing a read-only review.");
-    if (data.parallel === true || Number(data.concurrency) > 1 || Number(data.maxConcurrency) > 1) add(node, "Configured parallel concurrency is preview-only. Review branches run in dependency order.");
-    if (!["apiTool", "apiAgent"].includes(kind) && text(data.credentialId)) add(node, "Node credentials bind external tools and are preview-only. Remove the credential binding for a specialist evidence review.");
+    if (data.parallel === true || data.concurrency != null && (!numericScalar(data.concurrency) || Number(data.concurrency)!==1) || data.maxConcurrency != null && (!numericScalar(data.maxConcurrency) || Number(data.maxConcurrency)!==1)) add(node, "Configure independent branch concurrency in Workflow settings → Node processing. Per-node fan-out is unsupported; remove parallel, concurrency and maxConcurrency from this step.");
+    if (!nodeDefinition?.allowsCredentialReference && text(data.credentialId)) add(node, "Node credentials bind external tools and are preview-only. Remove the credential binding for a specialist evidence review.");
     if (text(data.outputSchema)) add(node, "Custom output schemas are preview-only. Clear the schema to use the specialist's validated evidence-review contract.");
     if (["topK", "maxContextChars", "maxOutputChars", "maxCompletionTokens"].some(key => data[key] != null && String(data[key]).trim())) add(node, "Custom model limits are preview-only. Clear model tuning to use the specialist's bounded retrieval and validated output.");
     if (data.redactSecrets === false || data.redactSecrets === "false") add(node, "Secret redaction is required for executed reviews.");
     if (data.logLevel && !["standard", "audit"].includes(data.logLevel)) add(node, "Use Standard or Audit logging. Debug payload logging is preview-only.");
-    if (kind === "trigger" && incoming.length) add(node, "The request trigger cannot have incoming connections.");
-    if (kind !== "trigger" && !incoming.length) add(node, "Connect this step to the request trigger or an earlier step.");
-    if (kind === "output" && outgoing.length) add(node, "Output steps must finish a branch.");
-    if (!["output", "stop"].includes(kind) && node.id !== targetNodeId && !outgoing.length) add(node, "Connect this branch to an Output step.");
-    if (kind === "loop" && data.loopAction === "customAI") {
-      try { specialistPolicy(data); } catch (failure) { add(node, failure.publicMessage); }
-    }
-    if (kind === "condition" && outgoing.some(edge => edge.sourceHandle && !["true", "false"].includes(edge.sourceHandle))) add(node, "Connect condition outputs using the true or false ports.");
-    if (kind === 'dataOperation' && data.dataOperation === 'switch') {
-      const effective = { ...require('../../shared/workflowDataOperations.json').switch.defaults, ...data };
-      const routes = parse(effective.dataRoutes, []);
-      const handles = new Set(array(routes).map(route => route?.id));
-      if (effective.dataFallback === 'fallback') handles.add('fallback');
-      if (outgoing.some(edge => !handles.has(edge.sourceHandle) && !(data.onError === 'errorOutput' && nodes.some(next => next.id === edge.target && kindOf(next) === 'errorHandler')))) add(node, 'Connect Switch outputs using a configured route ID or the enabled fallback port.');
-    }
-    if (kind === "errorHandler" && incoming.some(edge => nodes.find(parent => parent.id === edge.source)?.data.onError !== "errorOutput")) add(node, "Set each connected parent to Route to error handler.");
-    if (kind === "repositoryAgent" && !require("../agents/catalog").AGENTS.some(agent => agent.id === data.repositoryAgentType)) add(node, "Choose a source analysis agent.");
-    if (kind === "repositoryAgent" && Number(data.retryCount) > 0) add(node, "Source analysis uses its existing worker. Set retries to zero; review a failed analysis before starting a new execution.");
-    if (["agent", "llmAgent", "customAI"].includes(kind)) {
-      if (kind !== "customAI" && !assistant.AGENT_CATALOG[data.agentId] && !/^agent-[a-f0-9-]{36}$/.test(data.agentId || "")) add(node, "Choose a registered workspace specialist in the step inspector.");
-      const prompt = text(data.prompt) || text(data.intent);
-      if (!prompt) add(node, "Describe the task this specialist should review.");
-      try { specialistPolicy(data); } catch (failure) { add(node, failure.publicMessage); }
-    }
+    if(connectionPolicy?.incoming==='forbidden'&&incoming.length)add(node,'The request trigger cannot have incoming connections.');
+    if(connectionPolicy?.incoming==='required'&&!incoming.length)add(node,'Connect this step to the request trigger or an earlier step.');
+    if(connectionPolicy?.outgoing==='forbidden'&&outgoing.length)add(node,'Output steps must finish a branch.');
+    if(connectionPolicy?.outgoing==='required'&&node.id!==targetNodeId&&!outgoing.length)add(node,'Connect this branch to an Output step.');
     if (text(data.inputExpression) || data.inputMode === "manualReferences") add(node, "Expression inputs are preview-only. Clear the expression and use connected step outputs.");
-    if (kind !== "loop" && (text(data.loopSourceKey) || Number(data.loopMaxIterations) > 0)) add(node, "Loop policies are preview-only; remove this step's loop configuration.");
-    if (!operations.KINDS.has(kind) && (text(data.apiUrl) || text(data.toolName) || text(data.testOpsAction))) add(node, "External tools and write actions are preview-only. Remove the tool binding to execute an evidence review.");
+    if (!nodeDefinition?.acceptsLoopPolicy && (text(data.loopSourceKey) || Number(data.loopMaxIterations) > 0)) add(node, "Loop policies are preview-only; remove this step's loop configuration.");
+    if (nodeRegistry.get(kind)?.executor!=='operation' && (text(data.apiUrl) || text(data.toolName) || text(data.testOpsAction))) add(node, "External tools and write actions are preview-only. Remove the tool binding to execute an evidence review.");
     if (data.onError && !["stop", "errorOutput"].includes(data.onError)) add(node, "Choose Stop workflow or Route to error handler.");
     if (data.onError === "errorOutput" && !outgoing.some(edge => nodes.some(next => next.id === edge.target && kindOf(next) === "errorHandler"))) add(node, "Connect an Error handler before routing failures.");
-    for (const message of operations.validate(node)) add(node, message);
-    for (const message of flowOperations.validate(node)) add(node, message);
-    if (kind === 'aggregator') for (const message of mergeOperations.validate(data, incoming.length)) add(node, message);
+    for (const message of nodeRegistry.get(kind)?.validate(node, { incomingCount: incoming.length,incoming,outgoing,nodes }) || []) add(node, message);
     if (data.aiConfiguration !== undefined || data.reviewCriteria !== undefined) {
       try { nodeAiConfiguration.normalize(data.aiConfiguration); nodeAiConfiguration.reviewCriteria(data); }
       catch (failure) { add(node, failure.publicMessage || failure.message); }
     }
-    if (data.mergeMode && kind !== 'aggregator' && !['waitAllAppend', 'waitAllMerge'].includes(data.mergeMode)) add(node, 'Configure Merge modes on a Merge step.');
-    const maxTimeout = kind === "artifactTask" || (kind === 'loop' && data.loopAction === 'workflow') ? MAX_ARTIFACT_DURATION_MS : kind === "repositoryAgent" ? MAX_DURATION_MS : kind === "agent" || kind === "customAI" ? 150_000 : 70_000;
+    if (data.mergeMode && !nodeDefinition?.acceptsMergePolicy && !['waitAllAppend', 'waitAllMerge'].includes(data.mergeMode)) add(node, 'Configure Merge modes on a Merge step.');
+    const maxTimeout=nodeDefinition?.timeoutMaxMs(data)||70000;
     if (data.timeoutMs != null && (!numericScalar(data.timeoutMs) || !Number.isInteger(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
     if (data.retryCount != null && (!numericScalar(data.retryCount) || !Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
     if (data.retryDelayMs != null && (!numericScalar(data.retryDelayMs) || !Number.isInteger(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
@@ -299,6 +286,7 @@ function readiness(workflow, targetNodeId = "") {
   warnings.push(processing(workflow).mode === 'parallel'
     ? `Up to ${processing(workflow).max_parallel_nodes} independent nodes run together after their dependencies finish. External mutations, loops and native artifact tasks run alone; merges preserve input order.`
     : 'Connected branches execute sequentially in dependency order. Each specialist retrieves fresh evidence with its own bounded context policy.');
+  if (!require('../workflows/temporal/control').enabled()) warnings.push('Development fallback: two local workflows run at once and up to twenty wait in memory. Use Temporal for durable unattended execution and restart recovery.');
   try {
     const capacity = loopBudget.sprintCapacity({ ...workflow, nodes, edges });
     if (capacity != null) warnings.push(`With the saved case count, this Sprint workflow supports at most ${capacity} Stories within the shared loop budget. Split larger Sprints or lower the case count before running.`);
@@ -314,79 +302,23 @@ async function requireRunAccess(user, projectId, { allowDisabled = false } = {})
   if (!allowDisabled && !await flags.areEnabled(flags.getFeatureKeysForPermission("agentic_workflow.run"), { user })) throw error("Agent workflows are disabled for this workspace.", 403);
 }
 
-async function checkReadiness(workflow, targetNodeId = "", user, inputPayload) {
-  const report = readiness(workflow, targetNodeId);
-  if (!report.ready) return report;
-  const hasInput = inputPayload !== undefined;
-  const payload = object(inputPayload);
-  const trigger = workflow.nodes.find(node => kindOf(node) === 'trigger');
-  const inputBlocker = message => report.blockers.push({ node_id: trigger?.id || null, node_name: trigger ? nodeName(trigger) : null, message });
-  if (hasInput) {
-    if (!inputPayload || typeof inputPayload !== 'object' || Array.isArray(inputPayload)) inputBlocker('Workflow input must be a JSON object.');
-    else if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) inputBlocker('Workflow input is limited to 16 KB.');
-    if (report.steps.some(step => step.kind === 'artifactTask')) {
-      try { require('../workflows/artifactTasks').checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload,workflow_snapshot:workflow }); }
-      catch (failure) { inputBlocker(failure.publicMessage || failure.message); }
-    } else if (report.steps.some(step => ['apiTool','apiAgent','webAgent'].includes(step.kind) && workflow.nodes.find(node => node.id === step.node_id)?.data.apiResource === 'sprintStories')) {
-      try { require('../workflows/artifactTasks').checkSprintInput({ project_id:workflow.project_id,input_payload:payload }); }
-      catch (failure) { inputBlocker(failure.publicMessage || failure.message); }
-    }
-  } else if (report.steps.some(step => step.kind === 'artifactTask')) {
-    report.warnings.push('Trigger values have not been checked. Choose a Sprint and supply the execution input before running native tasks.');
+async function checkReadiness(workflow,targetNodeId='',user,inputPayload) {
+  const report=readiness(workflow,targetNodeId);if(!report.ready)return report;
+  const hasInput=inputPayload!==undefined,payload=object(inputPayload),trigger=workflow.nodes.find(node=>nodeRegistry.get(kindOf(node))?.executor==='trigger');
+  const inputBlocker=message=>report.blockers.push({node_id:trigger?.id||null,node_name:trigger?nodeName(trigger):null,message});
+  if(hasInput){if(!inputPayload||typeof inputPayload!=='object'||Array.isArray(inputPayload))inputBlocker('Workflow input must be a JSON object.');else if(Buffer.byteLength(JSON.stringify(payload))>MAX_INPUT_BYTES)inputBlocker('Workflow input is limited to 16 KB.');}
+  const selected=report.steps.map(step=>({node:workflow.nodes.find(node=>node.id===step.node_id),definition:nodeRegistry.get(step.kind)}));
+  const checkedInputs=new Set(),warnings=new Set();
+  const context={workflow,user,payload,hasInput,hasNativeInput:selected.some(({definition})=>definition.inputContract==='nativeStory'),
+    checkInputOnce(key,check){if(checkedInputs.has(key))return;checkedInputs.add(key);try{check();}catch(failure){inputBlocker(failure.publicMessage||failure.message);}},
+    warnOnce(message){if(!warnings.has(message)){warnings.add(message);report.warnings.push(message);}}};
+  for(const {node,definition}of selected)definition.validateInput?.({...context,node});
+  if(report.blockers.length){report.ready=false;return report;}
+  for(const phase of ['model','connection'])for(const {node,definition}of selected){
+    const check=definition.preflight?.[phase];if(!check)continue;
+    try{await check({...context,node});}catch(failure){report.blockers.push({node_id:node.id,node_name:nodeName(node),message:definition.preflightFailure?.(phase,failure)||failure.publicMessage||'Check this node configuration and connection.'});}
   }
-  if (report.blockers.length) { report.ready = false; return report; }
-  for (const step of report.steps) {
-    const node = workflow.nodes.find(item => item.id === step.node_id);
-    if (!["agent", "llmAgent", "customAI", "repositoryAgent", "artifactTask"].includes(step.kind) && !(step.kind === "loop" && node.data?.loopAction === "customAI")) continue;
-    if (step.kind === "repositoryAgent" && !node.data.llmIntegrationId) continue;
-    if (step.kind === "artifactTask") {
-      try {
-        const task = node.data.artifactTask;
-        const dataOptions = task === 'test-data-generator' ? require('../workflows/testDataGenerator').validateNodeOptions(node.data) : null;
-        const codes = task === 'story-assurance' ? ['requirement.view', 'requirement.ai']
-          : task === 'automation-engineer' ? ['requirement.view', 'automation.ai', 'automation.build', 'automation.code.view']
-            : task === 'test-data-generator' ? dataOptions.source === 'dataset' ? ['data.view'] : ['data.ai']
-              : ['requirement.view', 'testcase.ai'];
-        if (workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic'
-          && ['test-case-generation', 'automation-engineer'].includes(task)) {
-          codes.push('agentic_workflow.view', 'testcase.create');
-          if (task === 'automation-engineer') {
-            codes.push('automation.view');
-            if (node.data.testEnvironmentId) codes.push('data.view');
-          }
-        }
-        await require('../workflows/artifactTasks').access(user, workflow.project_id, codes);
-        if (task === 'test-data-generator' && dataOptions.source === 'dataset') await require('../workflows/testDataGenerator').loadDataSet({ run:{project_id:workflow.project_id,app_type_id:workflow.app_type_id},node,user,
-          access:require('../workflows/artifactTasks').access });
-        if (task === 'automation-engineer') await require('../workflows/automationNodeInputs').resolveNodeInputs({ run:{project_id:workflow.project_id,app_type_id:workflow.app_type_id,input_payload:payload},node,user,
-          access:require('../workflows/artifactTasks').access });
-        // Test Data Generator has a safe deterministic fallback and does not
-        // block dataset-backed workflows on an unrelated model connection.
-        if (task !== 'test-data-generator') await nodeAiConfiguration.runNode(node, {}, () => agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || text(payload.integration_id) || undefined,
-          require('../workflows/artifactTasks').taskUsageKey(task)));
-      } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || failure.message || "Check the native task model and permissions." }); }
-      continue;
-    }
-    try {
-      const registered = String(node.data.agentId || "").startsWith("agent-") ? await agentRegistry.resolve(node.data.agentId, node.data.agentVersion, workflow.project_id) : null;
-      await nodeAiConfiguration.runNode(node, {}, () => agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || registered?.definition.integration_id));
-    } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || "Check this agent's version and model connection." }); }
-  }
-  const connections = require("../workflows/connections");
-  for (const step of report.steps.filter(step => ["mcpTool", "apiTool", "apiAgent", "webAgent"].includes(step.kind))) {
-    const node = workflow.nodes.find(node => node.id === step.node_id), data = node.data || {};
-    try {
-      const { connection } = await connections.resolve(data.connectionId, workflow.project_id, step.kind === "mcpTool" ? null : data.apiUrl, step.kind === "mcpTool" ? "mcp" : "http");
-      if (step.kind === "mcpTool" && !connection.tools?.includes(data.mcpTool)) throw error("Enable this tool in Integrations or choose an enabled tool.");
-      if (step.kind !== "mcpTool" && !(connection?.methods || ["GET", "HEAD"]).includes(step.kind === "webAgent" ? "GET" : String(data.apiMethod || "GET").toUpperCase())) throw error("This HTTP method is not enabled for the selected connection.");
-      if (step.kind === "mcpTool" && !connection.toolDefinitions?.some(tool => tool.name === data.mcpTool)) throw error("Discover and save this server tool in Integrations before running it.", 422);
-      connections._internals.authHeaders(connection);
-    } catch (failure) {
-      report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || "This connection could not be checked. Review its settings in Admin Space." });
-    }
-  }
-  report.ready = report.blockers.length === 0;
-  return report;
+  report.ready=report.blockers.length===0;return report;
 }
 
 const terminalNodes = (nodes, currentId, state) => nodes.map(node => node.status === "running"
@@ -400,6 +332,8 @@ async function reconcile(run, { publicationRows } = {}) {
   }
   if (run.status !== 'running') return run;
   if (run.workflow_snapshot.runtime_contract?.orchestrator === "temporal") return run;
+  const local = active.get(run.id);
+  if (local?.queued) return { ...run, output_payload: { ...run.output_payload, execution_state: 'queued', queue_position: localQueue.position(run.id), summary: `Queued for a development worker slot (position ${localQueue.position(run.id)}).` } };
   const pending = pendingTerminals.get(run.id);
   if (pending) {
     await persistTerminal(pending.run, pending.status, pending.nodes, pending.output);
@@ -482,21 +416,7 @@ function compactUpstream(run, node) {
 
 // Upstream model text is a labelled proposal, never promoted to authoritative
 // project evidence. Every specialist independently retrieves permitted evidence.
-function specialistPrompt(run, node, sources) {
-  const data = node.data || {};
-  // The saved node owns instructions, skills and guardrails. The assistant
-  // receives connected data separately, with its original structure and
-  // provenance; duplicating excerpts here made larger inputs look complete.
-  return text(data.prompt) || text(data.intent) || text(data.agentSnapshot?.definition?.objective);
-}
-
-const collectReviews = (sources) => sources.flatMap(source => {
-  if (array(source.iterations).length) return source.iterations.filter(item => item.status === 'completed').flatMap(item => collectReviews([item]).map(review => ({ ...review, iteration_path: item.iteration_path, batch_index: item.batch_index })));
-  const out = source.output || {};
-  return out.response ? [{ node_id: source.node_id, session_id: out.session_id, repository_run_id: out.repository_run_id, repository_agent_type: out.repository_agent_type, response: out.response, readiness: out.readiness, citation_ids: out.citation_ids }]
-    : array(out.items).filter(item => item.session_id).map(item => ({ node_id: source.node_id, item_index: item.index, session_id: item.session_id, response: item.response, readiness: item.readiness, citation_ids: item.citation_ids })).concat(array(out.reviews));
-}).filter((review, index, all) => all.findIndex(other => other.node_id === review.node_id && other.item_index === review.item_index && JSON.stringify(other.iteration_path) === JSON.stringify(review.iteration_path)) === index).slice(0, 1000);
-const reviewSource = source => source.status === 'completed' || array(source.iterations).some(item => item.status === 'completed');
+const {specialistPrompt,collectReviews,reviewSource}=require('../workflows/nodes/shared/reviewContext');
 const needsAttention = source => source.status === 'failed' || ['limited','limited_evidence','insufficient_evidence'].includes(source.output?.readiness?.status) || source.output?.verification?.status === 'needs_input' || array(source.iterations).some(item => needsAttention(item));
 
 function terminalSummary(run, status, nodes, fallback) {
@@ -533,119 +453,32 @@ async function executeNode(run, node, user, signal, onAttempt, onProgress = asyn
   }
 }
 async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, onEvent, state = {}) {
-  const sources = compactUpstream(run, node);
-  const kind = kindOf(node);
-  if (kind === "trigger") return { request: run.input_payload };
-  if (kind === "aggregator" || kind === "output") {
-    const ancestors = new Set();
-    const bodies = graphContract.loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges);
-    const visit = id => {
-      for (const edge of run.workflow_snapshot.edges.filter(item => item.target === id && !scheduling.isReturn(item))) {
-        if (!ancestors.has(edge.source)) { ancestors.add(edge.source); visit(edge.source); }
+  const registered = nodeRegistry.get(kindOf(node));
+  if (!registered?.executable) throw error('This node has no registered executable adapter.', 422);
+  return executeRegisteredNodeTask(run,node,user,signal,onAttempt,onProgress,onEvent,state);
+}
+async function executeRegisteredNodeTask(run,node,user,signal,onAttempt,onProgress,onEvent,state={}) {
+  const registered=nodeRegistry.get(kindOf(node)),data=object(node.data),kind=kindOf(node),sources=compactUpstream(run,node);
+  const context={run,node,user,signal,sources,onAttempt,onProgress,onEvent,requireRunAccess,
+    review:(itemRun,itemNode)=>executeNode(itemRun,itemNode,user,signal,attempt=>onAttempt(attempt,{item_index:itemRun.iteration_index}),onProgress,event=>onEvent({...event,item_index:itemRun.iteration_index})),
+    executeConnectedLoop:()=>executeLoopBody(run,node,user,signal,state.persist,onProgress)};
+  if(registered.executor==='flow')return execution.bounded(nodeSignal=>registered.implementation.execute({...context,context:contextFor(run,sources),signal:nodeSignal}),{timeoutMs:Number(data.timeoutMs)||30000,signal});
+  if(registered.executor!=='operation')return registered.implementation.execute(context);
+  if(registered.connectedLoop?.(data))return registered.implementation.execute(context);
+  if(registered.specialistAlias)return registered.implementation.execute(context);
+  return execution.bounded(async nodeSignal=>{
+    const retries=!['loop','customAI'].includes(kind)&&events.canRetry(kind,data)?Number(data.retryCount||0):0;
+    for(let attempt=0;;attempt++){
+      await requireRunAccess(user,run.project_id);
+      if(kind!=='loop'||data.loopAction!=='customAI')await onAttempt(attempt+1);
+      try{return await registered.implementation.execute({...context,signal:nodeSignal,review:(itemRun,itemNode)=>executeNode(itemRun,itemNode,user,nodeSignal,attempt=>onAttempt(attempt,{item_index:itemRun.iteration_index}),onProgress,event=>onEvent({...event,item_index:itemRun.iteration_index}))});}
+      catch(failure){if(nodeSignal.aborted||attempt>=retries||!events.retryable(failure))throw failure;
+        const delay=Number(data.retryDelayMs??300)*(attempt+1);
+        await onEvent({level:'warning',event:'retry_scheduled',attempt:attempt+1,retry_delay_ms:delay,status_code:failure.statusCode,message:`Attempt ${attempt+1} failed. Retrying in ${delay} ms.`});
+        await execution.bounded(()=>new Promise(resolve=>setTimeout(resolve,delay)),{timeoutMs:delay+1000,signal:nodeSignal});
       }
-      for (const child of bodies[id] || []) if (!ancestors.has(child)) { ancestors.add(child); visit(child); }
-    };
-    visit(node.id);
-    if (kind === 'aggregator' && ['combinePosition', 'combineMatching', 'combineAll'].includes(node.data?.mergeMode) && sources.some(source => source.execution_context)) throw error('Generic field joins cannot combine revision-bound native artifact checkpoints. Use Append, Combine fields or Choose input for native Story branches.', 422);
-    const mergeSources = kind === 'output' ? sources : scheduling.orderedEdges(run.workflow_snapshot.edges, node.id).map(edge => sources.find(source => source.node_id === edge.source && (!source.output?.routes || source.output.data === source.output.routes[edge.sourceHandle])) || { node_id: edge.source, status: 'skipped', output: { data: [] } });
-    return { reviews: collectReviews(run.node_results.filter(item => ancestors.has(item.node_id) && reviewSource(item))), ...(kind === 'output' ? { data: contextFor(run, sources).input } : mergeOperations.execute(node.data || {}, mergeSources, { appendInputs, mergeInputs })), sources: mergeSources.map(source => ({ node_id: source.node_id, node_name: source.node_name, output_key: source.output_key, status: source.status })), requires_human_review: true };
-  }
-  const data = object(node.data);
-  if (kind === 'loop' && data.loopAction === 'workflow') return executeLoopBody(run, node, user, signal, state.persist, onProgress);
-  if (flowOperations.KINDS.has(kind)) return execution.bounded(nodeSignal => flowOperations.execute({ node, context: contextFor(run, sources), signal: nodeSignal }), { timeoutMs: Number(data.timeoutMs) || 30000, signal });
-  if (kind === "customAI") return executeNode(run, { ...node, data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true } }, user, signal, onAttempt, onProgress, onEvent);
-  if (operations.KINDS.has(kind)) {
-    return execution.bounded(async nodeSignal => {
-      const retries = !["loop", "customAI"].includes(kind) && events.canRetry(kind, data) ? Number(data.retryCount || 0) : 0;
-      for (let attempt = 0; ; attempt++) {
-        await requireRunAccess(user, run.project_id);
-        if (kind !== "loop" || data.loopAction !== "customAI") await onAttempt(attempt + 1);
-        try { return await operations.execute({ run, node, sources, user, signal: nodeSignal, onProgress,
-          review: (itemRun, itemNode) => executeNode(itemRun, itemNode, user, nodeSignal,
-            attempt => onAttempt(attempt, { item_index: itemRun.iteration_index }), onProgress,
-            event => onEvent({ ...event, item_index: itemRun.iteration_index }))
-        }); } catch (failure) {
-          if (nodeSignal.aborted || attempt >= retries || !events.retryable(failure)) throw failure;
-          const delay = Number(data.retryDelayMs ?? 300) * (attempt + 1);
-          await onEvent({ level: "warning", event: "retry_scheduled", attempt: attempt + 1, retry_delay_ms: delay, status_code: failure.statusCode, message: `Attempt ${attempt + 1} failed. Retrying in ${delay} ms.` });
-          await execution.bounded(() => new Promise(resolve => setTimeout(resolve, delay)), { timeoutMs: delay + 1000, signal: nodeSignal });
-        }
-      }
-    }, { timeoutMs: Number(data.timeoutMs) || 30000, signal });
-  }
-  if (kind === "repositoryAgent") {
-    const repositoryAgents = require("../agents/repositoryAgents.service");
-    const connected = contextFor(run, sources).input;
-    const source = object(connected?.source || run.input_payload.source);
-    if (source.type !== "github" || !text(source.repository_url)) throw error("Supply source.type = github and source.repository_url in the workflow input. ZIP uploads are available in the source agent workspace.");
-    await onAttempt(1);
-    const job = await repositoryAgents.createRun({ project_id: run.project_id, app_type_id: run.app_type_id,
-      agent_type: data.repositoryAgentType, llm_integration_id: text(data.llmIntegrationId) || undefined, source }, user, { requestKey: `workflow-${run.id}-${node.id}${run.iteration_path ? `-${hash(run.iteration_path).slice(0,16)}` : ''}`, workflowTrace: { run_id: run.id, node_id: node.id } });
-    let lastProgress = "";
-    try {
-      return await execution.bounded(async childSignal => {
-        while (!childSignal.aborted) {
-          await requireRunAccess(user, run.project_id);
-          const current = await repositoryAgents.getRun(job.id, user, "agentic_workflow.run");
-          const progress = { repository_run_id: job.id, repository_agent_type: data.repositoryAgentType, status: current.status, percent: current.progress || 0, stages: current.stages || [] };
-          const signature = JSON.stringify(progress);
-          if (signature !== lastProgress) { await onProgress(progress); lastProgress = signature; }
-          if (["failed", "cancelled"].includes(current.status)) throw error("Source analysis did not complete. Inspect the source agent execution for details.", 502);
-          if (["completed", "partial"].includes(current.status)) {
-            const review = current.result?.llm_review;
-            const sourceFindings=current.result?.findings?.[require('../agents/catalog').FINDING_KEYS[data.repositoryAgentType]];
-            const noReviewTargets=current.status==='partial'&&Array.isArray(sourceFindings)&&!sourceFindings.length
-              &&current.result?.summary?.model_calls===0&&current.stages?.some(stage=>stage.id==='model_review'&&stage.status==='skipped');
-            if (data.llmIntegrationId && review?.provenance?.generation_mode !== "llm"&&!noReviewTargets) throw agentContract.fail("The requested source review did not complete.", "AGENT_OUTPUT_INVALID");
-            return {
-            repository_run_id: job.id, repository_agent_type: data.repositoryAgentType,
-            session_id: review?.session_id, response: review?.response, citation_ids: review?.citation_ids,
-            findings: current.result?.findings, review_findings: review?.findings, evidence_gaps: review?.evidence_gaps, verification: review?.verification,
-            model_execution: review?.model_execution, provenance: review?.provenance || { generation_mode: "deterministic", compiler_version: current.compiler_version },
-            source: current.source, stages: current.stages, warnings: current.warnings,
-            readiness: { status: current.status === "partial" ? "limited_evidence" : "ready_for_review" },
-            requires_human_review: true
-          };
-          }
-          await execution.bounded(() => new Promise(resolve => setTimeout(resolve, 1_000)), { signal: childSignal, timeoutMs: 2_000 });
-        }
-        throw execution.abortError();
-      }, { signal, timeoutMs: Number(data.timeoutMs) || MAX_DURATION_MS });
-    } finally {
-      const current = await repositoryAgents.getRun(job.id, user, "agentic_workflow.run").catch(() => null);
-      if (current && ["queued", "running"].includes(current.status)) await repositoryAgents.cancelRun(job.id, user).catch(() => {});
     }
-  }
-  const deadline = Date.now() + (Number(data.timeoutMs) || 150_000);
-  const retries = kind === "loop" && data.loopAction === "customAI" ? 0 : Number(data.retryCount) || 0;
-  const policy = specialistPolicy(data);
-  // One ledger spans transport retries, JSON compatibility and output repairs for this node.
-  const modelBudget = { used: 0, max: data.agentSnapshot?.definition?.limits?.max_model_calls || data.aiConfiguration?.agent_execution?.max_model_calls || 2 };
-  const scopes = policy.context_scopes;
-  let lastError;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    await requireRunAccess(user, run.project_id);
-    if (signal.aborted) throw execution.abortError();
-    await onAttempt(attempt + 1);
-    try {
-      const review = await execution.bounded((nodeSignal) => assistant.respond({ user, project_id: run.project_id, app_type_id: run.app_type_id,
-        mode: "agent", agent_id: data.agentId, workflow_policy: { ...policy, model_budget: modelBudget, agent_definition: data.agentSnapshot, custom_task: data.customTask === true || Boolean(data.agentSnapshot), connected_input: { request: run.input_payload, input: contextFor(run, sources).input,
-          provenance:{request:'user_supplied_task_data',input:'unverified_connected_node_data',...(collectReviews(sources).length?{upstream_reviews:'untrusted_model_analysis_not_source_evidence'}:{})} } }, prompt: specialistPrompt(run, node, sources), context_scopes: scopes,
-        integration_id: text(data.llmIntegrationId) || undefined,
-        smart_context: { query: text(data.knowledgeQuery) || text(data.prompt), source_ids: array(data.knowledgeSourceIds), source_kinds: array(data.knowledgeSourceKinds) },
-        signal: nodeSignal
-      }), { timeoutMs: deadline - Date.now(), signal });
-      if (review.provenance?.generation_mode !== "llm") throw agentContract.fail("The AI node did not return a model-generated review.", "AGENT_OUTPUT_INVALID");
-      return { session_id: review.transaction.id, specialist_id: data.agentId, ...review.result, provenance: review.provenance };
-    } catch (failure) {
-      lastError = failure;
-      if (signal.aborted || modelBudget.used >= modelBudget.max || !events.retryable(failure) || attempt >= retries || Date.now() >= deadline) throw failure;
-      const delay = Math.min(Number(data.retryDelayMs ?? 500) * (attempt + 1), deadline - Date.now());
-      await onEvent({ level: "warning", event: "retry_scheduled", attempt: attempt + 1, retry_delay_ms: delay, status_code: failure.statusCode, message: `AI attempt ${attempt + 1} failed. Retrying in ${delay} ms.` });
-      await execution.bounded(() => new Promise(resolve => setTimeout(resolve, delay)), { timeoutMs: deadline - Date.now(), signal });
-    }
-  }
-  throw lastError;
+  },{timeoutMs:Number(data.timeoutMs)||30000,signal});
 }
 
 async function runStep(run, node, user, signal, persist, shouldRun) {
@@ -999,8 +832,9 @@ async function perform(run, user, controller) {
   } finally { clearInterval(heartbeat); }
 }
 
-async function start(workflow, input = {}, user) {
+async function start(workflow, input = {}, user, trusted = {}) {
   await requireRunAccess(user, workflow.project_id);
+  require('../workflows/executionRuntimePolicy').assertExecutionRuntime({durable:require('../workflows/temporal/control').enabled()});
   const targetNodeId = input.target_node_id || "";
   if (input.input_payload !== undefined && (input.input_payload === null || typeof input.input_payload !== "object" || Array.isArray(input.input_payload))) throw error("Workflow input must be a JSON object.");
   const payload = object(input.input_payload);
@@ -1030,7 +864,7 @@ async function start(workflow, input = {}, user) {
   if (requestKey && !/^[a-zA-Z0-9_-]{8,128}$/.test(requestKey)) throw error("Use a request ID of 8–128 letters, digits, underscores or hyphens.");
   // A transport retry may save the same definition again. Audit timestamps are
   // not execution input; changing them must not invalidate the idempotency key.
-  const requestFingerprint = hash({ workflow: { ...workflow, updated_at: undefined, updated_by: undefined, run_count: undefined, latest_run_at: undefined, latest_run_status: undefined }, payload, targetNodeId });
+  const requestFingerprint = hash({ workflow: { ...workflow, updated_at: undefined, updated_by: undefined, run_count: undefined, latest_run_at: undefined, latest_run_status: undefined }, payload, targetNodeId, ...(trusted.resume ? {resume:{...trusted.resume,seeds:trusted.resume.seeds.map(row=>({node_id:row.node_id,result_hash:row.result_hash}))}} : {}) });
   const id = requestKey ? `review-${hash([workflow.id, user.id, requestKey]).slice(0, 40)}` : randomUUID();
   const existing = await store.get(id);
   if (existing) {
@@ -1038,10 +872,10 @@ async function start(workflow, input = {}, user) {
     return reconcile(existing);
   }
   const durable = require("../workflows/temporal/control");
-  if (!durable.enabled() && active.size >= MAX_PARALLEL_RUNS) throw error("Two review workflows are already running on this worker. Try again after one finishes.", 429);
   const automaticLibraryPublication = workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic';
   const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false,
-    scheduler_version: 2,
+    scheduler_version: trusted.resume ? 3 : 2,
+    ...(trusted.resume ? {resume:{source_run_id:trusted.resume.source_run_id,node_id:trusted.resume.node_id,source_hash:trusted.resume.source_hash,reconciliations:trusted.resume.reconciliations}} : {}),
     ...(automaticLibraryPublication ? { automatic_library_publication: true, initial_project_changes_applied: false } : { project_changes_applied: false }),
     processing: processing(workflow),
     external_write_tools: report.steps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: durationMs, target_node_id: targetNodeId || null,
@@ -1049,10 +883,15 @@ async function start(workflow, input = {}, user) {
     orchestrator: durable.enabled() ? "temporal" : "local",
     recovery: durable.enabled() ? "Temporal resumes from durable step receipts. Uncertain operations require reconciliation." : "Interrupted work is preserved; it is never automatically replayed." };
   const run = { id, workflow_id: workflow.id, project_id: workflow.project_id, app_type_id: workflow.app_type_id || null, workflow_name: workflow.name,
-    created_by: user.id, execution_mode: MODE, status: "running", trigger_kind: "manual", input_payload: payload,
+    created_by: user.id, execution_mode: MODE, status: "running", trigger_kind: trusted.triggerKind || "manual", input_payload: payload,
     workflow_snapshot: { ...structuredClone(workflow), execution_mode: MODE, runtime_contract: runtime, execution_order: report.steps.map(step => step.node_id), snapped_at: new Date().toISOString() },
     node_results: report.steps.map(step => ({ node_id: step.node_id, node_name: step.name, node_type: step.kind, specialist_id: step.specialist_id, status: "queued", execution_mode: MODE, attempts: 0, logs: [] })),
     output_payload: { execution_mode: MODE, status: "running", project_changes_applied: false, completed_steps: 0, total_steps: report.steps.length, summary: "Review workflow started.", requires_human_review: true, runtime_contract: runtime } };
+  if(trusted.resume){
+    run.resume_seeds=trusted.resume.seeds;
+    run.node_results=run.node_results.map(result=>{const seed=trusted.resume.seeds.find(row=>row.node_id===result.node_id);return seed ? {...seed.result,reused_from_run:trusted.resume.source_run_id} : result;});
+    run.output_payload.summary="Resumed from verified prior receipts; remaining steps are queued.";
+  }
   if (durable.enabled()) {
     await durable.enqueue(run, () => store.insert(run));
     const persisted = await store.get(id);
@@ -1060,28 +899,69 @@ async function start(workflow, input = {}, user) {
     return persisted;
   }
   const controller = new AbortController();
-  active.set(id, { controller, promise: null });
+  let accepted;
+  const inserted = new Promise(resolve => { accepted = resolve; });
+  let persisted = false;
+  let executionStarted = false;
+  const entry = { controller, promise: null, queued: false };
+  const job = localQueue.enqueue(id, async ({ queued }) => {
+    if (!await inserted) return;
+    const current = await store.get(id);
+    if (current?.status !== 'running' || controller.signal.aborted) return;
+    entry.queued = false;
+    run.output_payload = { ...run.output_payload, execution_state: 'running', queue_position: 0, summary: 'Review workflow started.' };
+    if (queued) {
+      run.workflow_snapshot.runtime_contract.deadline_at = new Date(Date.now() + durationMs).toISOString();
+      run.output_payload.runtime_contract = run.workflow_snapshot.runtime_contract;
+      if (!await store.activateLocal(id, run.workflow_snapshot, run.output_payload)) return;
+    } else if (!await store.save(id, 'running', run.node_results, run.output_payload)) return;
+    executionStarted = true;
+    await perform(run, user, controller);
+  }, { signal: controller.signal, onPosition: async ({ state, position }) => {
+    entry.queued = state === 'queued';
+    if (state !== 'queued' || !persisted) return;
+    const current = await store.get(id);
+    if (current?.status !== 'running') return;
+    await store.save(id, 'running', current.node_results, { ...current.output_payload, execution_state: 'queued', queue_position: position,
+      summary: `Queued for a development worker slot (position ${position}).` }, current.node_results);
+  } });
+  entry.queued = job.queued;
+  run.output_payload.execution_state = job.queued ? 'queued' : 'running';
+  run.output_payload.queue_position = localQueue.position(id);
+  if (job.queued) run.output_payload.summary = `Queued for a development worker slot (position ${localQueue.position(id)}).`;
+  entry.promise = job.promise.catch(async failure => {
+    recordFailure(run, 'detached_completion', failure);
+    const pending = pendingTerminals.get(run.id);
+    if (!executionStarted && !pending) {
+      // Queue activation failed before any node dispatch. Preserve an explicit
+      // terminal receipt; a later poll may recover it without replaying work.
+      const output = { ...run.output_payload, status: 'failed', execution_state: 'failed', queue_position: 0,
+        error_code: 'WORKFLOW_START_FAILED', summary: 'The development worker could not start this review. No workflow steps were executed. Start a new review after the service recovers.' };
+      try { await persistTerminal(run, 'failed', terminalNodes(run.node_results, '', 'failed'), output); }
+      catch { /* The owned pending terminal snapshot remains recoverable on read. */ }
+    }
+    if (pending) {
+      try { await persistTerminal(pending.run, pending.status, pending.nodes, pending.output); }
+      catch { /* A later read can recover only this recorded terminal snapshot. */ }
+    }
+  }).finally(() => { if (active.get(id)?.controller === controller) active.delete(id); });
+  active.set(id, entry);
   try {
-    const inserted = await store.insert(run);
-    if (!inserted) {
-      active.delete(id);
+    const saved = await store.insert(run);
+    persisted = Boolean(saved); accepted(persisted);
+    if (!saved) {
+      controller.abort();
       const concurrent = await store.get(id);
-      if (concurrent?.workflow_snapshot.runtime_contract?.request_fingerprint !== requestFingerprint) throw error("This request ID was already used with different workflow input. Start a new review.", 409);
+      if (concurrent?.workflow_snapshot.runtime_contract?.request_fingerprint !== requestFingerprint) throw error('This request ID was already used with different workflow input. Start a new review.', 409);
       return concurrent;
     }
-    // Persist before returning or scheduling any model calls. The task is bounded;
-    // stale rows become interrupted on reads rather than being silently replayed.
-    const promise = Promise.resolve().then(() => perform(run, user, controller)).catch(async failure => {
-      recordFailure(run, 'detached_completion', failure);
-      const pending = pendingTerminals.get(run.id);
-      if (pending) {
-        try { await persistTerminal(pending.run, pending.status, pending.nodes, pending.output); }
-        catch { /* The recorded pending snapshot allows recovery on a later read. */ }
-      }
-    }).finally(() => { if (active.get(id)?.controller === controller) active.delete(id); });
-    active.set(id, { controller, promise });
     return await store.get(id);
-  } catch (failure) { if (active.get(id)?.controller === controller) active.delete(id); throw failure; }
+  } catch (failure) {
+    accepted(false); controller.abort();
+    if (active.get(id)?.controller === controller) active.delete(id);
+    throw failure;
+  }
+
 }
 
 async function cancel(run, user) {
@@ -1104,4 +984,4 @@ const startOnce = async (workflow, input = {}, user) => {
   try { return await promise; } finally { starting.delete(key); }
 };
 
-module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, reconcileMany, _internals: { store, active, pendingTerminals, persistTerminal, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, reviewSource, needsAttention, terminalSummary, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };
+module.exports = { readiness, checkReadiness, start: startOnce, startResumed: (workflow,input,user,resume) => start(workflow,input,user,{resume}), startTriggered: (workflow,input,user,triggerKind) => { if (!require("../workflows/temporal/control").enabled() || workflow.status!=="active" || triggerKind!==workflow.trigger_kind || !["schedule","webhook","release","event"].includes(triggerKind) || input.target_node_id) throw error("This durable trigger is unavailable.",409); return start(workflow,input,user,{triggerKind}); }, cancel, reconcile, reconcileMany, _internals: { store, active, localQueue, pendingTerminals, persistTerminal, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, reviewSource, needsAttention, terminalSummary, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };

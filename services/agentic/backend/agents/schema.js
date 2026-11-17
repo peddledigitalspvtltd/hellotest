@@ -18,6 +18,7 @@ module.exports = [
     PRIMARY KEY(session_id,proposal_index)
   )`,
   ...require("../workflows/temporal/durableSchema"),
+  ...require("../workflows/triggerSchema"),
   `CREATE TABLE IF NOT EXISTS workflow_operation_receipts (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     run_id TEXT NOT NULL, node_id TEXT NOT NULL, actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,

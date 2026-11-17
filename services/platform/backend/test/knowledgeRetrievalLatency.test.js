@@ -169,12 +169,13 @@ test("cold Qdrant retrieval performs only its authorized query and cancellation 
     return new Response(JSON.stringify({ result: { points: [] } }), { status: 200 });
   });
   const input = { projectId: "project-1", queryVector: Array(8).fill(0.2), embeddingModel: "test",
-    allowedPermissions: [], authorizedChunkIds: ["visible-chunk"] };
+    allowedPermissions: [], aclPrincipals: ["PROJECT:project-1", "USER:reader"], user: { id: "reader" } };
   await vectorStore.search(input);
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /\/points\/query$/);
   assert.equal(calls[0].init.method, "POST");
-  assert.ok(JSON.parse(calls[0].init.body).filter.must.some((filter) => filter.has_id?.includes("visible-chunk")));
+  assert.ok(JSON.parse(calls[0].init.body).filter.must.some((filter) => filter.key === "acl_allow_principals"
+    && filter.match.any.includes("USER:reader")));
   for (let attempt = 0; attempt < 3; attempt++) {
     const controller = new AbortController();
     context.mock.method(globalThis, "fetch", async () => { controller.abort(); throw Object.assign(new Error("Cancelled"), { name: "AbortError" }); });

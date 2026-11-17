@@ -1,13 +1,14 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const {createRequire}=require('node:module');
 const {parse}=require('acorn');
 const generators=require('../../../platform/backend/src/utils/testDataGenerators');
 const linked=require('../../../platform/backend/src/utils/linkedManualParameters');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
 
 test('every Build snapshot receives the original reviewed parameter templates',()=>{
- const source=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8'),ast=parse(source,{ecmaVersion:'latest',sourceType:'script'}),calls=[];
+ const source=implementationSource('builder/programGeneration'),ast=parse(source,{ecmaVersion:'latest',sourceType:'script'}),calls=[];
  const visit=node=>{
   if(!node||typeof node!=='object')return;
   if(node.type==='CallExpression'&&node.callee?.type==='MemberExpression'&&node.callee.property?.name==='prepareBuildDataSnapshot')calls.push(node);
@@ -21,7 +22,7 @@ test('every Build snapshot receives the original reviewed parameter templates',(
 });
 
 function dataPersistence(record){
- const file=require.resolve('../../backend/lib/automationBuildDataSnapshot'),local=createRequire(file),module={exports:{}};
+ const file=require.resolve("../../backend/lib/build/automationBuildDataSnapshot"),local=createRequire(file),module={exports:{}};
  new Function('require','module',fs.readFileSync(file,'utf8'))(id=>{
   if(id.endsWith('optionalEvidenceAccess.service'))return {getOptionalEvidenceAccess:async()=>({'testcase.update':true,'data.view':true})};
   if(id.endsWith('testCase.service'))return {getTestCase:async()=>structuredClone(record),updateTestCase:async(_id,input)=>{

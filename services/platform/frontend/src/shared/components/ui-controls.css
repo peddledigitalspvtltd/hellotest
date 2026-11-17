@@ -1,0 +1,17 @@
+@import "./ui-tokens.css";
+
+.ui-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 8px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); font: inherit; font-weight: 600; cursor: pointer; }
+.ui-button--primary { background: var(--ui-primary); border-color: var(--ui-primary); color: var(--ui-on-primary); }
+.ui-button--secondary { background: var(--ui-surface); color: var(--ui-text); }
+.ui-button--danger { background: var(--ui-red-solid); border-color: var(--ui-red-solid); color: var(--ui-on-solid); }
+.ui-button--plain { background: transparent; border-color: transparent; color: var(--ui-text-muted); }
+.ui-button:disabled { cursor: not-allowed; opacity: .6; }
+.ui-button:not(:disabled):hover { filter: brightness(.96); }
+.ui-button:focus-visible,.ui-input:focus-visible,.ui-select:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 3px; }
+.ui-input,.ui-select { box-sizing: border-box; min-width: 0; width: 100%; min-height: 38px; border: 1px solid var(--ui-border); border-radius: 8px; padding: 8px 10px; font: inherit; color: var(--ui-text); background: var(--ui-surface); }
+.ui-input[aria-invalid="true"],.ui-select[aria-invalid="true"] { border-color: var(--ui-red-border); }
+.ui-input:disabled,.ui-select:disabled { background: var(--ui-surface-muted); color: var(--ui-text-muted); cursor: not-allowed; }
+.ui-card { min-width: 0; border: 1px solid var(--ui-border); border-radius: 14px; padding: 16px; color: var(--ui-text); background: var(--ui-surface); }
+.ui-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-block-end: 14px; }
+.ui-card-heading h2 { margin: 0; font-size: 1rem; }.ui-card-heading p { margin: 5px 0 0; color: var(--ui-text-muted); line-height: 1.5; }
+@media(max-width:640px) { .ui-card-heading { flex-wrap: wrap; }.ui-card { padding: 12px; } }

@@ -8,7 +8,9 @@ const {
 } = require("../src/utils/configurationTargets");
 const { executionShapeUsesMobile } = require("../src/utils/mobileFeature");
 
-const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+const readSource = (relativePath) => /\/(testEngineDispatch|aiAutomationBuilder)\.service\.js$/.test(relativePath)
+  ? require("./helpers/sourceFile").readOwnedAutomationSource(path.basename(relativePath, ".js"))
+  : readFile(path.join(__dirname, relativePath), "utf8");
 
 test("configuration target rows are canonical, ordered, and independently identified", () => {
   const targets = buildConfigurationTargetsForStorage([

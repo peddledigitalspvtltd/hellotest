@@ -10,8 +10,9 @@ const statements = [`
     recorder_session_id TEXT NOT NULL,
     input_sha256 TEXT NOT NULL,
     result JSONB NOT NULL,
+    transaction_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
-`, `CREATE INDEX IF NOT EXISTS idx_automation_recording_imports_case ON automation_recording_imports(test_case_id)`];
+`, `ALTER TABLE automation_recording_imports ADD COLUMN IF NOT EXISTS transaction_id TEXT`, `CREATE INDEX IF NOT EXISTS idx_automation_recording_imports_transaction ON automation_recording_imports(transaction_id) WHERE transaction_id IS NOT NULL`, `CREATE INDEX IF NOT EXISTS idx_automation_recording_imports_case ON automation_recording_imports(test_case_id)`];
 
 module.exports = { statements };

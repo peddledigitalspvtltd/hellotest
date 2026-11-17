@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createLiveViewGrant, verifyLiveViewGrant } from '../dist/lib/liveViewGrant.js';
-const backend = createRequire(import.meta.url)('../../../services/automation/backend/lib/automationLiveViewGrant.js');
+const backend = createRequire(import.meta.url)("../../../services/automation/backend/lib/build/automationLiveViewGrant.js");
 const secret='a-viewer-specific-fixture-secret-over-32-characters', now=1800000000000;
 
 test('application-minted live grants authorize only the selected run and provider within expiry',()=>{

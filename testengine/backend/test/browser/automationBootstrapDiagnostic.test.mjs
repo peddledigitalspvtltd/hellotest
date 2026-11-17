@@ -7,7 +7,7 @@ import {createRequire} from 'node:module';
 import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../dist/lib/testEngineSecurity.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
 
 test('local MCP bootstrap retains safe launch, navigation and snapshot diagnostics without actor or field actions',{timeout:90000},async t=>{
  const previous=process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;process.env.RECORDER_ALLOWED_PRIVATE_HOSTS='127.0.0.1';

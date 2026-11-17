@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const rules=require('../../backend/services/automationRepairRules');
+const rules=require('../../../automation/backend/services/automationRepairRules');
 const base={source_hash:'revision',failed_step_ids:['action'],steps:[{id:'action',step_order:1,automation_code:'await web.click("#old");'},{id:'oracle',step_order:2,expected_result:'Saved state',automation_code:'await web.expectText("#status", "Saved");'}]};
 const candidate={kind:'replace_locator',step_id:'action',new_locator:'#new',rationale:'The captured DOM identifies this replacement button.'};
 test('typed repair escapes literal targets and cannot change assertions, values, retries or arbitrary code',()=>{
@@ -54,7 +54,7 @@ test('complete section rewrites preserve action order, assertions and parameter 
 });
 
 test('native engineer sections can repair one observed field without dropping its data or validation predicates',()=>{
- const {compileRecordedProgram}=require('../../../automation/backend/lib/automationRecordedProgram');
+ const {compileRecordedProgram}=require("../../../automation/backend/lib/browser/automationRecordedProgram");
  const rows=locator=>[{name:'browser_fill',arguments:{locator,value:'@r.password'}},{name:'browser_assert',arguments:{assertion:'value',locator,value:'@r.password'}},{name:'browser_assert',arguments:{assertion:'field_valid',locator}}];
  const step={id:'action',step_order:1,step_type:'web',expected_result:'Password is entered without errors',automation_code:compileRecordedProgram(rows('#old')).source};
  const current={...base,steps:[step]};

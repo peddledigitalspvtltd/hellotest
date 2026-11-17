@@ -1,10 +1,11 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {buildAutomationCaseBlueprint}=require('../../../platform/backend/src/utils/automationCaseBlueprint');
-const {groundedManualCoverage}=require('../../backend/lib/automationBuildCompletion');
-const {reduceActivityProgress}=require('../../backend/lib/automationActivityProgress');
-const {sectionPreview}=require('../../backend/lib/automationWorkspacePreview');
-const {generationApplicability}=require('../../backend/lib/automationGenerationManifest');
+const {groundedManualCoverage}=require("../../backend/lib/build/automationBuildCompletion");
+const {reduceActivityProgress}=require("../../backend/lib/build/automationActivityProgress");
+const {sectionPreview}=require("../../backend/lib/build/automationWorkspacePreview");
+const {generationApplicability}=require("../../backend/lib/build/automationGenerationManifest");
 const {parse}=require('acorn');
 const fs=require('node:fs');
 const {createRequire}=require('node:module');
@@ -41,7 +42,7 @@ test('saved native section previews bind the exact manual specification and thei
 });
 
 test('the actual upstream saved-section callback retains protected per-step artifacts with exact linked manual coverage',async()=>{
- const serviceFile=require.resolve('../../backend/services/aiAutomationBuilder.service'),source=fs.readFileSync(serviceFile,'utf8');
+ const serviceFile=require.resolve('../../backend/services/aiAutomationBuilder.service'),source=implementationSource('builder/programGeneration');
  let hook;
  const visit=node=>{if(!node||typeof node!=='object')return;
   if(node.type==='Property'&&node.key?.name==='onSection'&&source.slice(node.value.start,node.value.end).includes('manualLineage.manualCoverage'))hook=node.value;

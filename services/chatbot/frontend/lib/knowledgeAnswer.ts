@@ -1,24 +1,12 @@
 import type { KnowledgeAnswerContract, KnowledgeAssistantMessage, KnowledgeCitation } from "@hellotest/platform/frontend/src/types";
+import { knowledgeCitationHref } from "@hellotest/platform/frontend/src/shared/lib/knowledgeCitation";
+export { knowledgeCitationHref };
 
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown, maximum = 20_000) => typeof value === "string" ? value.slice(0, maximum) : "";
 const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 100) : [];
 export const KNOWLEDGE_PRESENTATIONS = ["TEXT", "TABLE", "TIMELINE", "COMPARISON", "RELATIONSHIP_GRAPH", "METRIC", "DOCUMENT_RESULTS", "IMAGE_RESULTS"] as const;
 export type ValidatedKnowledgePresentation = { type: typeof KNOWLEDGE_PRESENTATIONS[number]; payload: Record<string, unknown> };
-
-export function knowledgeCitationHref(citation: KnowledgeCitation) {
-  const uri = String(citation.uri || citation.source_uri || "").trim();
-  if (!uri && citation.source_id && !["live_project", "product_help"].includes(String(citation.source_kind))) {
-    const query = new URLSearchParams({ source_id: citation.source_id });
-    if (citation.freshness?.current === false && citation.knowledge_id) query.set("revision_id", citation.knowledge_id);
-    return `/knowledge-repo?${query.toString()}`;
-  }
-  if (/^\/(?!\/)/.test(uri) && !/[\\\r\n]/.test(uri)) return uri;
-  try {
-    const url = new URL(uri);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
-  } catch { return ""; }
-}
 
 export function knowledgeCitationLocation(citation: KnowledgeCitation) {
   const location = citation.location;

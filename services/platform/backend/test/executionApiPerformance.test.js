@@ -101,22 +101,22 @@ test("relation authorization propagates unavailable permission storage instead o
   await assert.rejects(knowledge._internals.filterRelationsForUser("project", [{ source_type: "story", target_type: "story" }], { id: "reader" }), /Permission storage unavailable/);
 });
 
-test("workflow lists reconcile at most four runs at a time and retain newest-first order", async t => {
+test("workflow lists bound actual reconciliation to two store writes and retain newest-first order", async t => {
   const workflows = require("../../../agentic/backend/services/agenticWorkflow.service");
   const runtime = require("../../../agentic/backend/services/agenticWorkflowExecution.service");
-  const rows = Array.from({ length: 100 }, (_, index) => ({ id: `run-${index}`, status: "running", node_results: [] }));
+  const rows = Array.from({ length: 100 }, (_, index) => ({ id: `run-${index}`, project_id:'project', status: "running", execution_mode:'review', node_results: [], output_payload:{}, workflow_snapshot:{execution_mode:'review',nodes:[],edges:[],runtime_contract:{orchestrator:'local',deadline_at:new Date(Date.now()-1000).toISOString()}} }));
+  const persisted=new Map(rows.map(row=>[row.id,row]));
   t.mock.method(db, "prepare", () => ({ all: async () => rows }));
-  let active = 0;
-  let peak = 0;
-  t.mock.method(runtime, "reconcile", async run => {
-    peak = Math.max(peak, ++active);
-    await new Promise(resolve => setImmediate(resolve));
-    active--;
-    return { ...run, status: "interrupted" };
+  let active=0,peak=0;
+  t.mock.method(runtime._internals.store,'get',async id=>persisted.get(id));
+  t.mock.method(runtime._internals.store,'save',async(id,status,nodes,output)=>{
+    peak=Math.max(peak,++active);await new Promise(resolve=>setImmediate(resolve));active--;
+    persisted.set(id,{...persisted.get(id),status,node_results:nodes,output_payload:output});return{id};
   });
   const actual = await workflows.listWorkflowRuns({ user: { id: "admin", role: "admin" } });
-  assert.equal(peak, 4);
+  assert.equal(peak, 2);
   assert.deepEqual(actual.map(run => run.id), rows.map(row => row.id));
+  assert.ok(actual.every(run=>run.status==='interrupted'));
 });
 
 test("rerun route stamps the authenticated actor instead of a submitted identity", async t => {

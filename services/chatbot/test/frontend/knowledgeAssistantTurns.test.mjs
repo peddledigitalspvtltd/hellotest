@@ -23,6 +23,7 @@ function fixture({ failure, cancel = false, changeScope = false } = {}) {
     smartContext: { query: "Scope", sourceIds: ["source-1"], sourceKinds: ["text"], contextText: "Reviewed evidence" },
     scopeGenerationRef, requestControllerRef, projectId: "project-1", appTypeId: "app-1", sessionId: "conversation-1", createClientTurnId: () => "turn-1",
     setActiveRequestIntegrationId() {}, setProgressEvents() {}, setPrompt() {}, setSessionId() {}, setRequestStartedAt() {}, setTurnNotices() {}, setAnswerDelivery() {}, setShowLatest() {}, followConversationRef: { current: true },
+    pendingProgressRef: { current: [] }, pendingAnswerDeliveryRef: { current: null }, queueProgressEvent() {}, scheduleAssistantFrame() {}, clearAnswerDelivery() {},
     setMessages: (updater) => { messages = updater(messages); }, setRetryTurns: (updater) => { retries = updater(retries); },
     createSessionMutation: { mutateAsync: async () => ({ id: "conversation-1" }) }, safeSession: (item) => item,
     sendMessageMutation: { mutateAsync: async (input) => { calls.push(input); if (changeScope) scopeGenerationRef.current += 1; if (cancel) { requestControllerRef.current.abort(); throw new DOMException("Stopped", "AbortError"); } if (failure) throw failure; return { assistant_message: { id: "answer", content: "Evidence answer" } }; } },
@@ -38,7 +39,8 @@ test("evidence-only turns explicitly bypass models and carry their reviewed sour
   await run.submit();
   assert.equal(run.calls[0].responseMode, "evidence");
   assert.equal(run.calls[0].integrationId, "");
-  assert.equal(run.calls[0].onAnswerDelta, undefined, "The UI waits for the complete answer contract");
+  assert.equal(typeof run.calls[0].onAnswerDelta, "function", "The UI accepts only post-validation answer sections");
+  assert.equal(typeof run.calls[0].onAnswerSources, "function", "The UI can render evidence cards before the answer sections");
   assert.deepEqual(run.calls[0].filters.source_kinds, ["text", "knowledge_item", "product_help"]);
   assert.deepEqual(run.calls[0].smartContext.source_ids, ["source-1"]);
   assert.equal(run.messages()[1].scope.project_id, "project-1");

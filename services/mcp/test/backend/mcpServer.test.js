@@ -18,7 +18,7 @@ const auth={authInfo:{token:'test',clientId:'host',scopes:[],extra:{actor}}};
 test.after(()=>server.handler.close());
 test('real SDK serves the modern stateless tool catalog and caller-bound results',async()=>{
  const response=await server.handler.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list',params:{_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/list'}),auth);
- assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,19);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_graph_resolve'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_context_graph_explore'));
+ assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,18);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_graph_resolve'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_context_graph_explore'));
  const result=await server.callLocal(actor,'hellotest_capabilities',{});assert.equal(result.owner,'user-a');assert.equal(result.project,'project-a');
 });
 test('legacy initialize remains compatible without protocol session authority',async()=>{
@@ -154,4 +154,100 @@ test('the SDK advertises only callable named domain tools with typed receipts an
   const planned=await server.callLocal(actor,'hellotest_test_case_create_prepare',{title:'Registration',app_type_id:'app'});
   assert.equal(planned.plan_id,'review-plan');assert.equal(planned.state,'requires_authorization');
  }finally{backplane.read=prior.read;backplane.prepare=prior.prepare;}
+});
+
+// --- tool sets ------------------------------------------------------------------------------------------------
+
+const z=require('zod');
+const toolSets=require('../../backend/toolSets');
+const memo=require('../../backend/requestMemo');
+const scopedAuth=scopes=>({authInfo:{token:'test',clientId:'host',scopes,extra:{actor:{...actor,scopes}}}});
+const decodeResponse=async response=>{const raw=await response.text();return raw?JSON.parse(response.headers.get('content-type')?.includes('text/event-stream')?raw.split('\n').find(line=>line.startsWith('data:')).slice(5):raw):null;};
+const listTools=async context=>{
+ const response=await server.handler.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list',params:{_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/list'}),context);
+ return (await decodeResponse(response)).result.tools.map(tool=>tool.name).sort();
+};
+
+test('a credential is shown only the tools of the sets it was issued for',async()=>{
+ const everything=await listTools(auth);
+ const published=Object.entries(server.tools).filter(([,tool])=>!tool.available||tool.available()).map(([name])=>name).sort();
+ assert.ok(published.length>=18);
+ assert.deepEqual(everything,published,'an in-process actor, which is the platform itself, still sees the whole catalog');
+ const knowledgeOnly=await listTools(scopedAuth(['knowledge']));
+ assert.ok(knowledgeOnly.includes('hellotest_context_build')&&knowledgeOnly.includes('hellotest_graph_context'));
+ assert.ok(!knowledgeOnly.includes('hellotest_capabilities')&&!knowledgeOnly.includes('hellotest_operation_prepare'));
+ const readOnly=await listTools(scopedAuth(toolSets.DEFAULT_SCOPES));
+ assert.ok(readOnly.includes('hellotest_capabilities')&&readOnly.includes('hellotest_database_query')&&readOnly.includes('hellotest_context_build'));
+ assert.deepEqual(readOnly.filter(name=>/_prepare$|_execute$|_status$/.test(name)),[],'the default credential cannot prepare or run a change');
+ const withActions=await listTools(scopedAuth(toolSets.normalizeScopes(['actions'])));
+ assert.ok(withActions.includes('hellotest_operation_prepare')&&withActions.includes('hellotest_operation_execute')&&withActions.includes('hellotest_capabilities'));
+ assert.ok(!withActions.includes('hellotest_browser_mission_prepare'),'automation is a separate grant');
+ assert.deepEqual(await listTools(scopedAuth(toolSets.SET_IDS)),everything,'all four sets are the whole catalog');
+ for(const scopes of [['knowledge'],['records'],['knowledge','records'],['actions'],['automation']]){
+  const granted=toolSets.normalizeScopes(scopes);
+  assert.ok((await listTools(scopedAuth(granted))).every(name=>toolSets.permits(granted,name,server.tools[name])),JSON.stringify(scopes));
+ }
+});
+
+test('a tool outside the credential\'s sets is not callable through the transport',async()=>{
+ const response=await server.handler.fetch(request({jsonrpc:'2.0',id:9,method:'tools/call',params:{name:'hellotest_operation_prepare',arguments:{operation_id:'x',arguments:{}},_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':'hellotest_operation_prepare'}),scopedAuth(toolSets.DEFAULT_SCOPES));
+ const body=await decodeResponse(response);
+ assert.ok(body.error||body.result?.isError,'the tool is not registered for this credential');
+ assert.equal(body.result?.structuredContent,undefined);
+});
+
+test('invoke enforces the credential\'s sets itself, with a message that says what to do',async()=>{
+ const readOnly={...actor,scopes:toolSets.DEFAULT_SCOPES};
+ await assert.rejects(server.invoke(readOnly,'hellotest_operation_prepare',{operation_id:'op',arguments:{}}),error=>error.code==='MCP_SCOPE_DENIED'&&error.statusCode===403&&error.toolSet==='actions'&&/actions tool set/.test(error.message));
+ await assert.rejects(server.invoke({...actor,scopes:['knowledge']},'hellotest_capabilities',{}),{code:'MCP_SCOPE_DENIED',toolSet:'records'});
+ assert.equal((await server.invoke(readOnly,'hellotest_capabilities',{})).data.owner,'user-a');
+ assert.equal((await server.invoke(actor,'hellotest_capabilities',{})).data.owner,'user-a','the platform itself is not narrowed');
+});
+
+test('a tool that belongs to no set is served to no scoped credential, and the platform can still use it',async t=>{
+ server.tools.hellotest_unclassified_probe={description:'probe',schema:z.object({}).strict(),run:async()=>({reached:true})};
+ t.after(()=>{delete server.tools.hellotest_unclassified_probe;});
+ await assert.rejects(server.invoke({...actor,scopes:toolSets.SET_IDS},'hellotest_unclassified_probe',{}),{code:'MCP_SCOPE_DENIED',message:/not published in any tool set/});
+ assert.ok(!(await listTools(scopedAuth(toolSets.SET_IDS))).includes('hellotest_unclassified_probe'));
+ assert.equal((await server.invoke(actor,'hellotest_unclassified_probe',{})).data.reached,true);
+});
+
+test('retired and unknown tools get precise errors',async()=>{
+ await assert.rejects(server.invoke(actor,'hellotest_graph_expand',{entity_id:'x'}),error=>error.code==='MCP_TOOL_RETIRED'&&error.statusCode===410&&/hellotest_graph_context/.test(error.message));
+ await assert.rejects(server.invoke(actor,'hellotest_nothing',{}),{code:'MCP_TOOL_NOT_FOUND',statusCode:404});
+ assert.ok(!(await listTools(auth)).includes('hellotest_graph_expand'));
+});
+
+test('resources honour the credential\'s sets',async()=>{
+ const read=async(uri,scopes)=>decodeResponse(await server.handler.fetch(request({jsonrpc:'2.0',id:5,method:'resources/read',params:{uri}}),scopedAuth(scopes)));
+ assert.equal(JSON.parse((await read('hellotest://schema',['records'])).result.contents[0].text).scope.subject,'user-a');
+ assert.ok((await read('hellotest://schema',['knowledge'])).error,'the schema projection is a records resource');
+ assert.ok((await read('hellotest://projects/project-a/ontology',['knowledge'])).error);
+ assert.ok((await read('hellotest://projects/project-a/graph/ontology',['records'])).error,'the graph vocabulary is a knowledge resource');
+});
+
+test('every tool call runs inside one request scope',async t=>{
+ server.tools.hellotest_scope_probe={description:'probe',schema:z.object({}).strict(),run:async()=>({inside:memo.active()})};
+ t.after(()=>{delete server.tools.hellotest_scope_probe;});
+ assert.equal(memo.active(),false);
+ assert.equal((await server.invoke(actor,'hellotest_scope_probe',{})).data.inside,true);
+ const response=await server.handler.fetch(request({jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'hellotest_scope_probe',arguments:{},_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':'hellotest_scope_probe'}),auth);
+ assert.equal((await decodeResponse(response)).result.structuredContent.data.inside,true);
+ assert.equal(memo.active(),false,'the scope closes with the call');
+});
+
+test('what a host is told about the server matches the tool sets of its credential',async()=>{
+ const initialize=async context=>(await decodeResponse(await server.handler.fetch(request({jsonrpc:'2.0',id:11,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'host',version:'1'}}}),context))).result.instructions;
+ const everything=await initialize(auth);
+ assert.match(everything,/capabilities and database_schema/);assert.match(everything,/context_build for evidence/);assert.match(everything,/exact approved plan/);
+ assert.doesNotMatch(everything,/issued for the/,'the platform itself has no credential to describe');
+ const knowledge=await initialize(scopedAuth(['knowledge']));
+ assert.match(knowledge,/context_build for evidence/);assert.doesNotMatch(knowledge,/capabilities and database_schema/,'records tools are not listed for this credential');
+ assert.doesNotMatch(knowledge,/exact approved plan/,'a read-only credential is not told how to change things');
+ assert.match(knowledge,/issued for the knowledge tool set; tools outside it are not listed and cannot be called/);
+ const readOnly=await initialize(scopedAuth(toolSets.DEFAULT_SCOPES));
+ assert.match(readOnly,/capabilities and database_schema/);assert.match(readOnly,/context_build for evidence/);assert.doesNotMatch(readOnly,/exact approved plan/);
+ assert.match(readOnly,/knowledge, records tool sets; tools outside them/);
+ const writing=await initialize(scopedAuth(toolSets.normalizeScopes(['actions'])));
+ assert.match(writing,/exact approved plan/);assert.doesNotMatch(writing,/context_build for evidence/,'knowledge was not asked for');
 });

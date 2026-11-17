@@ -20,11 +20,13 @@ async function enqueue(run, insert) {
     if (!await insert()) return false;
     const graph = run.workflow_snapshot;
     const bodies = require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph').loopBodies(graph.nodes, graph.edges);
-    const payload = { runId: run.id, deadline: graph.runtime_contract.deadline_at, scheduler_version: 2, processing: graph.runtime_contract.processing,
+    const payload = { runId: run.id, deadline: graph.runtime_contract.deadline_at, scheduler_version: graph.runtime_contract.scheduler_version || 2, ...(run.resume_seeds ? {initial_receipts:run.resume_seeds.map(row=>require("../nodeReceipts").summary(row.result,row.result_hash))} : {}), processing: graph.runtime_contract.processing,
       nodes: graph.execution_order.map(id => {
         const node = graph.nodes.find(item => item.id === id);
         return { id, kind: node.data.kind, onError: node.data.onError || 'stop', exclusive: require('../workflowScheduling').exclusive(node), ...(bodies[id] ? { body_ids: bodies[id] } : {}) };
       }), edges: graph.edges.map(({ source, target, sourceHandle, targetHandle }) => ({ source, target, sourceHandle, targetHandle })) };
+    for (const row of run.resume_seeds || []) await db.prepare(`INSERT INTO workflow_node_receipts(run_id,node_id,project_id,request_hash,state,result,result_hash,completed_at)
+      VALUES(?,?,?,?,'recorded',?,?,CURRENT_TIMESTAMP)`).run(run.id,row.node_id,run.project_id,'resume:'+row.result_hash,row.result,row.result_hash);
     await db.prepare(`INSERT INTO workflow_delivery_outbox(id,project_id,run_id,command,payload) VALUES(?,?,?,'start',?) ON CONFLICT(id) DO NOTHING`)
       .run(`start:${run.id}`, run.project_id, run.id, payload);
     return true;

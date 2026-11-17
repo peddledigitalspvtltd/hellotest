@@ -30,6 +30,7 @@ async function runtimeStatus() {
     await promisify(execFile)(python, ['-c', 'import sys; assert sys.version_info >= (3,9)'], { timeout: 3000, maxBuffer: 1024 });
     value = { available: true, detail: 'Repository analysis is ready. Source code is analyzed without running repository commands.' };
   } catch { value = { available: false, detail: 'The repository analysis runtime is unavailable. Install Python 3.9 or later and deploy the agents package.' }; }
+  value={...value,capability:'repository_analysis',checked_at:new Date().toISOString(),minimum_python:'3.9'};
   runtimeCache = { checked: Date.now(), value };
   return value;
 }

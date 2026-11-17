@@ -1,5 +1,22 @@
 import { parse } from "acorn";
 
+export type RepositoryLocatorStrategy = "css" | "testid" | "role" | "label" | "text" | "placeholder" | "xpath";
+
+/** Build the same closed locator expressions supported by validation and playback. */
+export function buildSemanticRepositoryLocator(strategy: Exclude<RepositoryLocatorStrategy, "css">, value: string, role = "", index?: number) {
+  if (!value.trim()) throw new Error("Enter the captured value for this locator strategy.");
+  if (index !== undefined && (!Number.isSafeInteger(index) || index < 0)) throw new Error("Match index must be a whole number starting at 0.");
+  const q = JSON.stringify(value);
+  const methods = { testid: "getByTestId", label: "getByLabel", text: "getByText", placeholder: "getByPlaceholder" };
+  let locator: string;
+  if (strategy === "xpath") locator = `xpath=${value.trim().replace(/^xpath=/i, "")}`;
+  else if (strategy === "role") {
+    if (!/^[a-z][a-z-]*$/.test(role.trim())) throw new Error("Enter a valid accessible role, such as button or textbox.");
+    locator = `getByRole(${JSON.stringify(role.trim())}, {name:${q}, exact:true})`;
+  } else locator = `${methods[strategy]}(${q}${strategy === "testid" ? "" : ", {exact:true}"})`;
+  return index === undefined ? locator : strategy === "xpath" ? `${locator} >> nth=${index}` : `${locator}.nth(${index})`;
+}
+
 /** Use captured attributes as data; never evaluate a locator or captured HTML. */
 export function buildAttributeLocator(tag: string, attributes: Array<[string, string]>, scope = "", index?: number) {
   if (index !== undefined && (!Number.isSafeInteger(index) || index < 0)) throw new Error("Match index must be a whole number starting at 0.");

@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { progressEvent, createDiagnosticReporter, isCriticalAutomationError } = require('../../backend/lib/automationProgressDiagnostics');
-const { reduceBrowserActions, operationDuration } = require('../../backend/lib/automationActivityReceipts');
-const { reduceActivityProgress } = require('../../backend/lib/automationActivityProgress');
+const { progressEvent, createDiagnosticReporter, isCriticalAutomationError } = require("../../backend/lib/build/automationProgressDiagnostics");
+const { reduceBrowserActions, operationDuration } = require("../../backend/lib/build/automationActivityReceipts");
+const { reduceActivityProgress } = require("../../backend/lib/build/automationActivityProgress");
 
 test('public action events have host correlation and timestamps without arguments, private messages or injected identities', () => {
   const original = { phase: 'automation.agent.action.failed', message: 'page contains PRIVATE', metadata: { phase_message: 'PRIVATE', arguments: 'PRIVATE' }, details: {

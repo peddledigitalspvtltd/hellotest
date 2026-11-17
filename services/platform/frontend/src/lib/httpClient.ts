@@ -107,6 +107,7 @@ export class HelloTestApiError extends Error {
   readonly currentRevision?: number;
   readonly requestId?: string;
   readonly traceId?: string;
+  readonly details?: ApiError["details"];
 
   constructor(message: string, status: number, payload: ApiError = {}, diagnostics: { requestId?: string; traceId?: string } = {}) {
     super(message);
@@ -114,6 +115,7 @@ export class HelloTestApiError extends Error {
     this.status = status;
     this.code = payload.code;
     this.currentRevision = payload.current_revision;
+    this.details = payload.details;
     this.requestId = diagnostics.requestId;
     this.traceId = diagnostics.traceId;
   }

@@ -1,15 +1,17 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { retryLlmCapacity } = require('@hellotest/platform/backend/src/utils/llmCapacityRetry');
-const { retryActorJsonOutput } = require('../../backend/lib/automationJsonOutputRetry');
-const { browserActorRequestPolicy } = require('../../backend/lib/automationActorModelPolicy');
+const { retryActorJsonOutput } = require("../../backend/lib/build/automationJsonOutputRetry");
+const { browserActorRequestPolicy } = require("../../backend/lib/browser/automationActorModelPolicy");
 const { createLlmProviderError } = require('@hellotest/platform/backend/src/utils/upstreamLlmError');
 const { getCompletionContent } = require('@hellotest/platform/backend/src/utils/llmResponse');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
-const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-const declaration = source.slice(source.indexOf('const requestChatCompletion ='), source.indexOf('const normalizeUrlKey ='));
+const source = implementationSource('builder/programGeneration');
+const modelSource = fs.readFileSync(require.resolve("../../backend/lib/build/automationModelClient"), 'utf8');
+const declaration = modelSource.slice(modelSource.indexOf('const requestChatCompletion ='), modelSource.indexOf('module.exports ='));
 const integration = { base_url: 'https://provider.example.test/v1', model: 'fixture-small-model', api_key: 'private-fixture-key' };
 const accepted = () => new Response(JSON.stringify({ choices: [{ message: { content: '{"stage":"act","tool_calls":[]}' } }] }), { headers: { 'content-type': 'application/json' } });
 const rejected = (delay = '0.005') => new Response(JSON.stringify({ error: { code: 'rate_limit_exceeded', message: `TPM: Limit 8000, Used 6511, Requested 7623. Please try again in ${delay}s.` } }), { status: 429, headers: { 'retry-after': delay } });
@@ -190,7 +192,7 @@ test('the remaining source-generation callback cannot acquire retired actor enve
 });
 
 test('the upstream completion callback derives actor tools, review policy and repair limits from its host phase',async()=>{
- const begin=source.indexOf('const complete=async({prompt:input,phase,step,nativeTools,timeoutMs,beforeDispatch})=>'),end=source.indexOf('\n    let result;',begin);
+ const begin=source.indexOf('const complete=async({prompt:input,phase,step,nativeTools,referenceImages,timeoutMs,beforeDispatch})=>'),end=source.indexOf('\n    let result;',begin);
  assert.ok(begin>0&&end>begin);
  const requests=[],traces=[];let checks=0;
  const assertAccess=async()=>{checks++;};
@@ -231,7 +233,7 @@ test('provider capacity recovery rechecks case and data access before redispatch
 });
 
 test('the upstream host forbids whole-case retry when provider capacity fails after a confirmed native action',async()=>{
- const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+ const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
  const calls=[],phases=[];let actors=0,saves=0,closes=0;
  const error=createLlmProviderError({status:429,retryAfterMs:46005});
  const startUrl='https://app.test/start',step={id:'current',step_order:1,step_type:'web',action:'Save the form',expected_result:'The saved status appears'};

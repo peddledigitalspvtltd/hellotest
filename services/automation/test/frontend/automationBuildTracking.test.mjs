@@ -1,3 +1,4 @@
+import { automationOwnerSource, automationWorkspaceSource, findAutomationBinding } from "./helpers/automationWorkspaceSources.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ test("a pending build submission is bound to its originating case and applicatio
     assert.equal(automationBuildSubmissionPending(true,scope,current),false);
   assert.equal(automationBuildSubmissionPending(false,scope,scope),false,"a failed or settled POST restores its actual activity and error presentation");
   assert.equal(automationBuildSubmissionPending(true,undefined,scope),false);
-  const source=readFileSync(new URL("../../frontend/pages/AutomationPage.tsx",import.meta.url),"utf8");
+  const source=automationWorkspaceSource();
   assert.match(source,/submitting=\{automationBuildSubmissionPending\(buildSingleAutomation\.isPending, buildSingleAutomation\.context\?\.briefScope, agentBriefScope\)\}/);
 });
 

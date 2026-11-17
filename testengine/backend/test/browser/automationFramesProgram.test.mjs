@@ -12,9 +12,9 @@ import {runAutomationVerification} from '../../dist/lib/automationVerification.j
 import {runAutomationVerificationCli} from '../../dist/lib/automationVerificationCli.js';
 import {compileRecordedProgram as engineCompile} from '../../dist/lib/automationVerificationProgram.js';
 const require=createRequire(import.meta.url);
-const {compileRecordedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools.js');
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {compileRecordedProgram}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools.js");
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const op=(name,args)=>({name,arguments:args});
 const receipt=result=>JSON.parse(result.content.find(part=>part.type==='text').text);
 const syntax=value=>Array.isArray(value)?value.map(syntax):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([key])=>!['start','end','raw'].includes(key)).map(([key,item])=>[key,syntax(item)])):value;

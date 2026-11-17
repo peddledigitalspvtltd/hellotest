@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createPortableAutomationArtifact}=require('../../backend/lib/automationPortableArtifact');
+const {createPortableAutomationArtifact}=require("../../backend/lib/build/automationPortableArtifact");
 const testCase={id:'portable',title:'Standalone checkout'};
 const update=(code,extra={})=>({step:{id:'save',step_order:1,action:'Save account',step_type:'web'},automation_code:code,...extra});
 

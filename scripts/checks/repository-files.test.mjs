@@ -100,3 +100,20 @@ test('real Git checkouts still fail both audits when dependency or generated fil
     });
   }
 });
+
+
+test('reviewed conventional declaration names are allowed only for the exact owned contract entrypoints', async t => {
+  const root=await fixture(t);await minimalArchitecture(root);
+  for(const domain of ['agents','engine','evidence','workflow'])await put(root,`services/contracts/${domain}/index.d.ts`,`export type ${domain}Fixture = { kind: "${domain}" };`);
+  const allowed=JSON.parse(check(root,'audit-source-layout.mjs',['--strict']));
+  assert.equal(allowed.warnings.length,0);
+  const reviewed=allowed.intentional_repeated_basenames.find(item=>item.basename==='index.d.ts');
+  assert.equal(reviewed.files.length,4);assert.match(reviewed.reason,/public declaration entrypoint/);
+  await put(root,'services/contracts/unreviewed/index.d.ts','export type UnreviewedMirror = {};');
+  assert.throws(()=>check(root,'audit-source-layout.mjs',['--strict']),error=>{
+    assert.equal(error.status,2);
+    const denied=JSON.parse(error.stdout);
+    assert.ok(denied.warnings.some(item=>item.type==='repeated-basename'&&item.basename==='index.d.ts'&&item.files.includes('services/contracts/unreviewed/index.d.ts')));
+    return true;
+  });
+});

@@ -1,8 +1,8 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {browserPromptContext,browserCurrentSnapshotObservation,browserCurrentSnapshot}=require('../../backend/lib/automationBrowserContext');
-const {browserRecoveryState,recordBrowserCheck,confirmedLocatorValidation,browserToolBudgetError}=require('../../backend/lib/automationBrowserRecovery');
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {browserPromptContext,browserCurrentSnapshotObservation,browserCurrentSnapshot}=require("../../backend/lib/browser/automationBrowserContext");
+const {browserRecoveryState,recordBrowserCheck,confirmedLocatorValidation,browserToolBudgetError}=require("../../backend/lib/browser/automationBrowserRecovery");
 
 const url='https://app.test/auth',stepId='signup-navigation';
 const good='getByRole("textbox", { name: "Email", exact: true })';

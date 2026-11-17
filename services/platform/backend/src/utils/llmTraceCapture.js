@@ -71,6 +71,7 @@ function generationCorrelation(scope) {
   return result;
 }
 async function notify(trace,record){
+ require('./agentMetrics').provider(trace.scope,{stage:trace.profileCapture.request_stage,dispatched:trace.profileCapture.request_stage==='provider_dispatch',...record});
  if(typeof trace.scope.on_llm_trace!=='function')return;
  let timer;
  try{await Promise.race([Promise.resolve().then(()=>trace.scope.on_llm_trace({trace_id:trace.id,call_id:trace.id,feature:trace.scope.feature,model:trace.model,stage:trace.profileCapture.request_stage,dispatched:trace.profileCapture.request_stage==='provider_dispatch',...generationCorrelation(trace.scope),...record})),new Promise(resolve=>{timer=setTimeout(resolve,500);})]);}catch{/* Activity logging cannot replay or discard a generation. */}finally{clearTimeout(timer);}

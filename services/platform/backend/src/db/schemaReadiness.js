@@ -2,9 +2,20 @@
 // Versions are minimum additive-schema versions; destructive changes require a
 // separately reviewed compatibility/rolling-deployment plan.
 // Version 15 permits distinct effect receipts for each workflow loop iteration.
+// Version 16 adds the Knowledge retrieval, graph-ontology and change-event
+// structures (weighted lexical vectors, relationship backoff, outbox).
+// Version 17 adds tool-set scopes and the internal marker to MCP credentials.
+// Version 18 adds durable semantic-index work, partitioned context evidence
+// payloads and the monthly trace-partition maintenance function.
+// Version 19 adds aggregate retention audit and bounded owner/project trace quotas.
+// Version 20 regenerates graph status and provenance checks from the ontology.
+// Version 22 adds registered public OAuth clients, one-time authorization codes
+// and browser consent requests for external MCP hosts.
+// Version 24 adds workflow trigger delivery, the agent activity outbox, and
+// recording-import activity correlation; observability version 3 owns agent runs.
 // Existing databases must run the normal additive migration before verify.
-const REQUIRED_SCHEMA_VERSION = 15;
-const requiredVersion = component => component === "main" ? REQUIRED_SCHEMA_VERSION : 2;
+const REQUIRED_SCHEMA_VERSION = 24;
+const requiredVersion = component => component === "main" ? REQUIRED_SCHEMA_VERSION : 3;
 const missing = component => Object.assign(new Error(`The ${component} database needs migration. Run npm --prefix services/platform/backend run migrate before starting API profiles.`), { code: "SCHEMA_MIGRATION_REQUIRED", statusCode: 503 });
 async function verifySchema(db, component) {
   const present = await db.prepare("SELECT to_regclass('public.runtime_schema_receipts') AS name").get();

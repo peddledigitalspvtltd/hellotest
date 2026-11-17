@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { browserAssertionSubjectFeedback, isNativeTextEntryControl } = require('../../backend/lib/automationBrowserAssertionSubject');
+const { browserAssertionSubjectFeedback, isNativeTextEntryControl } = require("../../backend/lib/browser/automationBrowserAssertionSubject");
 
 const schema = {
   type: 'object', additionalProperties: false,

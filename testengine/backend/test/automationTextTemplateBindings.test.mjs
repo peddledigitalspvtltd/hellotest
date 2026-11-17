@@ -10,7 +10,7 @@ const verifier=process.env.HELLOTEST_RUNTIME_TEST_BUILD?pathToFileURL(path.join(
 const {compileRecordedProgram:compile,parameterTemplateParts}=await import(runtime.href);
 const {validateAutomationVerificationRequest:validate}=await import(verifier.href);
 const require=createRequire(import.meta.url);
-const {compileRecordedProgram:hostCompile}=require('../../../services/automation/backend/lib/automationRecordedProgram');
+const {compileRecordedProgram:hostCompile}=require("../../../services/automation/backend/lib/browser/automationRecordedProgram");
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 const op=(assertion,value)=>({name:'browser_assert',arguments:{assertion,...(!assertion.startsWith('title')?{locator:'#status'}:{}),value}});
 const request=operations=>({schema_version:1,verification_id:randomUUID(),lease_token:randomUUID(),start_url:'https://fixture.test/form',sections:[{step_id:'status',automation_code:compile(operations)?.source||'throw new Error("invalid template");',operations}],parameters:{'t.item_name':'First name','s.client name':'Client'},replay_policy:{mode:'authorized_run',allow_mutations:true}});

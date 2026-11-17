@@ -23,9 +23,8 @@ test('all 23 exposed node kinds have valid implemented readiness paths, includin
     aggregator:{mergeMode:'waitAllAppend'},transform:{transformMapping:'{"value":"$input"}'},dataOperation:{dataOperation:'editFields'},
     wait:{waitMs:0},stop:{stopMessage:'Stop because the configured condition was reached.'},errorHandler:{},log:{},output:{}
   };
-  const source = ts.createSourceFile('workflowGraph.ts',fs.readFileSync(require.resolve('../../frontend/workflows/workflowGraph.ts'),'utf8'),ts.ScriptTarget.Latest,true);
-  const declared=source.statements.find(item=>ts.isTypeAliasDeclaration(item)&&item.name.text==='WorkflowNodeKind');
-  assert.deepEqual(Object.keys(definitions).sort(),declared.type.types.map(item=>item.literal.text).sort(),'Every exposed node kind must have a reviewed fixture');
+  const declared = require('../../shared/workflowNodeKinds.json').kinds;
+  assert.deepEqual(Object.keys(definitions).sort(),Object.keys(declared).sort(),'Every registered node kind must have a reviewed executable fixture');
   for(const [kind,data] of Object.entries(definitions)) {
     const start=node('start','trigger'),task=node('task',kind,data),finish=node('finish','output');
     let nodes=[start,task,finish],edges=[edge('start','task'),edge('task','finish')];
@@ -134,4 +133,19 @@ test('node retries, deadlines and parallel settings reject boolean and array coe
     const definition=workflow([start,finish],[edge('start','finish')]);definition.settings=settings;
     assert.equal(runtime.readiness(definition).ready,false);
   }
+});
+
+
+test('registry rejects inherited object names rather than treating them as executable descriptors',()=>{
+ const registry=require('../../backend/workflows/nodeRegistry');
+ for(const kind of ['constructor','toString','__proto__']){assert.equal(registry.get(kind),undefined);const report=runtime.readiness(workflow([node('request','trigger'),node('task',kind),node('result','output')],[edge('request','task'),edge('task','result')]));assert.equal(report.ready,false);assert.ok(report.blockers.some(item=>item.message.includes('Unsupported')));}
+});
+
+
+test('save-time registry validation enforces the same node and specialist caps as the editor',()=>{
+ const registry=require('../../backend/workflows/nodeRegistry');
+ assert.deepEqual(registry.validateDraft([node('a','agent'),node('b','agent'),node('c','repositoryAgent'),node('d','llmAgent')]),[]);
+ assert.match(registry.validateDraft(Array.from({length:5},(_,i)=>node(String(i),'agent'))).join(' '),/at most 4/);
+ assert.match(registry.validateDraft(Array.from({length:101},(_,i)=>node(String(i),'transform'))).join(' '),/at most 100/);
+ assert.match(registry.validateDraft([node('unknown','constructor')]).join(' '),/Unsupported/);
 });

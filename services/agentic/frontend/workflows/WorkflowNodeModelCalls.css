@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .studio-model-calls { display: grid; gap: 12px; min-width: 0; }
 .studio-model-calls > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .studio-model-calls > header h3 { margin: 0; }
@@ -10,10 +12,10 @@
 .studio-model-call > summary > span:first-of-type { display: grid; gap: 4px; flex: 1; min-width: 0; }
 .studio-model-call > summary strong { font-size: 13px; }
 .studio-model-call > summary small { color: var(--studio-muted); font-size: 11px; font-weight: 400; overflow-wrap: anywhere; line-height: 1.5; }
-.studio-model-call-status { font-size: 10px; border-radius: 20px; padding: 4px 7px; background: var(--surface-subtle, #f2f5f7); color: var(--studio-muted); white-space: nowrap; }
-.studio-model-call-status[data-status=succeeded] { color: #16845c; background: #15805b13; }
-.studio-model-call-status:is([data-status=failed], [data-status=invalid], [data-status=cancelled]) { color: #c54e47; background: #c54e4713; }
-.studio-model-call-status[data-status=running] { color: var(--app-accent, #326fe0); background: #326fe013; }
+.studio-model-call-status { font-size: 10px; border-radius: 20px; padding: 4px 7px; background: var(--surface-subtle, var(--ui-surface-subtle)); color: var(--studio-muted); white-space: nowrap; }
+.studio-model-call-status[data-status=succeeded] { color: var(--ui-green-text); background: color-mix(in srgb, var(--ui-green-strong) 7.451%, transparent); }
+.studio-model-call-status:is([data-status=failed], [data-status=invalid], [data-status=cancelled]) { color: var(--ui-red-text); background: color-mix(in srgb, var(--ui-red-solid) 7.451%, transparent); }
+.studio-model-call-status[data-status=running] { color: var(--app-accent, var(--ui-blue-text)); background: color-mix(in srgb, var(--ui-blue-solid) 7.451%, transparent); }
 .studio-model-call-body { display: grid; gap: 12px; border-top: 1px solid var(--border); padding: 12px; min-width: 0; }
 .studio-model-call-body > h4 { margin: 3px 0 0; font-size: 12px; }
 .studio-model-call-body > p { margin: 0; }

@@ -37,8 +37,8 @@ test('focus, viewport, empty, class and accessibility checks execute through nat
 });
 
 test('deterministic display metadata roundtrips while engine and standalone export execute the authoritative action exactly once', { timeout: 45_000 }, async t => {
-  const { mapGeneratedSectionInstructions } = require('../../../../services/automation/backend/lib/automationUpstreamSectionSource');
-  const { validSavedInstructionMapping } = require('../../../../services/automation/backend/lib/automationInstructionMapping');
+  const { mapGeneratedSectionInstructions } = require("../../../../services/automation/backend/lib/upstream/automationUpstreamSectionSource");
+  const { validSavedInstructionMapping } = require("../../../../services/automation/backend/lib/build/automationInstructionMapping");
   const app = Fastify();
   app.get('/', (_request, reply) => reply.type('text/html').send('<!doctype html><button onclick="window.applied=(window.applied||0)+1;document.querySelector(\'output\').textContent=window.applied;location.hash=\'done\'">Apply</button><output>0</output>'));
   const base = await app.listen({ host: '127.0.0.1', port: 0 });

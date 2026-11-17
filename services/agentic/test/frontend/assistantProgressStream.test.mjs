@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';
-const source=fs.readFileSync(new URL('../../frontend/lib/assistantProgressStream.ts',import.meta.url),'utf8');
+const source=fs.readFileSync(new URL('../../../ai/frontend/lib/assistantProgressStream.ts',import.meta.url),'utf8');
 const exports={};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,DOMException,TextDecoder});
 const parse=exports.consumeAssistantProgress;
 function response(text,chunkSize=7){const bytes=new TextEncoder().encode(text);return new Response(new ReadableStream({start(controller){for(let i=0;i<bytes.length;i+=chunkSize)controller.enqueue(bytes.slice(i,i+chunkSize));controller.close();}}));}

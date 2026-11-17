@@ -1,0 +1,9 @@
+# Compose after the existing local/durable/ops overlays. The reviewed release
+# receipt supplies image references and a merged same-origin UI map only.
+services:
+  api:
+    image: ${HELLOTEST_AUTOMATION_UI_API_IMAGE:?Use a validated Automation UI release receipt}
+  frontend:
+    image: ${HELLOTEST_AUTOMATION_UI_FRONTEND_IMAGE:?Use the validated frontend image from the release receipt}
+    environment:
+      HELLOTEST_CAPABILITY_UI_URLS: ${HELLOTEST_AUTOMATION_UI_MAP:?Use the reviewed same-origin UI map from the release receipt}

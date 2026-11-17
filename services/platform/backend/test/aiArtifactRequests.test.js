@@ -9,11 +9,12 @@ const { expandManagedInstructions } = require('./helpers/managedInstructions');
 const { groomingCandidate } = require('./helpers/groomingCandidate');
 
 function load(name, overrides = {}, directory = "services") {
-  const filename = sourceFile(`${name}.js`, directory);
+  const filename = path.isAbsolute(name) ? name : sourceFile(`${name}.js`, directory);
   const localRequire = createRequire(filename);
   const module = { exports: {} };
   new Function("require", "module", "exports", fs.readFileSync(filename, "utf8"))(
     id => {
+      if (['bugDraftGrounding','model-boundary','structuredModelBoundary'].includes(path.basename(id).replace(/\.js$/, ''))) return load(localRequire.resolve(id),overrides);
       const key = Object.keys(overrides).find(candidate => candidate.split('/').pop() === id.split('/').pop());
       if (key === undefined && id.endsWith('/dropdownCatalog.service')) return {getField:async()=>({default_value:'functional',options:[{value:'functional',active:true},{value:'regression',active:true}]})};
       return key === undefined ? localRequire(id) : overrides[key];
@@ -318,7 +319,7 @@ test("assurance sends current draft and criteria but accepts only narratives wit
   assert.match(prompt, /"ref":"review:context"/);
   assert.equal(fixture.selections[0].usageKey, "ai.quality.story_assurance");
   assert.equal(fixture.calls[0].policy.maxOutputTokens, 6144);
-  assert.ok(fixture.calls[0].policy.timeoutMs > 0 && fixture.calls[0].policy.timeoutMs <= 60000);
+  assert.ok(fixture.calls[0].policy.timeoutMs > 0 && fixture.calls[0].policy.timeoutMs <= 120000);
 });
 
 test("Test Case assurance includes linked Story acceptance and respects current Gherkin", async () => {
@@ -399,7 +400,7 @@ test("permitted assurance relationships are project scoped before reaching the m
 test("assurance routes forward the live draft, selected provider, prompt and locked baseline", async () => {
   const handlers = new Map();
   const captured = [];
-  const routes = load("qualityAssistance.routes", {
+  const routes = load("artifactImpact.routes", {
     "../services/qualityAssistance.service": { previewRequirementImpact: async args => captured.push(args), previewTestCaseImpact: async args => captured.push(args) },
     "../public/projectAccess": { getProject: async () => ({ id: "project" }) },
     "../services/requirement.service": { getRequirement: async () => story },

@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 exports.verify=async()=>{
  const actor=await require('@hellotest/mcp/backend/auth').principal('mcp-a','mcp-p-a','scope-fixture');
- const context=require('@hellotest/ai/backend/services/aiContextOrchestrator.service');
+ const context=require('@hellotest/ai/services/aiContextOrchestrator');
  const route=context.planContext({prompt:'Review the exact selected Test Case',agentId:'test-designer',requestedScopes:['test-cases']});
  const scoped=await context.buildLiveProjectEvidence({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:actor.user,prompt:'Review the exact selected Test Case',route,evidenceScope:{test_case_id:'mcp-case-a'}});
  assert.equal(scoped.counts.test_cases,1,'The current native reader must apply exact case scope to counts');
@@ -11,12 +11,16 @@ exports.verify=async()=>{
  assert.equal(foreign.counts.test_cases,0,'An identifier cannot escape the current project/application');
  const result=await require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:actor.user,query:'A visible case',filters:{agent_id:'test-designer',requested_scopes:['test-cases'],evidence_scope:{test_case_id:'mcp-case-a'},source_kinds:['test_case']},budgets:{max_context_tokens:5000,deadline_ms:12000}});
  assert.equal(result.retrieval.context_transport,'mcp');
- assert.equal(result.retrieval.intent_planning_mode,'scoped_native','An exact native read must not depend on another model planning call');
+ // The public context tool reads deterministically unless a caller asks for model planning, so an exact native read
+ // is reported as deterministic. What matters, and what is asserted, is that no model planning call was made.
+ assert.ok(['deterministic','scoped_native'].includes(result.retrieval.intent_planning_mode),'An exact native read must not depend on another model planning call');
+ assert.equal(result.retrieval.intent_planning_model_used,false);assert.equal(result.retrieval.intent_model_calls,0);
  assert.equal(result.retrieval.live_context_counts.test_cases,1,'Typed evidence scope must survive MCP, normalization, contract validation and retrieval');
  const small=await require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:actor.user,query:'Review the exact selected case',filters:{agent_id:'test-designer',requested_scopes:['test-cases','knowledge'],evidence_scope:{test_case_id:'mcp-case-a'}},budgets:{max_context_tokens:2000,deadline_ms:12000}});
  const snapshots=small.results.filter(item=>item.source_kind==='live_project').map(item=>JSON.parse(item.content));
  assert.ok(snapshots.some(item=>item.records?.some(row=>row.id==='mcp-case-a')),'The default 2,000-token budget must retain a usable native record rather than a JSON prefix');
- assert.equal(small.retrieval.intent_planning_mode,'scoped_native','Knowledge-enabled successors use the same exact scoped query without a redundant model planner');
+ assert.ok(['deterministic','scoped_native'].includes(small.retrieval.intent_planning_mode),'Knowledge-enabled successors use the same exact scoped query without a redundant model planner');
+ assert.equal(small.retrieval.intent_planning_model_used,false);assert.equal(small.retrieval.intent_model_calls,0);
 };
 
 exports.verifyIntersections=async({app,db,headers})=>{
@@ -44,7 +48,7 @@ exports.verifyIntersections=async({app,db,headers})=>{
   assert.deepEqual(await read('test_case','test_cases',{story_id:'scope-story-a',release_id:'scope-release-b',sprint_id:'scope-sprint-b'}),[],'A second linked Story must not satisfy a conflicting delivery scope');
   await db.query("INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status) VALUES ('scope-result-a','scope-run-a','mcp-case-a','mcp-app-a','passed'),('scope-result-b','scope-run-a','scope-case-b','mcp-app-a','failed')");
   const actor=(await require('@hellotest/mcp/backend/auth').principal('mcp-a','mcp-p-a','scope-fixture')).user;
-  const context=require('@hellotest/ai/backend/services/aiContextOrchestrator.service');
+  const context=require('@hellotest/ai/services/aiContextOrchestrator');
   const live=await context.buildLiveProjectEvidence({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:actor,prompt:'Review selected delivery scope',route:{live_scopes:['stories','test-cases','runs','bugs']},evidenceScope:scope});
   assert.deepEqual(live.counts,{stories:1,test_cases:1,runs:1,bugs:1},'Live queries preserve conjunctive scope through aggregate and support joins');
   const snapshots=live.hits.map(hit=>JSON.parse(hit.content));

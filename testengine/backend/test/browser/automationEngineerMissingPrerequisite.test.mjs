@@ -9,10 +9,10 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { runAutomationVerificationCli } from '../../dist/lib/automationVerificationCli.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
-const {createAutomationCaseJourney}=require('../../../../services/automation/backend/lib/automationCaseJourney');
-const {recordedSectionRequests,recordedSectionObjectTargets}=require('../../../../services/automation/backend/lib/automationBrowserRecording');
-const {runVerificationPipeline}=require('../../../../services/automation/backend/lib/automationVerificationPipeline');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
+const {createAutomationCaseJourney}=require("../../../../services/automation/backend/lib/build/automationCaseJourney");
+const {recordedSectionRequests,recordedSectionObjectTargets}=require("../../../../services/automation/backend/lib/browser/automationBrowserRecording");
+const {runVerificationPipeline}=require("../../../../services/automation/backend/lib/verification/automationVerificationPipeline");
 const current=prompt=>JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]);
 const allowed={decision:'allow',reason:'The observed login link is needed to reach the login form expected by this current section.',necessary_for_current_step:true,changes_expected_result:false,executes_later_step:false,requires_new_data:false};
 

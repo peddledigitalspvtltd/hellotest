@@ -22,7 +22,7 @@ exports.verify = async ({ db }) => {
       const user = (await require('@hellotest/mcp/backend/auth').principal('mcp-a', 'mcp-p-a', 'quality-scope-fixture')).user;
       const failureLogs = { stepStatuses: { 'quality-snapshot-a': 'failed' }, stepNotes: { 'quality-snapshot-a': 'Observed two orders after retry' }, stepEvidence: { 'quality-snapshot-a': { dataUrl: 'data:image/png;base64,NOT_FOR_MODEL' } } };
       await db.prepare('UPDATE execution_results SET logs = ? WHERE id = ?').run(JSON.stringify(failureLogs), 'quality-attempt-a');
-      const orchestrator = require('@hellotest/ai/backend/services/aiContextOrchestrator.service');
+      const orchestrator = require('@hellotest/ai/services/aiContextOrchestrator');
       const live = await orchestrator.buildLiveProjectEvidence({ projectId: 'mcp-p-a', appTypeId: 'mcp-app-a', user,
         prompt: 'Draft a defect from this failed checkout run', requestedScopes: ['runs'],
         evidenceScope: { execution_id: 'quality-run-a', story_id: 'quality-story-a' } });
@@ -54,7 +54,7 @@ exports.verify = async ({ db }) => {
       assert.equal(support.related_items[0].id, 'quality-story-b');
       assert.equal(support.related_items[0].description, 'Profile behaviour supports checkout identity.');
       assert.deepEqual(require('../../../../agentic/backend/services/agentArtifacts').storyTargets({ live_project: storyLive.hits }).map(item => item.id), ['quality-story-a'], 'Related context never becomes a mutation target.');
-      const quality = require('@hellotest/ai/backend/services/qualityEvidence.service');
+      const quality = require('@hellotest/ai/services/qualityEvidence');
       const input = { story_id: 'quality-story-a', test_case_id: 'quality-case-a', execution_id: 'quality-run-a', release_id: 'quality-release-a', sprint_id: 'quality-sprint-a' };
       const read = scopes => quality.collect({ projectId: 'mcp-p-a', appTypeId: 'mcp-app-a', user, input, scopes, existingTransaction: true });
       const ids = rows => rows.map(row => row.id);

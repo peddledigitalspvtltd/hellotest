@@ -10,9 +10,9 @@ import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {compileRecordedProgram as engineCompile} from '../../dist/lib/automationVerificationProgram.js';
 import {runAutomationVerification} from '../../dist/lib/automationVerification.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const {compileRecordedProgram,recordedLocatorSource}=require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const {projectModelSnapshot,resolveModelToolRequest}=require('../../../../services/automation/backend/lib/automationBrowserModelTargets.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const {compileRecordedProgram,recordedLocatorSource}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const {projectModelSnapshot,resolveModelToolRequest}=require("../../../../services/automation/backend/lib/browser/automationBrowserModelTargets.js");
 const receipt=result=>JSON.parse(result.content.find(part=>part.type==='text').text);
 
 test('real MCP scoped locator terminator survives observed alias, compilation and native Run while extra code never executes',{timeout:60000},async t=>{

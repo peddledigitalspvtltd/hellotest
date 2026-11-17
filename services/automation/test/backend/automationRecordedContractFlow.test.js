@@ -1,11 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
-const { recordedSectionRequests } = require('../../backend/lib/automationBrowserRecording');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { recordedContractMetadata, readRecordedSectionArtifacts } = require('../../backend/lib/automationRecordedContract');
-const { sectionPreview } = require('../../backend/lib/automationWorkspacePreview');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
+const { recordedSectionRequests } = require("../../backend/lib/browser/automationBrowserRecording");
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { recordedContractMetadata, readRecordedSectionArtifacts } = require("../../backend/lib/browser/automationRecordedContract");
+const { sectionPreview } = require("../../backend/lib/build/automationWorkspacePreview");
 
 // These are in-process MCP/provider fixtures. They exercise the real agent,
 // protected recording, reviewer validation, host seal and preview integration;

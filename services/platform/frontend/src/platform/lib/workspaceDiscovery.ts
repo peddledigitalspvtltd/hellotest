@@ -32,6 +32,10 @@ export function recordRecentCapability(key: string, id: string) {
 
 export function capabilityForDestination(pathname: string, search: string) {
   const params = new URLSearchParams(search);
+  // Older bookmarked quality workspaces predate the common agents catalog.
+  if (pathname === "/agentic-workflows" && !params.has("view") && params.get("surface") === "quality") {
+    return WORKSPACE_CAPABILITIES.find(item => item.id === "quality-agents");
+  }
   const view = params.get("view") || (pathname === "/agentic-workflows" ? params.get("surface") : null);
   return WORKSPACE_CAPABILITIES.find(item => {
     const [path, params] = item.to.split("?");

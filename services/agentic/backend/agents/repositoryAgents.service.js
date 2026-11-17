@@ -74,12 +74,12 @@ async function createRun(input, user, { file, requestKey, workflowTrace } = {}) 
   const agentType = input.agent_type;
   if (!AGENTS.some(agent => agent.id === agentType)) throw error('Choose a supported repository agent.');
   await requireScope(projectId, appTypeId, user, 'agentic_workflow.run');
-  const selection = require("../services/qualityAgentContracts").contextSelection({...input,context_scopes:input.context_scopes || require("@hellotest/platform/shared/agentContextPolicies.json")[agentType].scopes});
+  const selection = require("../services/qualityAgentContracts").contextSelection({...input,context_scopes:input.context_scopes || require("@hellotest/contracts/agents/contextPolicies.json")[agentType].scopes});
   const reviewFocus = cleanText(input.goal,2000);
   if(input.llm_integration_id && !await permissionService.hasPermission(user,'integration.view',projectId))throw error('Model selection requires integration access.',403);
-  const model = await agentRegistry.resolveModel(projectId, user.id, input.llm_integration_id || undefined, `ai.agentic.repository.${agentType}`);
   const runtime = await compiler.runtimeStatus();
   if (!runtime.available) throw error(runtime.detail, 503);
+  const model = await agentRegistry.resolveModel(projectId, user.id, input.llm_integration_id || undefined, `ai.agentic.repository.${agentType}`);
   const version = await compiler.compilerVersion();
   let source, inputHash;
   if (file) {
@@ -110,7 +110,7 @@ async function createRun(input, user, { file, requestKey, workflowTrace } = {}) 
       }
       const busy = await db.prepare("SELECT count(*)::integer AS total FROM repository_agent_runs WHERE project_id = ? AND created_by = ? AND status IN ('queued','running')").get(projectId, user.id);
       if (busy.total >= 3) throw error('Three of your repository analyses are already queued or running. Wait for one to finish or cancel it.', 429);
-      const payload = { ...selection, goal: reviewFocus, request_hash: requestHash, source, llm_integration_id: model?.id || null };
+      const payload = { ...selection, agent_descriptor:require('./agentDescriptors.service').repository(agentType), goal: reviewFocus, request_hash: requestHash, source, llm_integration_id: model?.id || null };
       if (executionScope) payload.execution_configuration = structuredClone(executionScope);
       // Only the host workflow runtime supplies these options. Request-body
       // fields cannot attribute an unrelated repository job to a workflow node.
@@ -219,6 +219,7 @@ async function performRun(run, controller) {
   const onStage = incoming => {
     if (signal.aborted || !incoming || typeof incoming.id !== 'string') return;
     const stage = { id: cleanText(incoming.id, 80), label: cleanText(incoming.label, 120), status: ['running','completed','passed','partial','failed','skipped'].includes(incoming.status) ? incoming.status : 'completed', detail: cleanText(incoming.detail, 500), duration_ms: Math.max(0, Number(incoming.duration_ms) || 0) };
+    require('@hellotest/platform/agent-metrics').event('repository',{phase:stage.id,...stage,details:{duration_ms:stage.duration_ms}});
     stages = [...stages.filter(item => item.id !== stage.id), stage].slice(-40);
     const snapshot = [...stages];
     stageChain = stageChain.then(() => db.prepare("UPDATE repository_agent_runs SET stages = ?, progress = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND lease_token = ? AND status = 'running'").run(snapshot, Math.min(90, 10 + snapshot.length * 9), run.id, run.lease_token)).catch(() => controller.abort());
@@ -271,7 +272,7 @@ async function performRun(run, controller) {
     const withConfiguration = work => run.input.execution_configuration ? executionConfiguration.run(run.input.execution_configuration, work)
       : require('../workflows/nodeAiConfiguration').runRequest(run.input, `ai.agentic.repository.${run.agent_type}`, work, {inherit:false});
     const review = await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({
-      run_id: run.input.workflow_trace?.run_id || null, node_id: run.input.workflow_trace?.node_id || null, session_id: null
+      run_id: run.input.workflow_trace?.run_id || null, node_id: run.input.workflow_trace?.node_id || null, session_id: null, agent_system:'repository'
     }, () => withConfiguration(() => assistant.respond({ user, project_id: run.project_id, app_type_id: run.app_type_id,
       agent_id: 'quality-evaluator', mode: 'agent', integration_id: run.input.llm_integration_id,
       prompt: run.input.goal || aiInstructionBlock(`ai.agentic.repository.${run.agent_type}`, "repository.reviewRequest"),

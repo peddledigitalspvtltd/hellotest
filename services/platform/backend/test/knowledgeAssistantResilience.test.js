@@ -90,6 +90,13 @@ test("provider failures have actionable categories without copying provider resp
   assert.match(publicKnowledgeError({ code: "ANSWER_AUTHORIZATION_TIMEOUT", statusCode: 503 }), /verify current access/);
 });
 
+test("a circuit opened by provider throttling keeps an actionable chatbot failure category", () => {
+  const errors = require("../src/utils/knowledgeAssistantErrors");
+  assert.equal(errors.modelFailureCode({ code: "DEPENDENCY_CIRCUIT_OPEN", upstreamStatus: 429 }), "MODEL_PROVIDER_LIMITED");
+  assert.match(publicKnowledgeError({ code: "MODEL_PROVIDER_LIMITED" }), /rate limits, usage and billing/);
+  assert.equal(errors.modelFailureCode({ code: "DEPENDENCY_CIRCUIT_OPEN", upstreamStatus: 503 }), "MODEL_UNAVAILABLE");
+});
+
 test("incomplete or malformed model output gets classified without an unbounded retry", async (context) => {
   mockModelPolicy(context);
   let calls = 0;

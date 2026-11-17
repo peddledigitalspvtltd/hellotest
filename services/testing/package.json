@@ -14,7 +14,6 @@
   "exports": {
     "./backend": "./backend/service.manifest.js",
     "./backend/services/batchProcess.service": "./backend/services/batchProcess.service.js",
-    "./backend/services/batchJobLease": "./backend/services/batchJobLease.js",
     "./backend/services/execution.service": "./backend/services/execution.service.js",
     "./backend/services/executionPlanPreconditions.service": "./backend/services/executionPlanPreconditions.service.js",
     "./backend/services/executionResult.service": "./backend/services/executionResult.service.js",
@@ -102,6 +101,7 @@
     "@hellotest/integration": "^1.0.0",
     "@hellotest/manual": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
-    "@hellotest/trace": "^1.0.0"
+    "@hellotest/trace": "^1.0.0",
+    "@hellotest/contracts": "^1.0.0"
   }
 }

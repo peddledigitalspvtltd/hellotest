@@ -1,5 +1,5 @@
 import type { TestStep, TestCase, StepApiRequest } from "@hellotest/platform/frontend/src/types";
-import { getAutomationKeywordInputSpec } from "./automationKeywordInputs";
+import { automationParameterArgument, getAutomationKeywordInputSpec } from "./automationKeywordInputs";
 
 export const isAutomationPrecondition = (step: Pick<TestStep, "group_name">) => (step.group_name || "").trim().toLowerCase() === "preconditions";
 
@@ -21,7 +21,7 @@ export function seedAutomationPlan(sources: Array<{ testCase: Pick<TestCase, "id
 
 export function automationMappingIsComplete(draft: { keyword: string; objectRef: string; value: string; apiMethod?: StepApiRequest["method"] }) {
   if (draft.keyword === "api.request") return Boolean(draft.objectRef.trim());
-  if (draft.keyword === "api.expectStatus") return /^[1-5]\d\d$/.test(draft.objectRef.trim());
+  if (draft.keyword === "api.expectStatus") return /^[1-5]\d\d$/.test(draft.objectRef.trim()) || Boolean(automationParameterArgument(draft.objectRef));
   const spec = getAutomationKeywordInputSpec(draft.keyword);
   return (!spec.targetRequired || Boolean(draft.objectRef.trim())) && (!spec.valueRequired || Boolean(draft.value.trim()));
 }

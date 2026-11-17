@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {normalizeGeneratedProgram,preserveGeneratedAssertions,joinGeneratedAssertions,hasExecutableAssertion}=require('../../backend/lib/automationGeneratedProgram');
+const {normalizeGeneratedProgram,preserveGeneratedAssertions,joinGeneratedAssertions,hasExecutableAssertion}=require("../../backend/lib/build/automationGeneratedProgram");
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 
 async function execute(source,actual='Saved') {
@@ -77,7 +77,7 @@ test('regeneration retains matcher polarity, expected values and asynchronous co
 });
 
 test('preservation coalesces only adjacent identical closed read-only assertions without rewriting either source',()=>{
- const {assertionContracts}=require('../../backend/lib/automationGeneratedProgram');
+ const {assertionContracts}=require("../../backend/lib/build/automationGeneratedProgram");
  const url='await expect.poll(() => page.url()).toBe("https://fixture.test/login");';
  const visible='await expect(page.getByRole("textbox", {name:"Account",exact:true})).toBeVisible();';
  const before=visible+'\n'+url+'\n'+url,after=url+'\n'+visible;
@@ -158,7 +158,7 @@ test('expected argument normalization never descends into callback bodies or com
 });
 
 test('saved source expected-result checks must be executable and joined to the section',()=>{
- const {hasExecutableAssertion}=require('../../backend/lib/automationGeneratedProgram');
+ const {hasExecutableAssertion}=require("../../backend/lib/build/automationGeneratedProgram");
  for(const code of [
   'await page.locator("#email").fill("value"); await expect(page.locator("#email")).toHaveValue("value");',
   'await (async ({page,expect})=>{await expect(page.getByRole("heading")).toBeVisible();})({page,expect});',

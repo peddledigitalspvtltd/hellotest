@@ -1,10 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { deriveProgramTools } = require('../../backend/lib/automationProgramTools');
-const { prepareVerificationSections } = require('../../backend/lib/automationVerificationPipeline');
-const { preserveGeneratedAssertions, assertionContracts } = require('../../backend/lib/automationGeneratedProgram');
-const { fieldValidationStateSource } = require('../../backend/lib/automationFieldValidity');
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { deriveProgramTools } = require("../../backend/lib/build/automationProgramTools");
+const { prepareVerificationSections } = require("../../backend/lib/verification/automationVerificationPipeline");
+const { preserveGeneratedAssertions, assertionContracts } = require("../../backend/lib/build/automationGeneratedProgram");
+const { fieldValidationStateSource } = require("../../backend/lib/build/automationFieldValidity");
 const op = (name, args) => ({ name, arguments: args });
 const check = (assertion, locator, value) => op('browser_assert', { assertion, locator, ...(value === undefined ? {} : { value }) });
 const derive = source => deriveProgramTools({ payload: { steps: [{ step_id: 'one', automation_code: source }] }, execution: { required: true, step_id: 'one' } });

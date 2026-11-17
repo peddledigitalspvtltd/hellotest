@@ -6,9 +6,9 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require=createRequire(import.meta.url);
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools.js');
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools.js");
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const {createBrowserParameterResolver}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
 
 test('source-derived tools preserve native hidden-child text, title whitespace, parameters and fuzzy locator semantics', {timeout:60000},async t=>{
  const previous=process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;process.env.RECORDER_ALLOWED_PRIVATE_HOSTS='127.0.0.1';

@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { browserBootstrapFailure } = require('../../backend/lib/automationBrowserBootstrapFailure');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { browserBootstrapFailure } = require("../../backend/lib/browser/automationBrowserBootstrapFailure");
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 const result = value => ({ isError: true, content: [{ type: 'text', text: JSON.stringify(value) }] });
 const launchError = overrides => result({ code: 'BROWSER_TOOL_FAILED', action_outcome: 'not_attempted', retry_safe: true,
   message: 'browserType.launch: Target page, context or browser has been closed\nBrowser logs:\n--proxy-server=http://user:private-value@localhost', ...overrides });

@@ -1,9 +1,10 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { createRequire } = require('node:module');
-const { loadAutomationBuildSuiteContext } = require('../../backend/lib/automationBuildSuiteContext');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+const { loadAutomationBuildSuiteContext } = require("../../backend/lib/build/automationBuildSuiteContext");
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
 
 const caseRow = { id: 'case', automated: 'yes', app_type_id: 'app', project_id: 'project', parameter_values: {}, test_data_options: {} };
 const suiteRow = (id, extra = {}) => ({ id, app_type_id: 'app', project_id: 'project', parameter_values: {}, test_data_options: {}, ...extra });
@@ -117,10 +118,13 @@ test('selected suite source receipts include hidden ancestor revisions, policy a
 
 test('the authorized browser-input adapter loads the selected suite and rechecks permissions without returning private literals to its prompt', async () => {
   const f = fixture({ suites: [suiteRow('suite', { parameter_values: { region: 'East', password: 'suite-private-value' } })], memberships: ['suite'] });
-  const local = createRequire(require.resolve('../../backend/lib/automationBrowserParameters'));
+  const local = createRequire(require.resolve("../../backend/lib/parameters/automationBrowserParameters"));
   const exported = { exports: {} }, checks = [];
   let dataAllowed = true, suiteAllowed = true;
-  new Function('require', 'module', fs.readFileSync(require.resolve('../../backend/lib/automationBrowserParameters'), 'utf8'))(name => {
+  new Function('require', 'module', fs.readFileSync(require.resolve("../../backend/lib/parameters/automationBrowserParameters"), 'utf8'))(name => {
+ if (typeof name === 'string' && name.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(name);
+ if (name.endsWith('/automationAuthoringAdmission.service') || name === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
     if (name.endsWith('/db')) return f.database;
     if (name.endsWith('optionalEvidenceAccess.service')) return { getOptionalEvidenceAccess: async (user, projectId, permissions) => {
       checks.push({ user, projectId, permissions });
@@ -149,7 +153,7 @@ test('the authorized browser-input adapter loads the selected suite and rechecks
 test('source-save receipt checks reject changed suite defaults, policy and membership before any Plan write', async () => {
   const f = fixture({ suites: [suiteRow('parent', { parameter_values: { region: 'East' } }), suiteRow('child', { parent_id: 'parent' })], memberships: ['child'] });
   const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-  const body = source.slice(source.indexOf('const applyBuild ='), source.indexOf('const buildCaseCore ='));
+  const body = implementationFunctionSource('aiAutomationBuilder.service','applyBuild');
   const current = { ...caseRow }, step = { id: 'step', test_case_id: 'case', step_order: 1, step_type: 'web', action: 'Use @s.region', expected_result: 'Region shown', automation_code: '' };
   const rows = [structuredClone(step)]; let writes = 0;
   const resolve = async input => {
@@ -182,15 +186,34 @@ test('source-save receipt checks reject changed suite defaults, policy and membe
 
 test('batch builder respects an explicit case-specific empty suite instead of adopting the active scalar suite', async () => {
   const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-  const body = source.slice(source.indexOf('exports.buildAutomationBatch ='), source.indexOf('exports.listLearningCache ='));
+  const body = implementationFunctionSource('aiAutomationBuilder.service','buildAutomationBatch');
   const received = [], module = { exports: {} };
   const local = createRequire(require.resolve('../../backend/services/aiAutomationBuilder.service'));
-  new Function('exports', 'normalizeText', 'normalizeIdList', 'buildFeature', 'DEFAULT_BATCH_FAILURE_THRESHOLD', 'selectCaseWithScope', 'selectCasesForBatch', 'appendEvent', 'updateTransaction', 'buildCaseCore', 'workspaceTransactionService', 'require', body)(
+  new Function('exports', 'normalizeText', 'normalizeIdList', 'buildFeature', 'DEFAULT_BATCH_FAILURE_THRESHOLD', 'selectCaseWithScope', 'selectCasesForBatch', 'appendEvent', 'updateTransaction', 'buildCaseCore', 'workspaceTransactionService', 'require', 'selectStepsForCase', 'normalizeAutomationStartUrl', 'requiresAutomationStartUrl', body)(
     module.exports, value => value || null, values => values, value => value || 'ai.agentic.automation-engineer', 5,
     { get: async id => ({ id, app_type_id: 'app', project_id: 'project' }) }, { all: async () => [] }, async () => {}, async () => {},
-    async input => { received.push(input); return { test_case_id: input.test_case_id, generated_step_count: 1 }; }, {}, local
+    async input => { received.push(input); return { test_case_id: input.test_case_id, generated_step_count: 1 }; }, {createTransaction:async()=>({id:'activity'}),getTransaction:async()=>({metadata:{}})}, name=>name.endsWith('/automationAuthoringAdmission.service')?{withBuild:async(_input,reserve)=>reserve()}:local(name),{all:async()=>[]},value=>value,()=>false
   );
   const result = await module.exports.buildAutomationBatch({ app_type_id: 'app', test_case_ids: ['first', 'second', 'third'], test_suite_id: 'active-suite', test_suite_ids_by_case: { first: 'own-suite', second: null } });
   assert.equal(result.generated, 3); assert.equal(result.failed, 0);
   assert.deepEqual(received.map(row => [row.test_case_id, row.test_suite_id]), [['first', 'own-suite'], ['second', null], ['third', 'active-suite']]);
+});
+
+test('a direct batch with a new ownership activity uses each saved Web URL and preserves an explicitly pinned URL', async () => {
+  const local = createRequire(require.resolve('../../backend/services/aiAutomationBuilder.service'));
+  const url = require('../../../platform/backend/src/utils/automationStartUrl');
+  const received = [], exported = {};
+  const workspace = { createTransaction: async () => ({ id: 'activity' }), getTransaction: async () => ({ metadata: {} }) };
+  const ports = { exports: exported, normalizeText: value => value || null, normalizeIdList: values => values,
+    buildFeature: value => value, DEFAULT_BATCH_FAILURE_THRESHOLD: 3,
+    selectCaseWithScope: { get: async id => ({ id, app_type_id: 'app', project_id: 'project', app_type_kind: 'web', automation_start_url: `https://app.example.test/${id}` }) },
+    selectStepsForCase: { all: async () => [{ step_type: 'web' }] }, appendEvent: async () => {}, updateTransaction: async () => {},
+    workspaceTransactionService: workspace, normalizeAutomationStartUrl: url.normalizeAutomationStartUrl, requiresAutomationStartUrl: url.requiresAutomationStartUrl,
+    buildCaseCore: async input => { received.push(input);return { test_case_id: input.test_case_id, generated_step_count: 1 }; },
+    require: name => name.endsWith('/automationAuthoringAdmission.service') ? { withBuild: async (_scope, reserve) => reserve() } : local(name)
+  };
+  new Function(...Object.keys(ports), implementationFunctionSource('aiAutomationBuilder.service', 'buildAutomationBatch'))(...Object.values(ports));
+  const result = await exported.buildAutomationBatch({ app_type_id: 'app', test_case_ids: ['saved', 'pinned'], start_urls_by_case_id: { pinned: 'https://reviewed.example.test/path' } });
+  assert.equal(result.generated, 2);assert.equal(result.failed, 0);
+  assert.deepEqual(received.map(input => input.start_url), ['https://app.example.test/saved', 'https://reviewed.example.test/path']);
 });

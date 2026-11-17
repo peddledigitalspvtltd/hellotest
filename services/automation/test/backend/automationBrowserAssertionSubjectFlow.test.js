@@ -1,10 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { browserCurrentSnapshotObservation, browserPromptContext } = require('../../backend/lib/automationBrowserContext');
-const { canonicalReviewEvidence } = require('../../backend/lib/automationReviewEvidence');
-const { recordedSectionRequests } = require('../../backend/lib/automationBrowserRecording');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { browserCurrentSnapshotObservation, browserPromptContext } = require("../../backend/lib/browser/automationBrowserContext");
+const { canonicalReviewEvidence } = require("../../backend/lib/build/automationReviewEvidence");
+const { recordedSectionRequests } = require("../../backend/lib/browser/automationBrowserRecording");
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/profile', ...value }) }] });
 const actorState = prompt => JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]);

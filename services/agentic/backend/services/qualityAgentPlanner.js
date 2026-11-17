@@ -11,7 +11,7 @@ async function proposePlan(input,user) {
   if(integration.config?.project_id&&integration.config.project_id!==input.project_id)throw C.fail('The model connection belongs to another project.',403);
   let locatorContext=[];
   if(await permissions.hasPermission(user,'automation.view',input.project_id)) {
-    const rows=await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').listLearningCache({project_id:input.project_id,app_type_id:input.app_type_id,limit:100});
+    const rows=await require('@hellotest/automation/build').listLearningCache({project_id:input.project_id,app_type_id:input.app_type_id,limit:100});
     locatorContext=rows.filter(row=>{
       let origin;try{origin=new URL(row.page_url).origin;}catch{return false;}
       return origin===new URL(input.target_url).origin && row.metadata?.record_kind!=='screen' && row.locator_intent!=='__screen__' && row.metadata?.deprecated!==true && row.metadata?.is_active!==false && ['css','css selector','CSS'].includes(row.locator_kind||'css') && typeof row.locator==='string' && row.locator.length<=240;

@@ -104,6 +104,9 @@ function createQualityAgentService(deps) {
     const key=requestKey||input.idempotency_key||null;
     if (key && (typeof key!=='string' || key.length>160 || !/^[\w.:/-]+$/.test(key))) throw C.fail('Use an idempotency key within 160 characters.');
     const metadata={schema_version:1,id:randomUUID(),request,request_key:key,request_hash:C.hash(request),run_status:'queued',outcome:null,engine_run_id:null,engine_baseline_id:baseline?.metadata.engine_baseline_id||null,queued_at:new Date().toISOString(),stages:[],findings:[],artifacts:[],metrics:{},limitations:[],...(execution_mode==='agent'?{model_usage:{calls:0,max_calls:Math.min(26,request.ai_configuration?.agent_execution?.max_model_calls??((request.options.mission?.max_actions||1)*2+2)),reserved_output_tokens:0,max_output_tokens:65536,prompt_tokens:0,completion_tokens:0,usage_available:false}}:{})};
+    const descriptors=require('../agents/agentDescriptors.service'),{descriptor_hash:defaultDescriptorHash,...baseDescriptor}=descriptors.quality(request.kind);
+    const effectiveDescriptor={...baseDescriptor,limits:{...baseDescriptor.limits,model_calls:metadata.model_usage?.max_calls||0,tool_calls:request.options.mission?.max_actions||C.LIMITS.max_steps,timeout_ms:request.options.timeout_ms,pages:request.options.max_pages}};
+    metadata.agent_descriptor=effectiveDescriptor;metadata.agent_descriptor_hash=descriptors.hash(effectiveDescriptor);
     if(execution_mode==='agent')metadata.deadline_at=new Date(runDeadline(metadata)).toISOString();
     const result=await store.create(request,user,metadata,key);
     if (result.busy) throw C.fail('Three reviews are already active for this project. Wait for a review to finish or stop one.',429,'QUALITY_AGENT_QUEUE_FULL');

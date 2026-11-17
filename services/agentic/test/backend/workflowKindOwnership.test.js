@@ -1,0 +1,61 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const {readFileSync}=require('node:fs');
+const path=require('node:path');
+const registry=require('../../backend/workflows/nodeRegistry');
+const connections=require('../../backend/workflows/connections');
+
+test('every declared kind has its own complete implementation and portable presentation/scheduling contract',()=>{
+  assert.deepEqual(Object.keys(registry.registry).sort(),Object.keys(registry.descriptors.kinds).sort());
+  for(const[kind,node]of Object.entries(registry.registry)){
+    const file=path.resolve(__dirname,'../../backend/workflows/nodes',node.executor==='flow'?'flow/'+kind+'.js':kind+'.js');
+    assert.strictEqual(require(file),node,kind+' registry identity');
+    assert.equal(typeof node.implementation.validate,'function');assert.equal(typeof node.implementation.execute,'function');
+    assert.deepEqual(node.schema,registry.descriptors.kinds[kind].schema);assert.deepEqual(node.ui,registry.descriptors.kinds[kind].ui);
+    assert.doesNotMatch(readFileSync(file,'utf8'),/require\(['"][^'"]*(?:nodeOperations|flowOperations|agenticWorkflowExecution\.service)/,kind+' cannot forward back to a family dispatcher');
+  }
+});
+
+test('HTTP kind handlers execute the real bounded protocol with kind-specific method and body policy',async t=>{
+  const calls=[];t.mock.method(connections,'callHttp',async input=>{calls.push(input);return{data:{accepted:true}};});
+  const run={id:'run',project_id:'project',input_payload:{id:'a/b',message:'literal'}};
+  await registry.get('apiTool').execute({run,node:{data:{kind:'apiTool',apiUrl:'https://api.test/{{ $request.id }}',apiMethod:'POST',apiBody:'{"message":"$request.message"}'}},sources:[]});
+  await registry.get('webAgent').execute({run,node:{data:{kind:'webAgent',apiUrl:'https://web.test/',apiMethod:'POST',apiBody:'{"ignored":true}'}},sources:[]});
+  assert.equal(calls[0].data.apiUrl,'https://api.test/a%2Fb');assert.equal(calls[0].data.apiMethod,'POST');assert.equal(calls[0].data.apiBody,'{"message":"literal"}');
+  assert.equal(calls[1].data.apiMethod,'GET');assert.equal(calls[1].data.apiBody,'');
+  assert.equal(registry.get('apiTool').isExclusive({apiMethod:'POST'}),true);assert.equal(registry.get('apiTool').isExclusive({apiMethod:'GET'}),false);
+  assert.equal(registry.get('webAgent').isExclusive({apiMethod:'POST'}),false);
+});
+
+test('loop kind owns connected dispatch and bounded read-only batching without an executor-family switch',async()=>{
+  const node={data:{kind:'loop',loopAction:'workflow'}},receipt={data:[{id:'saved'}]};let connected=0;
+  assert.equal(registry.get('loop').connectedLoop(node.data),true);
+  assert.strictEqual(await registry.get('loop').execute({run:{input_payload:{}},node,sources:[],executeConnectedLoop:async()=>{connected++;return receipt;}}),receipt);assert.equal(connected,1);
+  const result=await registry.get('loop').execute({run:{input_payload:{items:[1,2,3]}},node:{data:{kind:'loop',loopAction:'transform',loopSourceKey:'request.items',loopBatchSize:2,loopMaxIterations:100,transformMapping:'{"batch":"$item"}'}},sources:[]});
+  assert.deepEqual(result.data,[{batch:[1,2]},{batch:[3]}]);assert.equal(result.total_batches,2);assert.equal(result.processed,3);
+});
+
+test('kind validation, graph ports and timeout admission are owned by the registered definition',()=>{
+  const repository=registry.get('repositoryAgent');
+  assert.deepEqual(repository.validate({data:{kind:'repositoryAgent',repositoryAgentType:'missing',retryCount:1}}),[
+    'Choose a source analysis agent.','Source analysis uses its existing worker. Set retries to zero; review a failed analysis before starting a new execution.'
+  ]);
+  const messages=registry.get('agent').validate({data:{kind:'agent',agentId:'not-registered',prompt:''}});
+  assert.ok(messages.includes('Choose a registered workspace specialist in the step inspector.'));
+  assert.ok(messages.includes('Describe the task this specialist should review.'));
+  assert.ok(registry.get('condition').validate({data:{kind:'condition'}},{outgoing:[{sourceHandle:'wrong'}]}).includes('Connect condition outputs using the true or false ports.'));
+  assert.equal(registry.get('trigger').connectionPolicy.incoming,'forbidden');assert.equal(registry.get('output').connectionPolicy.outgoing,'forbidden');assert.equal(registry.get('stop').connectionPolicy.outgoing,'optional');
+  assert.equal(registry.get('artifactTask').timeoutMaxMs({}),3600000);assert.equal(registry.get('agent').timeoutMaxMs({}),150000);
+  assert.equal(registry.get('llmAgent').timeoutMaxMs({}),70000);assert.equal(registry.get('loop').timeoutMaxMs({loopAction:'workflow'}),3600000);assert.equal(registry.get('loop').timeoutMaxMs({loopAction:'customAI'}),70000);
+});
+
+test('connection preflight dispatches only the kind-owned protocol and validates managed authorization',async t=>{
+  const calls=[];t.mock.method(connections,'resolve',async(...args)=>{calls.push(args);return{connection:{methods:['GET'],tools:['read'],toolDefinitions:[{name:'read'}]}};});
+  t.mock.method(connections._internals,'authHeaders',()=>({}));
+  const workflow={project_id:'project'};
+  await registry.get('webAgent').preflight.connection({workflow,node:{data:{connectionId:'http',apiUrl:'https://web.test/',apiMethod:'POST'}}});
+  await registry.get('mcpTool').preflight.connection({workflow,node:{data:{connectionId:'mcp',mcpTool:'read'}}});
+  assert.deepEqual(calls,[['http','project','https://web.test/','http'],['mcp','project',null,'mcp']]);
+  await assert.rejects(registry.get('apiTool').preflight.connection({workflow,node:{data:{connectionId:'http',apiMethod:'POST'}}}),/method is not enabled/);
+  await assert.rejects(registry.get('mcpTool').preflight.connection({workflow,node:{data:{connectionId:'mcp',mcpTool:'write'}}}),/Enable this tool/);
+});

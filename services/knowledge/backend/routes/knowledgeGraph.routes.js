@@ -43,6 +43,13 @@ module.exports = async function registerKnowledgeGraph(fastify) {
   };
   const base = '/projects/:project_id/knowledge/graph';
   const contextBase = '/projects/:project_id/knowledge/context-graph';
+  fastify.get(`${contextBase}/health`, { schema: { querystring: object({
+    app_type_id: id, days: { type: 'integer', minimum: 7, maximum: 90 }
+  }) } }, async (req, reply) => {
+    await authorize(req, reply);
+    return connected(req, reply, signal => contextGraph.health({ projectId:req.params.project_id,user:req.user,
+      appTypeId:req.query.app_type_id,days:req.query.days??30,signal }), 20_000);
+  });
   fastify.get(contextBase, { schema: { querystring: object({
     app_type_id: id, feature_id: { type: 'string', minLength: 1, maxLength: 160 },
     from: { type: 'string', minLength: 1, maxLength: 80 }, to: { type: 'string', minLength: 1, maxLength: 80 },

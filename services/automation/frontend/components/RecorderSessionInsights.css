@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .automation-agent-workspace:has(> .automation-recording-workspace),
 .automation-recording-workspace {
   grid-template-columns: minmax(0, 1fr);

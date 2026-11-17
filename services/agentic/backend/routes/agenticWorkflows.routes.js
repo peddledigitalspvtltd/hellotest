@@ -34,7 +34,7 @@ module.exports = async function (fastify) {
     properties: { project_id: { type: "string", minLength: 1, maxLength: 255 },
       app_type_id: { type: "string", maxLength: 255 }, field: { enum: ["story_id", "test_case_id", "execution_id", "release_id", "sprint_id"] },
       search: { type: "string", maxLength: 255 }, limit: { type: "integer", minimum: 1, maximum: 10 },
-      ...Object.fromEntries(require("@hellotest/platform/shared/agentEvidenceScopeFields.json").map(({ key }) => [key, { type: "string", maxLength: 255 }])) }
+      ...Object.fromEntries(require("@hellotest/contracts/agents/evidenceScopeFields.json").map(({ key }) => [key, { type: "string", maxLength: 255 }])) }
   } } }, async req => {
     await fastify.authenticate(req);
     await requireProjectPermission(req, req.query.project_id, "agentic_workflow.view");

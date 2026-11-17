@@ -6,16 +6,17 @@ const { resetServiceResilienceState } = require('@hellotest/platform/backend/src
 const traces = require('@hellotest/platform/backend/src/utils/llmTraceContext');
 const configuration = require('@hellotest/platform/backend/services/aiConfiguration.service');
 const { retryLlmCapacity } = require('@hellotest/platform/backend/src/utils/llmCapacityRetry');
-const { retryActorJsonOutput } = require('../../backend/lib/automationJsonOutputRetry');
-const { browserActorRequestPolicy } = require('../../backend/lib/automationActorModelPolicy');
+const { retryActorJsonOutput } = require("../../backend/lib/build/automationJsonOutputRetry");
+const { browserActorRequestPolicy } = require("../../backend/lib/browser/automationActorModelPolicy");
 const { createLlmProviderError } = require('@hellotest/platform/backend/src/utils/upstreamLlmError');
 const { getCompletionContent } = require('@hellotest/platform/backend/src/utils/llmResponse');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
-const { buildWithUpstreamPlaywright } = require('../../backend/lib/automationUpstreamEngineer');
+const { buildWithUpstreamPlaywright } = require("../../backend/lib/upstream/automationUpstreamEngineer");
 const { inspectExecutablePlan } = require('../../backend/services/automationReadiness.service');
 const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-const fetchDeclaration = source.slice(source.indexOf('const fetchWithTimeout ='), source.indexOf('const resolveLlmIntegration ='));
-const requestDeclaration = source.slice(source.indexOf('const requestChatCompletion ='), source.indexOf('const normalizeUrlKey ='));
+const modelSource = fs.readFileSync(require.resolve("../../backend/lib/build/automationModelClient"), 'utf8');
+const fetchDeclaration = modelSource.slice(modelSource.indexOf('const fetchWithTimeout ='), modelSource.indexOf('const resolveLlmIntegration ='));
+const requestDeclaration = modelSource.slice(modelSource.indexOf('const requestChatCompletion ='), modelSource.indexOf('module.exports ='));
 const integration = {base_url: 'https://model.fixture/v1', model: 'provider-model', api_key: 'fixture-key'};
 const featureKey = 'ai.agentic.automation-engineer';
 const tools = [

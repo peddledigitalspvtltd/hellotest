@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { agenticApi } from "../api.client";
 import { useEffect, useMemo, useState } from "react";
 import { IconArrowRight, IconBookmark, IconCheck, IconSearch, IconSparkles, IconPlus, IconRobot, IconRoute, IconShieldCheck, IconBolt, IconAccessible, IconPhoto } from "@tabler/icons-react";
 import { HELLOTEST_AGENT_CATALOG, type HelloTestAgent } from "../components/AgenticExperience";
@@ -31,7 +33,9 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
   onOpenRepository: (id: RepositoryAgentType) => void;
   onOpenSpecialist: (agent: HelloTestAgent) => void;
 }) {
-  const entries = useMemo(() => [...builtInEntries, ...projectAgents.filter(agent => !agent.archived).map(agent => ({ id: agent.id, name: agent.definition.name, icon: <IconRobot />, builder: false }))], [projectAgents]);
+  const runtime = useQuery({ queryKey: ['repository-agent-catalog'], queryFn: ({ signal }) => agenticApi.repositoryAgents.catalog({ signal }), staleTime: 60000, retry: 1 });
+  const repositoryAvailable = runtime.data?.runtime?.available !== false && runtime.data?.capabilities?.repository_analysis !== false;
+  const entries = useMemo(() => [...builtInEntries.filter(entry => !entry.builder || repositoryAvailable), ...projectAgents.filter(agent => !agent.archived).map(agent => ({ id: agent.id, name: agent.definition.name, icon: <IconRobot />, builder: false }))], [projectAgents, repositoryAvailable]);
   const experienceFor = (id: string) => {
     if (id.startsWith("browser-")) { const profile = QUALITY_AGENT_EXPERIENCES[id.slice(8) as QualityExperienceKind]; return { category: "quality", outcome: profile.description, inputs: "Browser task, target URL & scoped credential reference", output: profile.outcome }; }
     const agent = projectAgents.find(item => item.id === id);
@@ -73,13 +77,14 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
   return <div className="agent-directory">
     <section className="agent-start" aria-labelledby="agent-start-title">
       <div><span className="agent-eyebrow">Start with an outcome</span><h2 id="agent-start-title">What needs your attention?</h2><p>Choose a task, bring the right context and review the result.</p></div>
-      <div className="agent-start-actions">{starterTasks.map(task => <button key={task.id} type="button" onClick={() => open(task.id)}><span><strong>{task.label}</strong><small>{task.detail}</small></span><IconArrowRight size={18} aria-hidden="true" /></button>)}</div>
+      <div className="agent-start-actions">{starterTasks.filter(task => repositoryAvailable || task.id !== "repository_knowledge").map(task => <button key={task.id} type="button" onClick={() => open(task.id)}><span><strong>{task.label}</strong><small>{task.detail}</small></span><IconArrowRight size={18} aria-hidden="true" /></button>)}</div>
     </section>
     <section className="agent-library" aria-labelledby="agent-library-title">
       <header className="agent-library-heading"><div><h2 id="agent-library-title">Agent library <span>{entries.length}</span></h2><p>Focused specialists for your quality work.</p></div><div className="agent-library-controls">{canManage && <button type="button" className="primary-button" onClick={onCreate}><IconPlus size={16} />Create agent</button>}<label className="agent-library-search"><IconSearch size={18} aria-hidden="true" /><input aria-label="Search agents" placeholder="Search agent, task or outcome" value={search} onChange={event => setSearch(event.target.value)} />{search && <button type="button" aria-label="Clear agent search" onClick={() => setSearch("")}>Clear</button>}</label></div></header>
       <div className="agent-library-filters" role="group" aria-label="Filter agents by purpose">
         {[{ id: "all", label: "All agents" }, ...AGENT_CATEGORIES, { id: "custom", label: "Project agents" }, { id: "pinned", label: "Pinned" }].map(filter => <button key={filter.id} type="button" aria-pressed={category === filter.id} onClick={() => setCategory(filter.id)}>{filter.id === "pinned" && <IconBookmark size={14} aria-hidden="true" />}{filter.label}<span>{filter.id === "all" ? entries.length : filter.id === "pinned" ? entries.filter(entry => pinned.includes(entry.id)).length : entries.filter(entry => experienceFor(entry.id).category === filter.id).length}</span></button>)}
       </div>
+      {!repositoryAvailable && <p role="status">Repository builders are unavailable: {runtime.data?.runtime.detail || "the Python analysis runtime is not installed"}. Existing analyses remain available in their workspaces.</p>}
       {loading && <p role="status">Loading project agents…</p>}
       {error && <div className="agent-editor-error" role="alert">{error} <button type="button" onClick={onRetry}>Retry</button></div>}
       <p className="sr-only" role="status">{filtered.length} agents found</p>

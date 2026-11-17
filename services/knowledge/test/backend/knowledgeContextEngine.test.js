@@ -258,7 +258,7 @@ test("revocation during enrichment removes both live evidence and its aggregate 
 });
 
 test("explicit file scope stays knowledge-only even when the LLM suggests live Story evidence", async () => {
-  const orchestrator = require("@hellotest/ai/backend/services/aiContextOrchestrator.service");
+  const orchestrator = require("@hellotest/ai/services/aiContextOrchestrator");
   let selectedScopes;
   const request = contracts.buildRetrievalRequest({ projectId: "project-1", query: "release checklist", filters: { source_kinds: ["file"] } });
   const result = await execution.run({}, () => engine.retrieve({ request, user: { id: "user-1" },

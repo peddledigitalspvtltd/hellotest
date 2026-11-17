@@ -4,7 +4,7 @@ test.after(()=>Promise.all([db.close(),obs.close()]));
 test('activity history, screenshot, draft source and evidence reads recheck membership and generation-content permissions',async t=>{
  const Fastify=require('fastify'),app=Fastify();t.after(()=>app.close());
  const projects=require('@hellotest/platform/backend/public/projectAccess'),apps=require('@hellotest/platform/backend/public/applicationAccess');
- const activity=require('@hellotest/automation/backend/services/automationAgentActivity.service'),transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service');
+ const activity=require('@hellotest/automation/activity'),transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service');
  let denied='',foreign=false,reads=0;const checked=[];
  t.mock.method(projects,'getProject',async id=>{assert.equal(id,'project');if(foreign)throw Object.assign(new Error('Forbidden'),{statusCode:403});return {id};});
  t.mock.method(apps,'getAppType',async id=>({id,project_id:'project'}));

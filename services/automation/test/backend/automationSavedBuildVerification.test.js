@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { verifySavedBuild } = require('../../backend/services/automationSavedBuildVerification.service');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
 
 function fixture(mode = 'verify') {
   const source = compileRecordedProgram([

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 
 const locatorSchema = { type: 'object', properties: { locator: { type: 'string' } }, required: ['locator'], additionalProperties: false };
 const tools = [

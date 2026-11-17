@@ -4,6 +4,7 @@ const {parse}=require('acorn');
 const guards=require('../../../platform/backend/src/db/databaseOperationGuard');
 const deferred=()=>{let resolve;const promise=new Promise(yes=>{resolve=yes;});return {promise,resolve};};
 function fixture(status='queued'){
+
  const file=require.resolve('../../backend/services/automationGenerator.service'),local=createRequire(file),exports={};
  const job={id:'job',transaction_id:'activity',project_id:'project',test_case_id:'case',status,leased_by:status==='leased'?'worker':null,
   payload:{test_case_id:'case',start_url:'https://app.test',automation_case_type:'web'},created_by:'author',runtime_state:{},result:{}};
@@ -38,6 +39,9 @@ function fixture(status='queued'){
   Object.assign(activity,input,{metadata:{...activity.metadata,...input.metadata}});return activity;
  }};
  new Function('require','exports',fs.readFileSync(file,'utf8'))(name=>{
+ if (typeof name === 'string' && (name.startsWith('./builder/') || name.startsWith('./dispatch/'))) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(name);
+ if (name.endsWith('/automationAuthoringAdmission.service') || name === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
   if(name.endsWith('/obsDb'))return obs;if(name.endsWith('/db'))return db;
   if(name.endsWith('workspaceTransaction.service'))return workspace;
   if(name.endsWith('aiAutomationBuilder.service'))return {buildAutomationForCase:input=>builder(input)};
@@ -117,6 +121,9 @@ test('workspace cancellation survives stale status updates, including a read-bef
   }
  }})};
  new Function('require','exports',fs.readFileSync(file,'utf8'))(name=>{
+ if (typeof name === 'string' && name.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(name);
+ if (name.endsWith('/automationAuthoringAdmission.service') || name === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
   if(name.endsWith('/db')||name.endsWith('/obsDb'))return {prepare:statement=>{sql.push(statement);return db.prepare(statement);}};
   return local(name);
  },exports);

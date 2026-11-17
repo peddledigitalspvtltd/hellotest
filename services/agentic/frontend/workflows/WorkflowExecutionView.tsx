@@ -6,6 +6,9 @@ import type {
   AgenticWorkflowEdge,
   AgenticWorkflowRun,
 } from "@hellotest/platform/frontend/src/types";
+import { WorkflowResume } from "./WorkflowResume";
+import {request} from "@hellotest/platform/frontend/src/lib/httpClient";
+import {AgentActivity} from "@hellotest/agentic/activity";
 import { WorkflowSprintDrafts } from "./WorkflowSprintDrafts";
 import { WorkflowReviewSummary } from "../agents/WorkflowReviewSummary";
 import { WorkflowCanvas } from "./WorkflowCanvas";
@@ -27,6 +30,7 @@ export function WorkflowExecutionView({
   run,
   onBack,
   onRetry,
+  onResumed,
   canRun,
   canViewTraces = false,
   stopping,
@@ -40,6 +44,7 @@ export function WorkflowExecutionView({
   run: AgenticWorkflowRun;
   onBack: () => void;
   onRetry?: () => void;
+  onResumed?: (run:AgenticWorkflowRun)=>void;
   canRun: boolean;
   canViewTraces?: boolean;
   stopping: boolean;
@@ -217,6 +222,7 @@ export function WorkflowExecutionView({
           </button>
         )}
       </div>
+      <details className="studio-activity-history"><summary>Agent activity and delivery history</summary><AgentActivity compact projectId={run.project_id} appTypeId={run.app_type_id||undefined} system="workflow" initialSourceRunId={run.id} renderDetail={activity=><div><p>Native execution: {activity.source_run_id}</p><button type="button" className="ghost-button" disabled={!onResumed||activity.source_run_id===run.id} onClick={()=>{void request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(activity.source_run_id)}`).then(value=>onResumed?.(value)).catch(reason=>setExportNotice(reason instanceof Error?reason.message:'Unable to open this execution.'));}}>Open execution steps and evidence</button></div>}/></details>
       <div ref={contentRef} className="studio-execution-content" role="region" tabIndex={0} aria-label="Execution content">
       {exportNotice && <p className="studio-export-notice" role="status">{exportNotice}</p>}
       {error && (
@@ -358,6 +364,7 @@ export function WorkflowExecutionView({
               onOpenReview={onOpenReview}
               onOpenSource={onOpenSource}
             />
+            {canRun && ["failed","interrupted","cancelled","needs_review"].includes(run.status) && onResumed && <WorkflowResume key={`${run.id}:${selected.id}`} run={run} nodeId={selected.id} onResumed={onResumed}/>}
             </div>
           )}
         </div>

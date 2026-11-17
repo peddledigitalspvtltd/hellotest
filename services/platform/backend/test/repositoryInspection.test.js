@@ -177,7 +177,7 @@ test("standalone installer embeds only scoped pairing and pins exact runtime dep
   assert.match(source, /playwright_mcp_runtime: PLAYWRIGHT_MCP_RUNTIME/);
   assert.match(source, /registerAutomationPlaywrightMcp/);
   assert.equal(dependencies["@playwright/mcp"], "0.0.84");
-  assert.equal(dependencies.playwright, "1.59.1");
+  assert.equal(dependencies.playwright, require("../../../../testengine/backend/package.json").dependencies.playwright);
   assert.ok(!source.includes(authorization));
   const syntax = require("node:child_process").spawnSync(process.execPath, ["--check", "--input-type=module"], { input: source, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);

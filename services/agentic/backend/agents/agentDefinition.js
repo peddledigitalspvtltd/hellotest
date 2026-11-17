@@ -43,7 +43,7 @@ function normalize(input = {}) {
     acceptance: { require_evidence: input.acceptance?.require_evidence ?? true, no_evidence_gaps: input.acceptance?.no_evidence_gaps ?? false, minimum_findings: integer(input.acceptance?.minimum_findings, 0, 0, 8, 'Minimum findings') },
     limits: { timeout_ms: integer(input.limits?.timeout_ms, 150000, 10000, 150000, 'Time limit'), max_model_calls: integer(input.limits?.max_model_calls, 2, 1, 4, 'Model calls'), max_output_tokens: integer(input.limits?.max_output_tokens, 4000, 256, 8000, 'Output tokens') }
   };
-  if (result.feature_id && !Object.values(require('../../shared/workflowSpecialists.json')).some(profile => profile.featureId === result.feature_id)) throw fail('Choose a supported quality capability.');
+  if (result.feature_id && !Object.values(require('@hellotest/contracts/agents/workflowSpecialists.json')).some(profile => profile.featureId === result.feature_id)) throw fail('Choose a supported quality capability.');
   if (!Array.isArray(result.context_scopes) || result.context_scopes.some(scope => typeof scope !== 'string')) throw fail('Select evidence scopes.');
   if (result.required_inputs.some(key => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || ['constructor','prototype','__proto__'].includes(key))) throw fail('Input names must use letters, numbers and underscores, starting with a letter.');
   if (Object.values(result.acceptance).slice(0, 2).some(value => typeof value !== 'boolean')) throw fail('Completion rules must use boolean values.');

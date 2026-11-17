@@ -14,7 +14,11 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
  const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js');
  const original=require('node:module').createRequire(file),exports={};
  const db={prepare:sql=>({get:async()=>({id:'app',type:'unified'}),all:async()=>[],run:async()=>{dbWrites.push(sql);}})};
- new Function('require','exports',`${fs.readFileSync(file,'utf8')}\nexports.testNormalize=normalizeLlmBuild;exports.testBuildBrowserIntegration=resolveBuildBrowserIntegration;`)(id=>{
+ const inject=id=>{
+ if (typeof id === 'string' && id.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(id);
+ if (id.endsWith('/automationAuthoringAdmission.service') || id === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
+  if(id.endsWith('/automationModelClient')){const module={exports:{}};new Function('require','module',fs.readFileSync(require.resolve("../../backend/lib/build/automationModelClient"),'utf8'))(specifier=>inject(specifier.startsWith('.')?'./'+path.relative(path.dirname(file),path.resolve(path.dirname(require.resolve("../../backend/lib/build/automationModelClient")),specifier)):specifier),module);return module.exports;}
   if(id.endsWith('/db')||id.endsWith('/obsDb'))return db;
   if(id.endsWith('/testStepAutomation'))return utils;
   if(id.endsWith('/automationActorModelPolicy'))return original(id);
@@ -38,7 +42,8 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
   if(id.endsWith('/automationGeneratedProgram')||id.endsWith('/automationGenerationGrounding')||id.endsWith('/automationBuildCompletion')||id.endsWith('/automationStartUrl')||id.endsWith('/automationKnowledgeContext')||id.endsWith('/automationPortableArtifact'))return original(id);
   if(id==='crypto')return require('node:crypto');
   return {};
- },exports);
+ };
+ new Function('require','exports',`${fs.readFileSync(file,'utf8')}\nexports.testNormalize=normalizeLlmBuild;exports.testBuildBrowserIntegration=resolveBuildBrowserIntegration;`)(inject,exports);
  return exports;
 }
 
@@ -202,7 +207,7 @@ test('offline workflow authors the whole case once, maps Web source separately a
  assert.equal(result.steps[1].automation_code,source);
  assert.equal(result.steps[1].automation_instructions.source_sha256,require('node:crypto').createHash('sha256').update(result.steps[1].automation_code).digest('hex'));
  assert.equal(result.steps[0].automation_instructions,undefined);
- assert.ok(require('../../backend/lib/automationInstructionMapping').validSavedInstructionMapping(result.steps[1].automation_instructions,{source:result.steps[1].automation_code,stepId:'draft-step-2'}));
+ assert.ok(require("../../backend/lib/build/automationInstructionMapping").validSavedInstructionMapping(result.steps[1].automation_instructions,{source:result.steps[1].automation_code,stepId:'draft-step-2'}));
  assert.equal(Object.hasOwn(requests[1],'tools'),false);assert.deepEqual(requests[1].response_format,{type:'json_object'});
  assert.deepEqual(result.browser_evidence,{transport:'not_requested',interaction_mode:'not_configured',observation_count:0});
  assert.deepEqual(result.side_effects,{cases_saved:0,target_requests:0,browser_actions:0});assert.deepEqual(writes,[]);

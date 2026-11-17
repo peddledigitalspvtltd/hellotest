@@ -1,9 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { browserCurrentSnapshotObservation } = require('../../backend/lib/automationBrowserContext');
-const { canonicalReviewEvidence } = require('../../backend/lib/automationReviewEvidence');
-const { recordedSectionRequests } = require('../../backend/lib/automationBrowserRecording');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { browserCurrentSnapshotObservation } = require("../../backend/lib/browser/automationBrowserContext");
+const { canonicalReviewEvidence } = require("../../backend/lib/build/automationReviewEvidence");
+const { recordedSectionRequests } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const snapshot = () => receipt({ observation_id: 'live-registration-form', url: 'https://app.test/auth', title: 'Sign in', scope: 'body',

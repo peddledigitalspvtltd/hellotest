@@ -1,9 +1,9 @@
 import { AutomationAgentSetup, automationAgentSelection, automationAgentRequest } from "./AutomationAgentSetup";
 import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
-import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
-import { useEffect, useRef, useState } from "react";
+import type { AutomationRepairSummary } from "@hellotest/platform/frontend/src/types";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconSparkles, IconPlayerPlay } from "@tabler/icons-react";
-import { agenticApi } from "@hellotest/agentic/frontend/api.client";
+import { requestAgentReview } from "../lib/agentReviewClient";
 import type { AgenticAssistantSessionResponse } from "@hellotest/platform/frontend/src/types";
 import { QualityEvidencePanel } from "./QualityEvidencePanel";
 import { AiLlmSelect } from "./AiLlmSelect";
@@ -23,11 +23,12 @@ const capabilities = [
 ];
 
 type Props = {
+  renderAutomationRepair?: (summary: AutomationRepairSummary) => ReactNode;
   projectId: string; appTypeId?: string; inputs?: Record<string, string | undefined>;
   features?: string[]; title?: string; environments?: Array<{ id: string; name: string }>;
   integrations?: Array<{ id: string; name: string; model?: string | null; is_active?: boolean; type?: string }>;
 };
-export function AiLifecycleReview({ projectId, appTypeId, inputs = {}, features, title = "AI quality review", integrations = [], environments }: Props) {
+export function AiLifecycleReview({ projectId, appTypeId, inputs = {}, features, title = "AI quality review", integrations = [], environments, renderAutomationRepair }: Props) {
   const choices = capabilities.filter(item => !features || features.includes(item.id));
   const [agentSelection,setAgentSelection]=useState(automationAgentSelection);
   const [allowBrowserActions,setAllowBrowserActions]=useState(false);
@@ -55,7 +56,7 @@ export function AiLifecycleReview({ projectId, appTypeId, inputs = {}, features,
     const version = ++generation.current;
     setBusy(true); setError(""); setResponse(null); setActivityId(""); setActivityMessages([]); setCallsOpen(false);
     try {
-      const result = await agenticApi.agenticWorkflows.ask({ project_id: projectId, app_type_id: appTypeId, agent_id: selected.id, mode: "agent", integration_id: (selected.id === "automation-repair" ? agentSelection.integrationId : integrationId) || undefined,
+      const result = await requestAgentReview({ project_id: projectId, app_type_id: appTypeId, agent_id: selected.id, mode: "agent", integration_id: (selected.id === "automation-repair" ? agentSelection.integrationId : integrationId) || undefined,
         inputs: { ...(selected.id === "automation-repair" ? agentSelection.inputs : {}), ...inputs, ...(selected.id === "automation-repair" ? {allow_browser_actions:allowBrowserActions} : {}), execution_id:inputs.execution_id||agentSelection.inputs.execution_id||failedRun||undefined, build: inputs.build || build, environment_id: inputs.environment_id || environmentId },
         ...(selected.id === "automation-repair" ? {smart_context:automationAgentRequest(agentSelection).smart_context} : {}),
         context_scopes: selected.id === "automation-repair" ? agentSelection.scopes : ["stories", "test-cases", "runs", "bugs", "knowledge"],
@@ -79,6 +80,6 @@ export function AiLifecycleReview({ projectId, appTypeId, inputs = {}, features,
     {error ? <p className="ai-lifecycle-error" role="alert">{error}</p> : null}
     {activityMessages.length ? <details className="ai-lifecycle-activity"><summary>Agent activity · {activityMessages.length} updates</summary><ol>{activityMessages.map((message,index)=><li key={index}>{message}</li>)}</ol>{busy?<p role="status">{activityMessages.at(-1)}</p>:null}</details> : null}
     {activityId ? <details className="ai-lifecycle-model-calls" onToggle={event=>setCallsOpen(event.currentTarget.open)}><summary>Model requests and responses</summary>{callsOpen?<ActivityModelCalls key={activityId} projectId={projectId} sessionId={activityId} live={busy}/>:null}</details> : null}
-    {response ? <div className="ai-lifecycle-result"><h4>{response.result.headline || "Review findings"}</h4><FormattedText text={response.result.response} />{response.result.automation_repair&&<AutomationRepairReview summary={response.result.automation_repair}/>}{response.result.quality_assessment ? <QualityEvidencePanel key={response.result.quality_assessment.snapshot_hash} report={response.result.quality_assessment} /> : null}{response.result.findings?.length ? <ul>{response.result.findings.map((finding, index) => <li key={index}><strong>{finding.title}</strong><FormattedText text={finding.detail} /></li>)}</ul> : null}{response.result.recommendations.length ? <><h4>Recommended next steps</h4><ol>{response.result.recommendations.map((item, index) => <li key={index}>{item}</li>)}</ol></> : null}{response.transaction?.id ? <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&session_id=${encodeURIComponent(response.transaction.id)}`}>View model calls</a> : null}<details><summary>Sources and completion checks</summary><ul>{response.citations.map(item => <li key={item.id}>{item.label}</li>)}</ul>{response.result.verification?.checks.map(check => <p key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</p>)}<p>Model: {response.result.model_execution?.effective_model || response.provenance.model} · {response.result.model_execution?.model_calls || 1} calls</p></details></div> : null}
+    {response ? <div className="ai-lifecycle-result"><h4>{response.result.headline || "Review findings"}</h4><FormattedText text={response.result.response} />{response.result.automation_repair&&renderAutomationRepair?.(response.result.automation_repair)}{response.result.quality_assessment ? <QualityEvidencePanel key={response.result.quality_assessment.snapshot_hash} report={response.result.quality_assessment} /> : null}{response.result.findings?.length ? <ul>{response.result.findings.map((finding, index) => <li key={index}><strong>{finding.title}</strong><FormattedText text={finding.detail} /></li>)}</ul> : null}{response.result.recommendations.length ? <><h4>Recommended next steps</h4><ol>{response.result.recommendations.map((item, index) => <li key={index}>{item}</li>)}</ol></> : null}{response.transaction?.id ? <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&session_id=${encodeURIComponent(response.transaction.id)}`}>View model calls</a> : null}<details><summary>Sources and completion checks</summary><ul>{response.citations.map(item => <li key={item.id}>{item.label}</li>)}</ul>{response.result.verification?.checks.map(check => <p key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</p>)}<p>Model: {response.result.model_execution?.effective_model || response.provenance.model} · {response.result.model_execution?.model_calls || 1} calls</p></details></div> : null}
   </section></details>;
 }

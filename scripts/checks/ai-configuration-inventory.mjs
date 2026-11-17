@@ -21,6 +21,7 @@ const boundaries = new Map([
   ['scripts/checks/ai-configuration-inventory.mjs', 'source_audit'],
   ['services/platform/backend/src/utils/aiFeatureRuntime.js', 'shared_policy'],
   ['services/platform/backend/src/utils/llmHttpClient.js', 'shared_transport'],
+  ['services/platform/backend/src/utils/structuredModelBoundary.js', 'model_adapter'],
   ['services/knowledge/backend/services/knowledgeJsonCompletion.service.js', 'model_adapter'],
   ['services/knowledge/backend/services/knowledgeModelGateway.service.js', 'model_adapter'],
   ['services/platform/backend/src/services/integrationConnectionProbe.service.js', 'connection_probe'],

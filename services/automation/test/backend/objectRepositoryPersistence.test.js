@@ -71,12 +71,15 @@ function repositoryFixture() {
   };
   const service = {};
   const requireFixture = (dependency) => {
+ if (typeof dependency === 'string' && dependency.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(dependency);
+ if (dependency.endsWith('/automationAuthoringAdmission.service') || dependency === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
     if (dependency === "@hellotest/platform/backend/src/db") return scopeDb;
     if (dependency === "@hellotest/platform/backend/src/obsDb") return obsDb;
     if (dependency === "crypto") return require("node:crypto");
     if (dependency === "@hellotest/platform/backend/src/utils/testStepAutomation") return require("../../../platform/backend/src/utils/testStepAutomation");
-    if(dependency==="../lib/repositoryScreenIdentity")return require('../../backend/lib/repositoryScreenIdentity');
-    if(dependency==="../lib/automationLocatorIdentity")return require('../../backend/lib/automationLocatorIdentity');
+    if(dependency==="../lib/build/repositoryScreenIdentity")return require("../../backend/lib/build/repositoryScreenIdentity");
+    if(dependency==="../lib/build/automationLocatorIdentity")return require("../../backend/lib/build/automationLocatorIdentity");
     return {};
   };
   const source = readFileSync(path.join(__dirname, "../../backend/services/aiAutomationBuilder.service.js"), "utf8");

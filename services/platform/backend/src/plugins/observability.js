@@ -7,6 +7,9 @@ const obsDb = require("../obsDb");
 const { runtimeHealthService } = require("../services/runtimeHealth.service");
 const { singleFlight } = require("../utils/singleFlight");
 const { metadata: serviceMetadata } = require("../runtime/serviceProfile");
+const knowledgeExecution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
+const knowledgeWorkerMetrics = require("@hellotest/knowledge/backend/services/knowledgeWorkerMetrics");
+const { formatKnowledgeMetrics } = require("../knowledgeMetrics");
 
 const metricsState = {
   inflight: 0,
@@ -184,7 +187,7 @@ const readEventLoopMetrics = () => {
   };
 };
 
-const renderMetrics = ({ engineMetrics = null, databasePools = {}, capacityMetrics = null } = {}) => {
+const renderMetrics = ({ engineMetrics = null, databasePools = {}, capacityMetrics = null, workerQueues = {} } = {}) => {
   const memoryUsage = process.memoryUsage();
   const eventLoop = readEventLoopMetrics();
   const lines = [
@@ -267,6 +270,8 @@ const renderMetrics = ({ engineMetrics = null, databasePools = {}, capacityMetri
     lines.push(`hellotest_database_pool_utilization_ratio{pool="${poolLabel}"} ${numberOrZero(pool.utilization).toFixed(6)}`);
     lines.push(`hellotest_database_pool_background_errors_total{pool="${poolLabel}"} ${numberOrZero(pool.background_error_count)}`);
   }
+  lines.push(formatKnowledgeMetrics(knowledgeExecution.metricsSnapshot(), workerQueues));
+  lines.push(require('../utils/agentMetrics').format());
 
   if (capacityMetrics) {
     const max = Math.max(1, numberOrZero(capacityMetrics.max));
@@ -482,6 +487,10 @@ const livenessPayload = () => ({
     const capacityMetrics = typeof fastify.capacityGuard?.snapshot === "function"
       ? fastify.capacityGuard.snapshot()
       : null;
+    const workerQueues = await knowledgeWorkerMetrics.readQueueMetrics().catch((error) => {
+      fastify.log.warn({ error }, "Knowledge worker queue metrics are temporarily unavailable");
+      return {};
+    });
 
     reply
       .header("Cache-Control", "no-store")
@@ -492,7 +501,8 @@ const livenessPayload = () => ({
           main: db.getPoolStats?.() || {},
           execution: obsDb.getPoolStats?.() || {}
         },
-        capacityMetrics
+        capacityMetrics,
+        workerQueues
       }));
   });
 }

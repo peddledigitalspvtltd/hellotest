@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .automation-agent-setup { min-width: 0; width: 100%; }
 .automation-agent-setup .agent-command-composer { min-width: 0; }
 .automation-agent-setup .agent-command-composer__footer { flex-wrap: wrap; gap: 10px; }

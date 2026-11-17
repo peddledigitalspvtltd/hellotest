@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { authoredTerminalAction, originalTerminalPlan, createAutomationTerminalActionGate } = require('../../backend/lib/automationTerminalActionGate');
-const { projectModelSnapshot } = require('../../backend/lib/automationBrowserModelTargets');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
+const { authoredTerminalAction, originalTerminalPlan, createAutomationTerminalActionGate } = require("../../backend/lib/browser/automationTerminalActionGate");
+const { projectModelSnapshot } = require("../../backend/lib/browser/automationBrowserModelTargets");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
 const receipt = (value, isError = false) => ({ isError, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const execution = action => ({ required: true, step_id: 'current', source_obligations: [{ action }, { action }] });
 function fixture(action, name = 'Login', extra = {}) {

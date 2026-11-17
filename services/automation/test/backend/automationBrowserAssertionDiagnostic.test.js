@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {safeAssertionDiagnostics}=require('../../backend/lib/automationProgressDiagnostics');
+const {safeAssertionDiagnostics}=require("../../backend/lib/build/automationProgressDiagnostics");
 const {browserReadDiagnostic}=require('../../backend/services/automationAgentActivity.service');
 
 const facts={same_origin:true,document_state:'loading',authentication_form_visible:false,document_busy:false,visible_alert_count:0};

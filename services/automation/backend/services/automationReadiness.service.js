@@ -1,5 +1,5 @@
 const vm = require("node:vm");
-const { normalizeGeneratedProgram, hasExecutableAssertion } = require('../lib/automationGeneratedProgram');
+const { normalizeGeneratedProgram, hasExecutableAssertion } = require("../lib/build/automationGeneratedProgram");
 const { validateGeneratedApiRequest, inferAutomationStepType } = require('@hellotest/platform/backend/src/utils/testStepAutomation');
 
 // Historical manual/untyped rows use the existing inferred runtime policy.

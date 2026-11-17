@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const {parse}=require('acorn');
-const {browserReceipt}=require('../../backend/lib/automationInteractiveEvidence');
-const {validFramePath,framePathKey}=require('../../backend/lib/automationFrameScope');
-const source=fs.readFileSync(require.resolve('../../backend/lib/automationBrowserAgent'),'utf8'),nodes=[];
+const {browserReceipt}=require("../../backend/lib/browser/automationInteractiveEvidence");
+const {validFramePath,framePathKey}=require("../../backend/lib/browser/automationFrameScope");
+const source=fs.readFileSync(require.resolve("../../backend/lib/browser/automationBrowserLoop"),'utf8'),nodes=[];
 const visit=node=>{if(!node||typeof node!=='object')return;nodes.push(node);for(const value of Object.values(node))if(Array.isArray(value))value.forEach(visit);else if(value&&typeof value==='object')visit(value);};
 visit(parse(source,{ecmaVersion:'latest',sourceType:'script'}));
 const binding=nodes.find(node=>node.type==='VariableDeclarator'&&node.id.name==='captureCurrentSnapshot').init;

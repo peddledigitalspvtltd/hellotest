@@ -12,7 +12,9 @@ async function persist(snapshot, user) {
   await db.transaction(async()=>{
     await db.query("SET LOCAL statement_timeout = '8000ms'");
     await db.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?,0))').get(`quality-graph:${snapshot.project_id}:${scopeKey}`);
-    const previous = await db.prepare('SELECT id,observed_at FROM quality_graph_snapshots WHERE project_id=? AND scope_key=? ORDER BY observed_at DESC LIMIT 1').get(snapshot.project_id,scopeKey);
+    // Partial captures cannot establish a new inventory baseline. Otherwise a
+    // later complete capture could miss removals hidden by that partial read.
+    const previous = await db.prepare('SELECT id,observed_at FROM quality_graph_snapshots WHERE project_id=? AND scope_key=? AND complete=TRUE ORDER BY observed_at DESC LIMIT 1').get(snapshot.project_id,scopeKey);
     await db.prepare(`INSERT INTO quality_graph_snapshots(id,project_id,scope_key,scope,captured_by,content_hash,observed_at,complete,limitations) VALUES(?,?,?,?,?,?,?,?,?)`)
       .run(id,snapshot.project_id,scopeKey,snapshot.scope,user.id,contentHash,snapshot.as_of,snapshot.complete,snapshot.limitations);
     await db.prepare(`INSERT INTO quality_graph_nodes(project_id,entity_id,revision,kind,title,first_observed_at)

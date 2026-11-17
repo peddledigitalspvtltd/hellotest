@@ -37,7 +37,9 @@ async function verify({ app, db, rpc, graphFixture }) {
     assert.equal(edge.provenance_type, 'HUMAN_VERIFIED');
     const visible = new Set(packet.evidence.map(item => item.evidence_id));
     assert.ok(edge.evidence_ids.length && edge.evidence_ids.every(id => visible.has(id)));
-    const selection = await db.prepare('SELECT selection FROM ai_context_graph_traces WHERE id=?').get(packet.retrieval.context_graph.trace_id);
+    const selection = await db.prepare(`SELECT payload.selection FROM ai_context_graph_traces traces
+      JOIN ai_context_graph_trace_payloads payload ON payload.trace_id=traces.id AND payload.recorded_at=traces.recorded_at
+      WHERE traces.id=?`).get(packet.retrieval.context_graph.trace_id);
     assert.equal(selection.selection.retrieval_strategy.graph_tool_calls, 1);
     const pinned = await rpc('hellotest_context_build', { ...graphRequest, filters: { ...graphRequest.filters, source_ids: [graphFixture.sourceId] } }, credential.token);
     assert.equal(pinned.result.isError, undefined, JSON.stringify(pinned.result));

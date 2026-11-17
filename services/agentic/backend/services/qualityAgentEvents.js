@@ -66,6 +66,7 @@ function createQualityAgentEventLog({ db }) {
         await db.prepare('INSERT INTO workspace_transaction_events(id,transaction_id,level,phase,message,details) VALUES(?,?,?,?,?,?)').run(
           randomUUID(), current.id, entry.type === 'error' || entry.type === 'done' && entry.data.status === 'failed' ? 'error' : entry.type === 'done' && entry.data.status === 'completed' ? 'success' : entry.type === 'done' && entry.data.status === 'cancelled' ? 'warning' : 'info', entry.type,
           String(entry.data.message || entry.data.summary || `Quality agent ${entry.type}`).slice(0, 1200), { quality_agent_event: envelope });
+        require('@hellotest/platform/agent-metrics').event('quality',entry);
         await db.prepare('UPDATE workspace_transactions SET metadata=metadata || ?::jsonb WHERE id=?').run({ quality_event_seq: seq, quality_event_text_bytes: textBytes,
           ...(entry.data.phase === 'stream_limit' ? { quality_event_text_limited: true } : {}),
           ...(active && lease ? { lease_until: new Date(Date.now() + 60000).toISOString() } : {}) }, current.id);

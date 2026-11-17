@@ -2,8 +2,8 @@ const assert = require('node:assert/strict');
 exports.verify = async ({ db, obsDb }) => {
   const engine = require('../../../../automation/backend/services/testEngineDispatch.service');
   const insert = async (id, execution, status = 'queued', engineClass = 'web', expiry = null) => obsDb.prepare(`INSERT INTO test_engine_jobs
-    (id,engine_run_id,project_id,execution_id,test_case_id,test_case_title,status,engine_class,lease_expires_at,created_at,payload)
-    VALUES (?,?, 'mcp-p-a', ?, 'mcp-case-a','Queue progress fixture',?,?,?, ?,?)`)
+    (id,engine_run_id,project_id,app_type_id,execution_id,test_case_id,test_case_title,status,engine_class,lease_expires_at,created_at,payload)
+    VALUES (?,?, 'mcp-p-a','mcp-app-a', ?, 'mcp-case-a','Queue progress fixture',?,?,?, ?,?)`)
     .run(id,id,execution,status,engineClass,expiry,'2020-01-01T00:00:00Z',{execution_policy:{parallel_enabled:false,parallel_count:1}});
   try {
     for (const id of ['blocked','independent','recovery','single-slot','finished','closed-after-lease']) await db.prepare(`INSERT INTO executions
@@ -17,9 +17,12 @@ exports.verify = async ({ db, obsDb }) => {
     await obsDb.prepare("UPDATE test_engine_jobs SET status='completed',completed_at=CURRENT_TIMESTAMP WHERE id=?").run(leased.id);
     await insert('lease-fixture-z-expired','lease-fixture-recovery','running','web',new Date(Date.now()-600000).toISOString());
     const recovered=await engine.leaseNextQueuedJob({worker_id:'recovery-worker',engine_class:'web'});
-    assert.equal(recovered.id,'lease-fixture-z-expired','An expired job must not block itself with its old lease.');
-    assert.equal(recovered.leased_by,'recovery-worker');assert.ok(new Date(recovered.lease_expires_at)>new Date());
-    await obsDb.prepare("UPDATE test_engine_jobs SET status='completed',completed_at=CURRENT_TIMESTAMP WHERE id=?").run(recovered.id);
+    assert.equal(recovered,null,'A replacement worker must not replay a running job whose previous outcome is uncertain.');
+    const interrupted=await obsDb.prepare('SELECT status,completed_at,last_error,runtime_state FROM test_engine_jobs WHERE id=?').get('lease-fixture-z-expired');
+    assert.equal(interrupted.status,'failed');
+    assert.ok(interrupted.completed_at);
+    assert.match(interrupted.last_error,/uncertain outcome/i);
+    assert.equal(interrupted.runtime_state?.interrupted_attempt?.action_outcome,'unknown');
     await insert('lease-fixture-parallel-web','lease-fixture-single-slot','queued','web');
     await insert('lease-fixture-parallel-api','lease-fixture-single-slot','queued','api');
     const concurrent=await Promise.all(['web','api'].map(engine_class=>engine.leaseNextQueuedJob({worker_id:`fixture-${engine_class}`,engine_class})));
@@ -35,6 +38,7 @@ exports.verify = async ({ db, obsDb }) => {
     assert.equal((await obsDb.prepare('SELECT status FROM test_engine_jobs WHERE id=?').get(refused.job_id)).status,'aborted','A refused start commits its cancellation rather than rolling it back.');
   } finally {
     await obsDb.query("DELETE FROM test_engine_jobs WHERE id LIKE 'lease-fixture-%'");
+    await db.query("DELETE FROM execution_results WHERE execution_id LIKE 'lease-fixture-%'");
     await db.query("DELETE FROM executions WHERE id LIKE 'lease-fixture-%'");
   }
 };

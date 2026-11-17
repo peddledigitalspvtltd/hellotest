@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .automation-agent-activity-list { container: engineer-activity / inline-size; }
 .automation-engineer-workspace { display: grid; grid-template-columns: minmax(220px, .28fr) minmax(0, .72fr); gap: 16px; min-width: 0; align-items: start; }
 .automation-engineer-workspace :is(h3, p, figure) { margin: 0; }
@@ -14,19 +16,19 @@
 .automation-engineer-command-list { display: grid; gap: 8px; max-height: 700px; min-width: 0; margin: 0; padding: 0 10px 12px; overflow: auto; list-style: none; }
 .automation-engineer-command-list > li { min-width: 0; }
 .automation-engineer-command-list > li > button { display: grid; grid-template-columns: 26px minmax(0, 1fr) 14px; align-items: start; gap: 9px; width: 100%; padding: 12px 10px; border: 1px solid transparent; border-radius: 8px; color: var(--app-text); background: var(--app-surface-muted); font: inherit; text-align: left; cursor: pointer; }
-.automation-engineer-command-list > li > button[aria-current="step"] { border-color: var(--app-accent, #087e82); background: var(--app-accent-soft, #edf7f6); }
-.automation-engineer-command-list > li[data-agent-current="true"] > button { box-shadow: inset 3px 0 0 var(--app-accent, #087e82); }
-.automation-engineer-command-list > li > button:focus-visible { outline: 2px solid var(--app-accent, #087e82); outline-offset: -3px; }
+.automation-engineer-command-list > li > button[aria-current="step"] { border-color: var(--app-accent, var(--ui-teal-border)); background: var(--app-accent-soft, var(--ui-surface-subtle)); }
+.automation-engineer-command-list > li[data-agent-current="true"] > button { box-shadow: inset 3px 0 0 var(--app-accent, var(--ui-teal-strong)); }
+.automation-engineer-command-list > li > button:focus-visible { outline: 2px solid var(--app-accent, var(--ui-teal-border)); outline-offset: -3px; }
 .automation-engineer-command-number { display: grid; place-items: center; width: 24px; min-height: 24px; border: 1px solid var(--app-border); border-radius: 50%; color: var(--app-text-muted); font-size: 11px; background: var(--app-surface); }
-.automation-engineer-command-list > li[data-status="saved"] .automation-engineer-command-number { color: var(--app-accent, #087e82); }
+.automation-engineer-command-list > li[data-status="saved"] .automation-engineer-command-number { color: var(--app-accent, var(--ui-teal-text)); }
 .automation-engineer-command-copy { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
 .automation-engineer-command-copy > strong { font-size: 12px; font-weight: 600; line-height: 1.6; white-space: pre-wrap; }
 .automation-engineer-command-expected { display: grid; gap: 3px; color: var(--app-text-muted); font-size: 12px; font-weight: 400; line-height: 1.6; white-space: pre-wrap; }
 .automation-engineer-command-expected b { font-size: 10px; font-weight: 600; }
 .automation-engineer-command-copy > small { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; color: var(--app-text-muted); font-size: 10px; line-height: 1.5; }
 .automation-engineer-command-state { font-weight: 600; }
-.automation-engineer-command-list [data-status="working"] .automation-engineer-command-state { color: var(--app-accent, #087e82); }
-.automation-engineer-command-list [data-status="attention"] .automation-engineer-command-state { color: var(--app-danger, #b42318); }
+.automation-engineer-command-list [data-status="working"] .automation-engineer-command-state { color: var(--app-accent, var(--ui-teal-text)); }
+.automation-engineer-command-list [data-status="attention"] .automation-engineer-command-state { color: var(--app-danger, var(--ui-red-text)); }
 .automation-engineer-command-arrow { margin-top: 5px; color: var(--app-text-muted); }
 .automation-engineer-queued-placeholder { display:grid; gap:10px; align-content:center; min-height:91px; padding:4px 0; }
 .automation-engineer-wave { display:block; height:10px; border-radius:5px; background:linear-gradient(90deg,var(--app-border) 0%,var(--app-surface-muted) 48%,var(--app-border) 100%); background-size:220% 100%; animation:automation-engineer-wave 1.8s ease-in-out infinite; opacity:.7; }
@@ -48,7 +50,7 @@
 .automation-engineer-page-title { padding: 8px 14px 0; color: var(--app-text-muted); font-size: 11px; overflow-wrap: anywhere; }
 .automation-engineer-evidence-tabs, .automation-engineer-code-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--app-border); }
 .automation-engineer-evidence-tabs > button, .automation-engineer-code-tabs > button { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; color: var(--app-text-muted); background: transparent; font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
-.automation-engineer-evidence-tabs > button[aria-selected="true"], .automation-engineer-code-tabs > button[aria-selected="true"] { border-color: var(--app-border); color: var(--app-accent, #087e82); background: var(--app-accent-soft, #edf7f6); }
+.automation-engineer-evidence-tabs > button[aria-selected="true"], .automation-engineer-code-tabs > button[aria-selected="true"] { border-color: var(--app-border); color: var(--app-accent, var(--ui-teal-text)); background: var(--app-accent-soft, var(--ui-surface-subtle)); }
 .automation-engineer-evidence-tabs > button:disabled { opacity: .45; cursor: default; }
 .automation-engineer-application-view { display: grid; place-items: center; min-width: 0; min-height: 235px; max-height: 370px; overflow: auto; background: var(--app-surface-muted); }
 .automation-engineer-application-view > img { display: block; width: 100%; height: auto; max-height: 370px; object-fit: contain; }
@@ -59,29 +61,29 @@
 .automation-engineer-browser-actions { display:grid; gap:5px; margin:8px 14px; padding:0; list-style:none; font-size:11px; }
 .automation-engineer-browser-actions > li { display:flex; justify-content:space-between; gap:12px; color:var(--app-text-muted); }
 .automation-engineer-browser-actions strong { font-weight:500; color:var(--app-text); }
-.automation-engineer-browser-actions > li[data-status="unknown"] strong, .automation-engineer-browser-actions > li[data-status="failed"] strong { color:var(--app-danger,#b42318); }
+.automation-engineer-browser-actions > li[data-status="unknown"] strong, .automation-engineer-browser-actions > li[data-status="failed"] strong { color:var(--app-danger,var(--ui-red-text)); }
 .automation-engineer-evidence-elements { align-self:stretch; justify-self:stretch; display:grid; gap:10px; min-width:0; margin:0; padding:14px 24px; }
 .automation-engineer-evidence-elements > li { display:grid; gap:4px; color:var(--app-text); font-size:12px; overflow-wrap:anywhere; }
 .automation-engineer-evidence-elements code { color:var(--app-text-muted); font-size:10px; }
 .automation-engineer-placeholder { display: grid; justify-items: center; align-content: center; gap: 10px; min-height: 175px; box-sizing: border-box; padding: 24px; color: var(--app-text-muted); text-align: center; }
-.automation-engineer-placeholder > svg { color: var(--app-accent, #087e82); }
+.automation-engineer-placeholder > svg { color: var(--app-accent, var(--ui-teal-text)); }
 .automation-engineer-placeholder > strong { color: var(--app-text); font-size: 13px; font-weight: 600; }
 .automation-engineer-placeholder > p { max-width: 370px; font-size: 12px; line-height: 1.7; }
 .automation-engineer-code-view { min-width: 0; min-height: 280px; overflow: auto; }
 .automation-engineer-code-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-right:12px; border-bottom:1px solid var(--app-border); }
 .automation-engineer-code-tools .automation-engineer-code-tabs { flex:1 1 680px; min-width:0; border-bottom:0; }
 .automation-engineer-code-tools > button { flex:0 0 auto; margin-left:auto; margin-bottom:8px; font-size:11px; }
-.automation-engineer-error-count { display:inline-grid; place-items:center; min-width:17px; height:17px; padding:0 4px; box-sizing:border-box; border-radius:9px; color:var(--app-danger,#b42318); background:color-mix(in srgb,var(--app-danger,#b42318) 10%,var(--app-surface)); font-size:10px; font-weight:650; }
+.automation-engineer-error-count { display:inline-grid; place-items:center; min-width:17px; height:17px; padding:0 4px; box-sizing:border-box; border-radius:9px; color:var(--app-danger,var(--ui-red-text)); background:color-mix(in srgb,var(--app-danger,var(--ui-red-solid)) 10%,var(--app-surface)); font-size:10px; font-weight:650; }
 .automation-engineer-error-count[data-resolved="true"] { color:var(--app-text-muted); background:var(--app-surface-muted); }
-.automation-engineer-build-error-notice { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:12px 16px 0; padding:10px 12px; border:1px solid var(--app-border); border-left:3px solid var(--app-danger,#b42318); border-radius:7px; font-size:12px; }
+.automation-engineer-build-error-notice { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:12px 16px 0; padding:10px 12px; border:1px solid var(--app-border); border-left:3px solid var(--app-danger,var(--ui-red-border)); border-radius:7px; font-size:12px; }
 .automation-engineer-build-error-notice p { flex:1; min-width:180px; margin:0; overflow-wrap:anywhere; }
-.automation-engineer-command-error { display:inline-flex; align-items:center; gap:4px; color:var(--app-danger,#b42318); }
+.automation-engineer-command-error { display:inline-flex; align-items:center; gap:4px; color:var(--app-danger,var(--ui-red-text)); }
 .automation-engineer-command-error[data-resolved="true"] { color:var(--app-text-muted); }
 .automation-engineer-build-errors { padding:16px; font-size:12px; line-height:1.7; }
 .automation-engineer-build-errors h4 { margin:0 0 4px; font-size:13px; color:var(--app-text); }
 .automation-engineer-build-errors header > p { color:var(--app-text-muted); }
 .automation-engineer-build-errors > ol { display:grid; gap:12px; margin:14px 0 0; padding:0; list-style:none; }
-.automation-engineer-build-errors > ol > li { min-width:0; padding:12px; border:1px solid var(--app-border); border-left:3px solid var(--app-danger,#b42318); border-radius:7px; background:var(--app-surface); }
+.automation-engineer-build-errors > ol > li { min-width:0; padding:12px; border:1px solid var(--app-border); border-left:3px solid var(--app-danger,var(--ui-red-border)); border-radius:7px; background:var(--app-surface); }
 .automation-engineer-build-errors > ol > li[data-resolved="true"] { border-left-color:var(--app-border); }
 .automation-engineer-build-errors li > div:first-child { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; }
 .automation-engineer-build-errors li > div:first-child > :is(span,time) { font-size:10px; color:var(--app-text-muted); }
@@ -107,7 +109,7 @@
 .automation-engineer-code-view .automation-instruction-line { display: grid; grid-template-columns: 30px minmax(0, 1fr); min-width: 0; }
 .automation-engineer-code-view .automation-line-number { padding: 7px 6px; color: var(--app-text-muted); font-size: 10px; text-align: right; }
 .automation-engineer-code-view .automation-instruction-readable { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; padding: 6px 12px; min-width: 0; color: var(--app-text); font-family: inherit; font-size:12px; line-height:1.7; overflow-wrap: anywhere; }
-.automation-engineer-code-view .automation-instruction-readable > strong { color: var(--app-accent, #087e82); font-weight: 600; }
+.automation-engineer-code-view .automation-instruction-readable > strong { color: var(--app-accent, var(--ui-teal-text)); font-weight: 600; }
 .automation-engineer-code-view .automation-instruction-explanation { width: 100%; color: var(--app-text-muted); font-size: 11px; }
 .automation-engineer-object-references { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--app-border); color: var(--app-text-muted); font-size: 10px; }
 .automation-engineer-object-references > code { max-width: 100%; padding: 2px 5px; border: 1px solid var(--app-border); border-radius: 4px; font-size: 10px; overflow-wrap: anywhere; }
@@ -129,10 +131,10 @@ html .automation-engineer-workspace .automation-engineer-code-view .automation-i
 }
 .automation-engineer-command-list > li > button:disabled { opacity:1; cursor:default; background:var(--app-surface); border-color:var(--app-border); }
 .automation-engineer-command-list > li > button:disabled .automation-engineer-command-copy > strong { color:var(--app-text-muted); font-weight:500; }
-.automation-engineer-command-list > li[data-status="validated"] .automation-engineer-command-number { color:var(--app-accent, #087e82); }
+.automation-engineer-command-list > li[data-status="validated"] .automation-engineer-command-number { color:var(--app-accent, var(--ui-teal-text)); }
 .automation-engineer-command-list > li > button:disabled .automation-engineer-command-arrow { visibility:hidden; }
 .automation-engineer-command-state { display:inline-flex; align-items:center; gap:5px; }
-.automation-engineer-step-loader { width:9px; height:9px; border:1.5px solid var(--app-border); border-top-color:var(--app-accent,#087e82); border-radius:50%; animation:automation-engineer-loading 1s linear infinite; }
+.automation-engineer-step-loader { width:9px; height:9px; border:1.5px solid var(--app-border); border-top-color:var(--app-accent,var(--ui-teal-border)); border-radius:50%; animation:automation-engineer-loading 1s linear infinite; }
 @keyframes automation-engineer-loading { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) { .automation-engineer-step-loader { animation:none; } }
 @media (max-width:640px) { .automation-engineer-code-tools { flex-wrap:wrap; padding:0 10px 8px; } .automation-engineer-code-tools .automation-engineer-code-tabs { width:100%; padding:8px 0 0; } .automation-engineer-code-tools > button { margin-left:auto; } }

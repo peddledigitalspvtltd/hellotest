@@ -1,3 +1,4 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { inspectExecutablePlan, prepareExecutablePlan } = require('../../backend/services/automationReadiness.service');
@@ -20,7 +21,7 @@ test('engine preflight compiles source without evaluating it and blocks incomple
 
 test('dispatch planning never allocates eligible jobs for malformed frozen automation despite a ready summary badge', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../../backend/services/testEngineDispatch.service.js'), 'utf8');
-  const body = source.slice(source.indexOf('async function planExecutionDispatch('), source.indexOf('\nasync function settleExecutionIfComplete('));
+  const body = implementationFunctionSource('dispatch/executionPlanning','planExecutionDispatch');
   const dependencies = {
     require: name => { assert.equal(name, './automationReadiness.service'); return { inspectExecutablePlan, prepareExecutablePlan }; },
     selectProject: { get: async () => ({ id: 'p' }) }, selectAppType: { get: async () => ({ id: 'app', type: 'web' }) },
@@ -146,7 +147,7 @@ test('legacy untyped Web source keeps strict build checks and uses the same infe
 });
 
 test('recorder readiness accepts untouched compatible legacy instructions without weakening new source validation', async () => {
-  const { recordedPlanIssues } = require('../../backend/lib/automationRecorderReadiness');
+  const { recordedPlanIssues } = require("../../backend/lib/recording/automationRecorderReadiness");
   const saved = { id: 'existing', order: 1, step_type: 'web', expected_result: 'The account name is retained',
     automation_code: `await page.locator('getByLabel("Account")').fill('@r.account');\nawait expect(page.locator('getByLabel("Account")')).toHaveValue('@r.account');` };
   const recorded = { id: 'recorded', order: 2, step_type: 'web', expected_result: '', automation_code: 'await page.locator("#save").click();' };
@@ -179,7 +180,7 @@ test('snapshot runner capability fails preflight before preceding actions with a
     const issues=inspectExecutablePlan([{id:'native',step_order:13,step_type:'web',expected_result:'The embedded results are visible',automation_code:source}]);
     assert.equal(issues.length,1);assert.match(issues[0],new RegExp(matcher));assert.match(issues[0],/Playwright Test testInfo/);
     assert.match(issues[0],/observed iframe target/);assert.match(issues[0],/without replaying browser actions/);assert.doesNotMatch(issues[0],/expected result needs an executable assertion|invalid JavaScript/);
-    const run=()=>{const {normalizeGeneratedProgram}=require('../../backend/lib/automationGeneratedProgram');return new AsyncFunction('page','expect',normalizeGeneratedProgram(source))({locator:()=>({click:async()=>{clicks++;}})},()=>({}));};
+    const run=()=>{const {normalizeGeneratedProgram}=require("../../backend/lib/build/automationGeneratedProgram");return new AsyncFunction('page','expect',normalizeGeneratedProgram(source))({locator:()=>({click:async()=>{clicks++;}})},()=>({}));};
     assert.throws(run,{code:'AUTOMATION_RUNNER_MATCHER_UNSUPPORTED'});
   }
   assert.equal(clicks,0);

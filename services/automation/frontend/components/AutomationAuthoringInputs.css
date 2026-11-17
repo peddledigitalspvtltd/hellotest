@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .automation-parameter-input { display: flex; align-items: stretch; position: relative; width: 100%; min-width: 0; }
 .automation-parameter-input > input { flex: 1 1 auto; min-width: 0 !important; width: 100%; padding-right: 40px !important; }
 .automation-parameter-select { position: absolute; inset: 1px 1px 1px auto; display: flex; align-items: center; justify-content: center; width: 34px; color: var(--muted); border-radius: 0 5px 5px 0; }

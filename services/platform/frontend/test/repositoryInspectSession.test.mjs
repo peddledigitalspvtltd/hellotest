@@ -1,18 +1,15 @@
+import {findAutomationBinding} from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
-import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, normalizeRepositoryInspectStartUrl, repositoryInspectLegacyPageUrl, stopRepositoryInspectSession } from "../../../agentic/frontend/lib/repositoryInspectSession.ts";
+import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, normalizeRepositoryInspectStartUrl, repositoryInspectLegacyPageUrl, stopRepositoryInspectSession } from "../../../automation/frontend/lib/repositoryInspectSession.ts";
 
 const session = { id: "inspect-1", purpose: "repository-inspect", status: "running", status_url: "http://localhost:4311/api/v1/recorder/sessions/inspect-1", live_view_url: "http://localhost:4311/api/v1/recorder/sessions/inspect-1/live?token=secret-session-token" };
 const tab = (id, active = false) => ({ id, title: id, url: `https://app.test/${id}`, active });
-const pageSource = ts.createSourceFile("AutomationPage.tsx", readFileSync(new URL("../../../automation/frontend/pages/AutomationPage.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const handler = (name, context) => {
-  let found;
-  const visit = (node) => { if ((ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name?.getText(pageSource) === name) found = node; else ts.forEachChild(node, visit); };
-  visit(pageSource);
-  assert.ok(found, name);
-  const code = `${ts.isVariableDeclaration(found) ? "const " : ""}${found.getText(pageSource)}; exports.handler = ${name};`;
+  const {node,ast}=findAutomationBinding(name);
+  const code = `${ts.isVariableDeclaration(node) ? "const " : ""}${node.getText(ast)}; exports.handler = ${name};`;
   const exports = {};
   new Function(...Object.keys(context), "exports", ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(...Object.values(context), exports);
   return exports.handler;

@@ -7,13 +7,13 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 exports.verify = async ({ app, db, user = {id:'mcp-a'}, headers, createToken }) => {
   const memory = require('@hellotest/knowledge/backend/services/knowledgeContextGraph.service');
   const graph = require('@hellotest/knowledge/backend/services/knowledgeGraph.service');
-  const projectId='mcp-p-a',appTypeId='mcp-app-a',sourceId='cg-memory-source',documentId='cg-memory-document-v1',chunkId='cg-memory-fragment-selected';
-  const featureId='ai.context_graph.fixture',body='The reviewed release policy requires recorded passing checks.',versionHash=digest(body);
+  const projectId='mcp-p-a',appTypeId='mcp-app-a',sourceId='c6000000-0000-4000-8000-000000000001',documentId='c6000000-0000-4000-8000-000000000002',chunkId='c6000000-0000-4000-8000-000000000003';
+  const featureId='mcp.context_graph.fixture',body='The reviewed release policy requires recorded passing checks.',versionHash=digest(body);
   await db.prepare(`INSERT INTO ai_knowledge_sources(id,project_id,app_type_id,source_kind,title,extraction_status,revision_token,checksum_sha256)
     VALUES (?,?,?,'text','Reviewed context policy','ready','context-memory-v1',?)`).run(sourceId,projectId,appTypeId,versionHash);
   await db.prepare('INSERT INTO ai_knowledge_documents(id,project_id,source_id,title,content,checksum_sha256) VALUES(?,?,?,?,?,?)')
     .run(documentId,projectId,sourceId,'Reviewed context policy',body,versionHash);
-  for(const [id,index,content] of [[chunkId,0,body],['cg-memory-fragment-other',1,'This independently readable fragment remains available.']]) await db.prepare(`INSERT INTO ai_knowledge_chunks(id,project_id,document_id,source_id,chunk_index,content,search_vector)
+  for(const [id,index,content] of [[chunkId,0,body],['c6000000-0000-4000-8000-000000000004',1,'This independently readable fragment remains available.']]) await db.prepare(`INSERT INTO ai_knowledge_chunks(id,project_id,document_id,source_id,chunk_index,content,search_vector)
     VALUES(?,?,?,?,?,?,to_tsvector('simple',?))`).run(id,projectId,documentId,sourceId,index,content,content);
   await db.prepare(`INSERT INTO ai_knowledge_index_states(document_id,project_id,source_id,document_version,is_current,lexical_state,dense_state,required_indexes_ready)
     VALUES(?,?,?,1,TRUE,'ready','not_configured',TRUE)`).run(documentId,projectId,sourceId);
@@ -45,11 +45,13 @@ exports.verify = async ({ app, db, user = {id:'mcp-a'}, headers, createToken }) 
   const first=await memory.recordContext(input),repeat=await memory.recordContext(input);
   assert.equal(first.trace_id,repeat.trace_id);
   assert.equal((await db.prepare('SELECT count(*)::integer AS count FROM ai_context_graph_traces WHERE project_id=? AND actor_id=? AND context_packet_id=?').get(projectId,user.id,packet.context_packet_id)).count,1);
-  await assert.rejects(memory.recordContext({...input,packet:{...packet,evidence:[{...packet.evidence[0],chunk_id:'cg-memory-fragment-other'}]}}),error=>error.code==='CONTEXT_GRAPH_SELECTION_CONFLICT');
+  await assert.rejects(memory.recordContext({...input,packet:{...packet,evidence:[{...packet.evidence[0],chunk_id:'c6000000-0000-4000-8000-000000000004'}]}}),error=>error.code==='CONTEXT_GRAPH_SELECTION_CONFLICT');
   await assert.rejects(memory.recordContext({...input,packet:{...packet,applied_filters:{...packet.applied_filters,collection_ids:['another-private-collection']}}}),error=>error.code==='CONTEXT_GRAPH_SELECTION_CONFLICT');
   const stored=await db.prepare('SELECT * FROM ai_context_graph_traces WHERE id=?').get(first.trace_id);
   assert.doesNotMatch(JSON.stringify(stored),/PRIVATE_CONTEXT_QUERY|PRIVATE_RETRIEVAL_FOCUS|PRIVATE_CAPTURED_SOURCE_TITLE|passing checks/);
-  assert.equal(stored.evidence_refs[0].version_hash,versionHash);
+  const storedPayload=await db.prepare('SELECT * FROM ai_context_graph_trace_payloads WHERE trace_id=?').get(first.trace_id);
+  assert.doesNotMatch(JSON.stringify(storedPayload),/PRIVATE_CONTEXT_QUERY|PRIVATE_RETRIEVAL_FOCUS|PRIVATE_CAPTURED_SOURCE_TITLE|passing checks/);
+  assert.equal(storedPayload.evidence_refs[0].version_hash,versionHash);
   let view=await memory.explore({projectId,user,traceId:first.trace_id});
   assert.equal(view.stats.current_evidence_count,1);assert.ok(view.nodes.some(node=>node.id===sourceId));assert.equal(view.limitations.model_input_verified,false);
   assert.equal(view.nodes.find(node=>node.id===sourceId).title,'Current release policy');
@@ -92,7 +94,7 @@ exports.verify = async ({ app, db, user = {id:'mcp-a'}, headers, createToken }) 
 
   // Promotion of a new immutable source version marks the retained old
   // selection stale, while an exact-fragment denial above remained unavailable.
-  const replacement='The updated policy also requires the configured environment.',nextHash=digest(replacement),nextDoc='cg-memory-document-v2',nextChunk='cg-memory-fragment-v2';
+  const replacement='The updated policy also requires the configured environment.',nextHash=digest(replacement),nextDoc='c6000000-0000-4000-8000-000000000005',nextChunk='c6000000-0000-4000-8000-000000000006';
   await db.prepare('UPDATE ai_knowledge_documents SET is_active=FALSE,effective_to=CURRENT_TIMESTAMP WHERE id=?').run(documentId);
   await db.prepare('UPDATE ai_knowledge_index_states SET is_current=FALSE WHERE document_id=?').run(documentId);
   await db.prepare('INSERT INTO ai_knowledge_documents(id,project_id,source_id,title,content,checksum_sha256,version) VALUES(?,?,?,?,?,?,2)')

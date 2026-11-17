@@ -23,8 +23,11 @@
     "./backend/services/knowledgeIntentPlanning.service": "./backend/services/knowledgeIntentPlanning.service.js",
     "./backend/services/knowledgeRag.service": "./backend/services/knowledgeRag.service.js",
     "./backend/services/knowledgeRetrieval.service": "./backend/services/knowledgeRetrieval.service.js",
+    "./backend/services/knowledgeApplicationSerializers": "./backend/services/knowledgeApplicationSerializers.service.js",
+    "./backend/services/knowledgeWorkerMetrics": "./backend/services/knowledgeWorkerMetrics.service.js",
     "./backend/services/knowledgeSourceLifecycle.service": "./backend/services/knowledgeSourceLifecycle.service.js",
     "./backend/services/knowledgeVectorStore.service": "./backend/services/knowledgeVectorStore.service.js",
+    "./backend/services/knowledgeVectorIndex.service": "./backend/services/knowledgeVectorIndex.service.js",
     "./backend/workers": "./backend/workers.js",
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",
@@ -35,9 +38,20 @@
     "./ui": "./frontend/entry.ts",
     "./backend/refreshSchema": "./backend/refreshSchema.js",
     "./backend/vectorProjectionSchema": "./backend/vectorProjectionSchema.js",
+    "./backend/retrievalSchema": "./backend/retrievalSchema.js",
+    "./backend/semanticWorkSchema": "./backend/semanticWorkSchema.js",
     "./backend/graphSchema": "./backend/graphSchema.js",
+    "./backend/nativeOutboxSchema": "./backend/nativeOutboxSchema.js",
+    "./backend/contextTracePayloadSchema": "./backend/contextTracePayloadSchema.js",
     "./backend/services/knowledgeGraph.service": "./backend/services/knowledgeGraph.service.js",
-    "./backend/services/knowledgeContextGraph.service": "./backend/services/knowledgeContextGraph.service.js"
+    "./backend/services/knowledgeContextGraph.service": "./backend/services/knowledgeContextGraph.service.js",
+    "./backend/services/knowledgeLexicalQuery": "./backend/services/knowledgeLexicalQuery.js",
+    "./backend/services/knowledgeGrounding.service": "./backend/services/knowledgeGrounding.service.js",
+    "./backend/services/knowledgeOntology": "./backend/services/knowledgeOntology.js",
+    "./backend/services/knowledgeLinkLabels": "./backend/services/knowledgeLinkLabels.js",
+    "./backend/services/knowledgeMaintenance.service": "./backend/services/knowledgeMaintenance.service.js",
+    "./backend/services/knowledgeFollowUp": "./backend/services/knowledgeFollowUp.js",
+    "./backend/services/knowledgeQueueFairness": "./backend/services/knowledgeQueueFairness.service.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs knowledge",
@@ -59,10 +73,8 @@
   },
   "dependencies": {
     "@hellotest/ai": "^1.0.0",
-    "@hellotest/chatbot": "^1.0.0",
     "@hellotest/integration": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
-    "@hellotest/testing": "^1.0.0",
-    "@hellotest/mcp": "^1.0.0"
+    "@hellotest/testing": "^1.0.0"
   }
 }

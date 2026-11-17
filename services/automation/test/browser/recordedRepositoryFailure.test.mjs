@@ -8,12 +8,14 @@ import { createPlaywrightCodeBindings } from '../../../../testengine/backend/dis
 
 const file = new URL('../../backend/services/aiAutomationBuilder.service.js', import.meta.url), require = createRequire(file);
 const { chromium } = require('../../../../testengine/backend/node_modules/playwright');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
 const source = await readFile(file, 'utf8'), database = { prepare: () => ({ all: async () => [], get: async () => null, run: async () => ({ changes: 1 }) }) };
 const hostModule = { exports: {} };
-new Function('require', 'module', 'exports', `${source}\nmodule.exports={buildRecorderStepCandidates,buildRecorderStepCandidate,createRecorderAutomationCode,buildFallbackRecorderMappings};`)(id => {
+new Function('require', 'module', 'exports', `${source}\nmodule.exports={buildRecorderStepCandidates,buildRecorderStepCandidate,createRecorderAutomationCode,buildFallbackRecorderMappings,orderRecorderCandidates};`)(id => {
+ if (typeof id === 'string' && id.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(id);
+
   if (id.endsWith('/db') || id.endsWith('/obsDb')) return database;
-  if (id === 'crypto' || id.endsWith('/testStepAutomation') || id.endsWith('/automationRecorderActions') || id.endsWith('/automationBrowserParameters')) return require(id);
+  if (id === 'crypto' || id.endsWith('/testStepAutomation') || id.includes('/lib/recording/') || id.endsWith('/automationBrowserParameters')) return require(id);
   return {};
 }, hostModule, hostModule.exports);
 const host = hostModule.exports;
@@ -36,15 +38,21 @@ test('a newly recorded plan replays with observed locators when optional reposit
       return { byActionIndex: new Map([[2, { reference: 'Unpersisted.Name', field_name: 'Name', locator: actions[1].locator }], [3, { reference: 'Unpersisted.Save', field_name: 'Save', locator: actions[2].locator }]]) };
     },
     ...host, inferAutomationStepType: require('../../../platform/backend/src/utils/testStepAutomation').inferAutomationStepType,
-    normalizeGeneratedProgram: require('../../backend/lib/automationGeneratedProgram').normalizeGeneratedProgram,
+    normalizeGeneratedProgram: require("../../backend/lib/build/automationGeneratedProgram").normalizeGeneratedProgram,
     appendEvent: async () => {}, applyRecorderSteps: async ({ stepCandidates }) => {
       rows = stepCandidates.map((candidate, index) => ({ ...candidate, id: `step-${index}`, step_id: `step-${index}`, operation: 'created' }));return rows;
     },
     markTestCaseAutomationIncomplete: { run: async () => {} }, markTestCaseAutomationReady: { run: async () => {} },
     persistLearning: async () => { throw new Error('Repository storage is temporarily unavailable'); }, updateTransaction: async () => {}, normalizeText: value => value
   };
-  const body = source.slice(source.indexOf('const finalizeRecorderBuild ='), source.indexOf('exports.buildAutomationForCase ='));
-  const finalize = new Function(...Object.keys(dependencies), body + '\nreturn finalizeRecorderBuild;')(...Object.values(dependencies));
+  const recorderFile=require.resolve('./builder/recorderImport');
+  const recorderRequire=createRequire(recorderFile);
+  const recorderPorts={...dependencies,exports:{},obsDb:database,db:database,testStepService:{},require:id=>{
+    if(id.endsWith('/automationBrowserParameters'))return {loadBrowserParameterResolver:async()=>createBrowserParameterResolver({})};
+    if(id.endsWith('/webRecorderPersistence.service'))return {persistWebRecorderPlan:({candidates})=>dependencies.applyRecorderSteps({stepCandidates:candidates})};
+    return recorderRequire(id);
+  }};
+  const {finalizeRecorderBuild:finalize}=recorderRequire(recorderFile).createRecorderImport(recorderPorts);
   const result = await finalize({ testCase, session: { id: 'recording' }, createdBy: 'user', capturedActions: actions, capturedNetwork: [] });
   assert.equal(result.generated_step_count, 3);assert.equal(result.automation_status, 'ready');
   assert.ok(result.warnings.some(message => /repository learning/.test(message)));

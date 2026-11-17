@@ -8,7 +8,7 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 test('generated native Playwright source uses the validated test ID when accessible names change between runs', { timeout: 60_000 }, async t => {

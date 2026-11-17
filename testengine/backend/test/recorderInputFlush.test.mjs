@@ -9,10 +9,11 @@ const init = vm.runInNewContext(`${declaration}\nrecorderInitScript;`);
 function recorder() {
   const events = [], listeners = new Map(), timers = new Map();let sequence = 0;
   const window = { location: { href: 'https://fixture.test/form' }, addEventListener() {}, __hellotestRecorderEmit: async event => { events.push(event); } };
-  vm.runInNewContext(init, { window, document: { addEventListener: (name, handler) => listeners.set(name, handler) }, Node: { ELEMENT_NODE: 1 },
+  const document = { addEventListener: (name, handler) => listeners.set(name, handler) };
+  vm.runInNewContext(init, { window, document, Node: { ELEMENT_NODE: 1 },
     setTimeout: callback => { timers.set(++sequence, callback);return sequence; }, clearTimeout: id => timers.delete(id) });
   const input = { nodeType: 1, tagName: 'INPUT', type: 'text', value: '', getAttribute: name => name === 'id' ? 'name' : '', querySelector: () => null };
-  return { events, input, window, timers, fire: (name, details = {}) => listeners.get(name)({ target: input, ...details }) };
+  return { events, input, window, document, timers, fire: (name, details = {}) => listeners.get(name)({ target: input, ...details }) };
 }
 
 test('Enter flushes debounced field input before the key and preserves exact whitespace and explicit blanks', async () => {
@@ -40,4 +41,26 @@ test('a change event cancels its pending timer and cannot later reorder a record
   const button = { ...state.input, tagName: 'BUTTON', innerText: 'Save', closest() { return this; } };
   state.fire('click', { target: button });await state.window.__hellotestRecorderFlush();
   assert.deepEqual(state.events.map(event => event.type), ['change', 'click']);assert.equal(state.timers.size, 0);
+});
+
+test('stop and action boundaries flush final absolute viewport scroll including a return to zero', async () => {
+  const state = recorder();
+  state.window.scrollX = 20; state.window.scrollY = 500;
+  state.fire('scroll', { target: state.document });
+  state.window.scrollX = 0; state.window.scrollY = 0;
+  state.fire('scroll', { target: state.document });
+  state.fire('keydown', { key: 'Tab' });
+  await state.window.__hellotestRecorderFlush();
+  assert.deepEqual(state.events.map(event => event.type), ['scroll', 'tab']);
+  assert.deepEqual(JSON.parse(state.events[0].value), { x: 0, y: 0, target: 'viewport' });
+  assert.equal(state.timers.size, 0);
+});
+
+test('nested-container scroll captures its locator and position rather than window coordinates', async () => {
+  const state = recorder();
+  const panel = { ...state.input, tagName: 'DIV', type: '', scrollLeft: 10, scrollTop: 80, getAttribute: name => name === 'id' ? 'panel' : '' };
+  state.fire('scroll', { target: panel });
+  await state.window.__hellotestRecorderFlush();
+  assert.equal(state.events[0].locator, '#panel');
+  assert.deepEqual(JSON.parse(state.events[0].value), { x: 10, y: 80, target: 'element' });
 });

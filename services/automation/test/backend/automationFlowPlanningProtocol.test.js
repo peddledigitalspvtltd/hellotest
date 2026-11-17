@@ -1,7 +1,7 @@
 const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FLOW_PLANNING_READ_TOOLS, createAutomationFlowPlanningProtocol } = require('../../backend/lib/automationFlowPlanningProtocol');
+const { FLOW_PLANNING_READ_TOOLS, createAutomationFlowPlanningProtocol } = require("../../backend/lib/build/automationFlowPlanningProtocol");
 
 test('planner schema separates manual proposals from discovered read-only inspection requests', () => {
   const protocol = createAutomationFlowPlanningProtocol({ allowedTypes: ['web', 'api'], toolNames: ['browser_snapshot', 'browser_fill', 'browser_navigate'] });

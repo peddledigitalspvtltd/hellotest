@@ -162,6 +162,7 @@ module.exports = async function (fastify) {
       title: { required: false, type: "string" },
       inputs: { required: false, type: "array" },
       selected_records: { required: false, type: "object" },
+      integration_id: { required: false, type: "string", maxLength: 255 },
       chunking: { required: false, type: "object" }
     }, req.body || {});
     await ensureProjectAccess(req, req.body.project_id, "knowledge.manage");
@@ -173,6 +174,7 @@ module.exports = async function (fastify) {
       title: req.body.title,
       inputs: req.body.inputs,
       selectedRecords: req.body.selected_records,
+      integrationId: req.body.integration_id,
       chunking: req.body.chunking,
       idempotencyKey,
       user: req.user

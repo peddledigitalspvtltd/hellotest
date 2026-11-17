@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { unsupportedBrowserFlowError } = require('../../backend/lib/automationBrowserFlowPolicy');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { unsupportedBrowserFlowError } = require("../../backend/lib/browser/automationBrowserFlowPolicy");
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const unsupported = () => ({ isError: true, ...receipt({ code: 'BROWSER_FLOW_UNSUPPORTED', unsupported_capability: 'new_page', action_outcome: 'not_attempted', retry_safe: false }) });
 

@@ -91,3 +91,43 @@ test('device sessions are bounded, keep state across blocks, and release on fail
   assert.equal(closed, 2);
 });
 test.after(() => app.close());
+
+test('native capabilities advertise capture actions available on Android and iOS', async () => {
+  const response = await app.inject({ method: 'GET', url: '/api/v1/capabilities' });
+  assert.equal(response.statusCode, 200);
+  const capabilities = response.json();
+  for (const platform of ['android', 'ios']) {
+    assert.ok(capabilities[`${platform}_keywords`].includes('captureText'));
+    assert.ok(capabilities[`${platform}_keywords`].includes('screenshot'));
+  }
+});
+
+test('a screenshot-heavy native block preserves every result and reports its bounded evidence budget', async () => {
+  const image='a'.repeat(3 * 1024 * 1024), calls=[];
+  const driver={setTimeout:async()=>{},$:()=>({click:async()=>{calls.push('tap');}}),takeScreenshot:async()=>image};
+  const result=await executeMobileStepsWithDriver(driver,{platform_name:'android',artifact_policy:{screenshot_mode:'all'},steps:[1,2,3,4].map(index=>({id:`image-${index}`,step_type:'android',automation_code:'await android.tap("~submit");'}))});
+  assert.equal(result.status,'passed');
+  assert.equal(calls.length,4);
+  assert.equal(result.results.length,4);
+  assert.equal(result.results.filter(step=>step.evidence).length,2);
+  assert.ok(result.results.slice(2).every(step=>/evidence budget/.test(step.evidence_warning)));
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) < 9 * 1024 * 1024,'The response fits the bounded service transport instead of losing completed device results.');
+  assert.equal(result.capture_warnings.length,2);
+});
+
+test('native screenshot failures are explicit without replacing a completed action',async()=>{
+  const driver={$:()=>({click:async()=>{}}),takeScreenshot:async()=>{throw new Error('Private device failure');}};
+  const result=await executeMobileStepsWithDriver(driver,{platform_name:'ios',artifact_policy:{screenshot_mode:'passed'},steps:[{id:'capture-failure',step_type:'ios',automation_code:'await ios.tap("~submit");'}]});
+  assert.equal(result.status,'passed');
+  assert.match(result.results[0].evidence_warning,/could not capture an image/);
+  assert.doesNotMatch(result.results[0].evidence_warning,/Private device failure/);
+});
+
+test('native assertions retry settling controls and preserve exact matches',async()=>{
+  let reads=0;const implicit=[];
+  const driver={setTimeout:async value=>{implicit.push(value.implicit);},$:()=>({getAttribute:async()=>++reads<3?'Loading':'Ready [literal]',getText:async()=> 'Ready [literal]',isDisplayed:async()=>true,isEnabled:async()=>true})};
+  const result=await executeMobileStepsWithDriver(driver,{platform_name:'ios',timeouts:{action_timeout_ms:900},artifact_policy:{screenshot_mode:'off'},steps:[{id:'native-value',step_type:'ios',automation_code:'await ios.expectValue("~field", "Ready [literal]", {match:"equals",timeoutMs:500}); await ios.expectText("~field", "[literal]", {timeoutMs:500}); await ios.expectDisplayed("~field"); await ios.expectEnabled("~field");'}]});
+  assert.equal(result.status,'passed');assert.ok(reads>=3);assert.ok(implicit.includes(0));
+  const mismatch=await executeMobileStepsWithDriver(driver,{platform_name:'android',artifact_policy:{screenshot_mode:'off'},steps:[{id:'exact-value',step_type:'android',automation_code:'await android.expectValue("~field", "Ready", {match:"equals",timeoutMs:250});'}]});
+  assert.equal(mismatch.status,'failed');assert.match(mismatch.results[0].note,/equal the expected value/);assert.doesNotMatch(mismatch.results[0].note,/Ready \[literal\]/);
+});

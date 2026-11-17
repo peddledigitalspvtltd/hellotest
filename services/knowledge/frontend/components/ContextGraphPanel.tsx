@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { IconClock, IconHistory, IconInfoCircle, IconRefresh, IconRoute } from '@tabler/icons-react';
-import { knowledgeApi } from '../api.client';
+import { knowledgeApi, type ContextGraphHealth } from '../api.client';
 import { graphDate, graphLabel } from '../lib/knowledgeGraphView';
 import { KnowledgeGraphExplorer } from './KnowledgeGraphExplorer';
 const message=(error:unknown)=>error instanceof Error?error.message:'Recorded context could not be loaded.';
@@ -10,6 +10,7 @@ export function ContextGraphPanel({projectId,appTypeId,initialTraceId='',onOpenS
   const [traceId,setTraceId]=useState(initialTraceId),[featureId,setFeatureId]=useState(''),[knownFeatures,setKnownFeatures]=useState<string[]>([]),[from,setFrom]=useState(''),[to,setTo]=useState(''),[dateError,setDateError]=useState(''),[range,setRange]=useState<{from?:string;to?:string}>({});
   useEffect(()=>{setTraceId(initialTraceId);setFeatureId('');setKnownFeatures([]);},[projectId,appTypeId,initialTraceId]);
   const traces=useInfiniteQuery({queryKey:['knowledge-context-graph-traces',projectId,appTypeId,featureId,range],initialPageParam:'',queryFn:({pageParam,signal})=>knowledgeApi.knowledgeRepo.contextGraph.list(projectId,{...range,...(appTypeId?{app_type_id:appTypeId}:{}),...(featureId?{feature_id:featureId}:{}),limit:20,...(pageParam?{cursor:pageParam}:{})},{signal}),getNextPageParam:last=>last.next_cursor||undefined});
+  const health=useQuery({queryKey:['knowledge-context-health',projectId,appTypeId],queryFn:({signal})=>knowledgeApi.knowledgeRepo.contextGraph.health(projectId,{...(appTypeId?{app_type_id:appTypeId}:{}),days:30},{signal}),staleTime:60_000});
   const items=[...new Map((traces.data?.pages.flatMap(page=>page.items)||[]).map(item=>[item.trace_id||item.id,item])).values()];
   const listedTrace=items.find(item=>(item.trace_id||item.id)===traceId);
   // A chatbot link identifies an exact private trace, which may be older than
@@ -26,7 +27,21 @@ export function ContextGraphPanel({projectId,appTypeId,initialTraceId='',onOpenS
     if(fromDate&&Number.isNaN(fromDate.valueOf())||toDate&&Number.isNaN(toDate.valueOf())||fromDate&&toDate&&fromDate>toDate){setDateError('Choose a valid recorded-time range with the end after the start.');return;}
     setDateError('');setTraceId('');setRange({...fromDate?{from:fromDate.toISOString()}:{},...toDate?{to:toDate.toISOString()}:{}});
   };
+  const healthData:ContextGraphHealth|undefined=health.data;
+  const compactCount=(value?:number)=>Number(value||0).toLocaleString();
+  const citationRate=healthData?.observations.citation_observation_rate;
   return <div className="knowledge-context-graph">
+    <section className="knowledge-context-health" aria-labelledby="knowledge-context-health-title">
+      <div className="knowledge-context-health-heading"><div><span>OBSERVED USAGE</span><h4 id="knowledge-context-health-title">Evidence health · last 30 days</h4><p>De-identified context activity, measured from currently permitted evidence.</p></div><button type="button" className="ghost-button compact" onClick={()=>void health.refetch()} disabled={health.isFetching} aria-label="Refresh context health">{health.isFetching?'Refreshing…':'Refresh'}</button></div>
+      {health.isError?<div className="knowledge-context-health-empty" role="alert">Context health could not be loaded. <button className="ghost-button compact" type="button" onClick={()=>void health.refetch()}>Retry</button></div>:null}
+      {health.isPending?<p className="knowledge-context-health-empty" role="status">Calculating recent context health…</p>:null}
+      {healthData&&!healthData.observations.cohort_available?<p className="knowledge-context-health-empty" role="status">Aggregates are hidden until at least five distinct workspace members are represented. Individual prompts and activity are never shown here.</p>:null}
+      {healthData?.observations.cohort_available?<>
+        <div className="knowledge-context-health-metrics"><div><span>Recorded tasks</span><strong>{compactCount(healthData.observations.trace_count)}</strong></div><div><span>Evidence selected</span><strong>{compactCount(healthData.observations.selected_evidence_count)}</strong></div><div><span>Submitted to synthesis</span><strong>{compactCount(healthData.observations.submitted_evidence_count)}</strong></div><div><span>Cited in saved answers</span><strong>{compactCount(healthData.observations.cited_evidence_count)}</strong></div><div><span>Citation observation rate</span><strong>{citationRate==null?'—':`${Math.round(citationRate*100)}%`}</strong></div></div>
+        <div className="knowledge-context-health-breakdown">{healthData.query_classes.length?<div><strong>By question class</strong>{healthData.query_classes.slice(0,5).map(item=><p key={item.query_class}><span>{graphLabel(item.query_class)}</span><b>{compactCount(item.trace_count)}</b></p>)}</div>:null}{healthData.sources.length?<div><strong>By permitted source</strong>{healthData.sources.slice(0,5).map(item=><p key={item.source_id||item.source_kind}><span>{item.source_title}</span><b>{compactCount(item.selected_evidence_count)}</b></p>)}</div>:null}</div>
+        <small className="knowledge-context-health-note">These are recorded application events. They do not verify provider receipt, answer correctness, or causal support.{healthData.observations.partial?' The scan reached its bound.':''}</small>
+      </>:null}
+    </section>
     <div className="knowledge-context-intro"><span className="knowledge-context-intro-icon"><IconHistory size={22}/></span><div><strong>The evidence behind an AI task</strong><p>Explore the task, retrieved context, permitted source versions and recorded events. A trace is a record of what the application observed.</p></div></div>
     <form className="knowledge-context-controls" onSubmit={applyRange}>
       <label className="knowledge-context-trace-choice">Recorded AI context<select aria-label="Recorded AI context" value={traceId} onChange={event=>setTraceId(event.target.value)} disabled={!choices.length}><option value="">{traces.isPending?'Loading recorded context…':'Choose a recorded task'}</option>{linkedTrace&&!selectedTrace?<option value={traceId}>{graph.isFetching?'Loading linked task…':'Linked task unavailable'}</option>:null}{choices.map(item=><option key={item.trace_id||item.id} value={item.trace_id||item.id}>{graphLabel(item.feature_id.replace(/^ai\./,''))} · {graphDate(item.recorded_at)}</option>)}</select></label>

@@ -15,6 +15,7 @@ function load(filename, overrides) {
   const module = { exports: {} };
   new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(id => {
     const name = path.basename(id).replace(/\.js$/, '');
+    if (['bugDraftGrounding','structuredModelBoundary','model-boundary'].includes(name)) return load(localRequire.resolve(id), overrides);
     return Object.hasOwn(overrides, name) ? overrides[name] : localRequire(id);
   }, module, module.exports);
   return module.exports;
@@ -432,7 +433,7 @@ test('both Defect route aliases admit image-only drafts and improvement while pr
   const f = fixture();
   const checks = [];
   const routes = load(path.resolve(__dirname, '../../../testing/backend/routes/issues.routes.js'), {
-    'aiBugDraft.service': f.service,
+    aiBugDraft: f.service,
     'projectAccess': { getProject: async () => ({ id: 'project' }) },
     'featureFlag.service': { isEnabled: async () => true }
   });

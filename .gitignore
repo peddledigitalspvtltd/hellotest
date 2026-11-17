@@ -22,3 +22,7 @@ services/platform/frontend/dist-admin/
 # TypeScript is the authoritative Vite config; config checks never emit source copies.
 services/platform/frontend/vite*.js
 services/platform/frontend/vite*.d.ts
+
+# macOS archive metadata is never application source.
+**/__MACOSX/
+**/._*

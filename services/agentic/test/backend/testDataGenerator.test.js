@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const generator = require('../../backend/workflows/testDataGenerator');
 const automationInputs = require('../../backend/workflows/automationNodeInputs');
 const dataSets = require('@hellotest/testing/backend/services/testDataSet.service');
-const synthetic = require('@hellotest/ai/backend/services/aiTestDataGeneration.service');
+const synthetic = require('@hellotest/ai/services/aiTestDataGeneration');
 
 const story = { id: 'story-1', title: 'Create an employee' };
 const packet = { story_id: story.id, story_revision: 7 };
@@ -69,6 +69,13 @@ test('Automation Engineer takes a unique safe application URL from the pinned St
     'https://hr.example.test/client/');
   assert.equal(automationInputs.storyStartUrl({ description: 'Use https://one.example.test and https://two.example.test.' }), null);
   assert.equal(automationInputs.storyStartUrl({ description: 'Use https://user:password@hr.example.test/' }), null);
+  assert.equal(automationInputs.storyStartUrl({ acceptance_criteria: ['Open https://hr.example.test/client/', 'The client form is visible.'] }),
+    'https://hr.example.test/client/');
+  assert.equal(automationInputs.storyStartUrl({ acceptance_criteria: [{ text: 'Open https://hr.example.test/client/' }] }),
+    'https://hr.example.test/client/');
+  assert.equal(automationInputs.storyStartUrl({ additional_fields: { acceptance_criteria: ['Open https://hr.example.test/client/'] } }),
+    'https://hr.example.test/client/');
+  assert.equal(automationInputs.storyStartUrl({ acceptance_criteria: ['Open https://one.example.test/', 'Verify https://two.example.test/'] }), null);
 });
 
 test('dataset readiness checks every runtime row and does not accept a missing marker as configured data', async t => {

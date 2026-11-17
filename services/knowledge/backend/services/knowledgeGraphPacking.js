@@ -18,7 +18,15 @@ function reachableGraph({nodes,edges,seeds,hops,direction='both'}) {
   return {nodes:[...ids].map(id=>byId.get(id)),edges:[...kept.values()],seeds:rootIds};
 }
 
-/** Conservative shared envelope budget; no provider-specific token claim. */
+/**
+ * Packs a graph into a byte budget.
+ *
+ * The budget is the UTF-8 size of the serialized graph, NOT a model-token count:
+ * for English JSON roughly four bytes make one model token, so an 8,000 budget is
+ * about 2,000 model tokens. `max_bytes`/`estimated_bytes` state the unit plainly
+ * and `approx_model_tokens` converts it so callers can plan model context. The
+ * legacy `max_tokens`/`estimated_tokens` fields carry the same byte values.
+ */
 function packGraph(graph,maxTokens=4000) {
   const limit=number(maxTokens,4000,256,8000),nodeMap=new Map(graph.nodes.map(node=>[node.id,node])),edgeMap=new Map(graph.edges.map(edge=>[edge.id,edge]));
   const proofMap=new Map(graph.evidence.map(hit=>[hit.citation.id,hit]));
@@ -30,14 +38,18 @@ function packGraph(graph,maxTokens=4000) {
   const draft=(candidate,final=false)=>{
     const result={...graph,seeds:graph.seeds.filter(id=>candidate.nodes.has(id)),nodes:[...candidate.nodes].map(id=>nodeMap.get(id)),edges:[...candidate.edges].map(id=>edgeMap.get(id)),evidence:proofs(candidate),
       ...(graph.paths?{paths:candidate.paths}:{}),limitations:{...graph.limitations},stats:{...graph.stats,node_count:candidate.nodes.size,edge_count:candidate.edges.size,evidence_count:candidate.evidence.size},
-      budget:{max_tokens:limit,estimated_tokens:0,estimator:'utf8_bytes_upper_bound',truncated:!final,omitted:{nodes:graph.nodes.length-candidate.nodes.size,edges:graph.edges.length-candidate.edges.size,evidence:graph.evidence.length-candidate.evidence.size,paths:(graph.paths?.length||0)-candidate.paths.length}}};
+      budget:{unit:'utf8_bytes',max_bytes:limit,estimated_bytes:0,approx_model_tokens:0,max_tokens:limit,estimated_tokens:0,estimator:'utf8_bytes_upper_bound',truncated:!final,omitted:{nodes:graph.nodes.length-candidate.nodes.size,edges:graph.edges.length-candidate.edges.size,evidence:graph.evidence.length-candidate.evidence.size,paths:(graph.paths?.length||0)-candidate.paths.length}}};
     result.budget.truncated=Object.values(result.budget.omitted).some(value=>value>0);
     if(result.budget.truncated){result.limitations.partial=true;result.limitations.budget_reached=true;}
     // Include the estimator itself. Its decimal length stabilizes in two passes.
-    for(let i=0;i<6;i++){const bytes=Buffer.byteLength(JSON.stringify(result),'utf8');if(bytes===result.budget.estimated_tokens)break;result.budget.estimated_tokens=bytes;}
+    for(let i=0;i<6;i++){
+      const bytes=Buffer.byteLength(JSON.stringify(result),'utf8');
+      if(bytes===result.budget.estimated_bytes&&result.budget.approx_model_tokens===Math.ceil(bytes/4))break;
+      result.budget.estimated_bytes=result.budget.estimated_tokens=bytes;result.budget.approx_model_tokens=Math.ceil(bytes/4);
+    }
     return result;
   };
-  if(draft(state).budget.estimated_tokens>limit)throw fail('The graph token budget cannot hold its metadata. Increase token_budget.','KNOWLEDGE_GRAPH_BUDGET_TOO_SMALL');
+  if(draft(state).budget.estimated_bytes>limit)throw fail('The graph byte budget cannot hold its metadata. Increase the budget (it is measured in UTF-8 bytes, about four per model token).','KNOWLEDGE_GRAPH_BUDGET_TOO_SMALL');
   const consider=(edgeIds=[],path=null,nodeIds=[])=>{
     const candidate={nodes:new Set(state.nodes),edges:new Set(state.edges),evidence:new Set(state.evidence),paths:[...state.paths]};
     for(const id of edgeIds){const edge=edgeMap.get(id);if(!edge||!nodeMap.has(edge.source)||!nodeMap.has(edge.target))return false;
@@ -48,7 +60,7 @@ function packGraph(graph,maxTokens=4000) {
     for(const id of nodeIds){if(!nodeMap.has(id))return false;candidate.nodes.add(id);}
     if(path)candidate.paths.push(path);
     if(proofs(candidate).some(hit=>!hit))return false;
-    if(draft(candidate).budget.estimated_tokens>limit)return false;
+    if(draft(candidate).budget.estimated_bytes>limit)return false;
     Object.assign(state,candidate);return true;
   };
   // A trace's complete witnessed paths take priority over unrelated neighbours.

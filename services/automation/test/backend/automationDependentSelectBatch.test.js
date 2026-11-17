@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/address', ...value }) }] });
 const select = (id, name, options) => ({ tag: 'select', accessible_role: 'combobox', accessible_name: name, label: name,

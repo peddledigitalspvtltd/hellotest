@@ -1,6 +1,6 @@
 import { GherkinEditor } from "@hellotest/testing/frontend/components/GherkinEditor";
 import { agentArtifactDestination, agentArtifactIssues, agentArtifactSavedRoute } from '../lib/agentArtifactReview';
-import { agentFindingProposals } from '../lib/agentOutcomeView';
+import { agentFindingProposals, agentOutcomeSources } from '../lib/agentOutcomeView';
 import { AiTestCaseDraftFields } from "@hellotest/ai/frontend/components/AiTestCaseDraftFields";
 import { AiTestCaseStepTable } from "@hellotest/ai/frontend/components/AiTestCaseStepTable";
 import '@hellotest/ai/frontend/components/AgenticAuthoringCanvas.css';
@@ -10,7 +10,7 @@ import { agenticApi, type AgentProposalReceipt } from '../api.client';
 import { IconCopy, IconDownload, IconEdit, IconCheck, IconSparkles } from '@tabler/icons-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { AgentStructuredArtifact, AgenticAssistantResult } from '@hellotest/platform/frontend/src/types';
+import type { AgentStructuredArtifact, AgenticAssistantResult, AgenticAssistantCitation } from '@hellotest/platform/frontend/src/types';
 import { useCurrentProject, useCurrentAppType } from '@hellotest/platform/frontend/src/platform/hooks/useCurrentProject';
 import { stageAgentProposal } from '@hellotest/platform/frontend/src/lib/agentProposalDraft';
 import { capabilityView } from '@hellotest/platform/frontend/src/platform/capabilities/CapabilityView';
@@ -19,7 +19,7 @@ import './AgentWorkspace.css';
 const StoryAiDraftInspector = capabilityView<import('react').ComponentProps<typeof import('@hellotest/ai/frontend/components/StoryAiStudioContent')['StoryAiDraftInspector']>>('ai', 'StoryAiDraftInspector', () => import('@hellotest/ai/frontend/components/StoryAiStudioContent'), 'Story proposal');
 
 type Decision = 'accepted' | 'declined';
-export function AgentArtifactReview({ artifacts, chain, sessionId, findings = [], approvalBlocked, proposalIndex = 0 }: { sessionId?: string; artifacts: AgentStructuredArtifact[]; chain: NonNullable<AgenticAssistantResult['agent_chain']>; findings?: NonNullable<AgenticAssistantResult['findings']>; approvalBlocked?: string; proposalIndex?: number }) {
+export function AgentArtifactReview({ artifacts, chain, sessionId, findings = [], citations = [], onReviewSources, approvalBlocked, proposalIndex = 0 }: { sessionId?: string; artifacts: AgentStructuredArtifact[]; chain: NonNullable<AgenticAssistantResult['agent_chain']>; findings?: NonNullable<AgenticAssistantResult['findings']>; citations?: AgenticAssistantCitation[]; onReviewSources?: (ids: string[]) => void; approvalBlocked?: string; proposalIndex?: number }) {
   const [selected, setSelected] = useState(0);
   const [drafts, setDrafts] = useState(artifacts);
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
@@ -66,6 +66,7 @@ export function AgentArtifactReview({ artifacts, chain, sessionId, findings = []
   const field = (label: string, value: string, update: (value: string) => void) => <label className="agent-proposal-field"><span>{label}</span><textarea aria-label={label} disabled={saving || Boolean(saved[selected])} value={value} onChange={event => update(event.target.value)} rows={3} /></label>;
   const listField = (label: string, values: string[] | undefined, update: (values: string[]) => void) => field(label, (values || []).join('\n'), value => update(value.split('\n')));
   const addressed = findings.filter((finding, index) => agentFindingProposals(finding, index, [item]).length > 0);
+  const draftSources = agentOutcomeSources([...new Set([...(item.citation_ids || []), ...addressed.flatMap(finding => finding.citation_ids || [])])], citations);
   return <section className="agent-structured-output" aria-label="Structured agent proposals">
     <header><div><h3>Proposals for review</h3><p>{chain.filter(a => a.status === 'completed').map(a => a.name).join(' → ')}</p></div><div className="agent-proposal-tools"><button className="ghost-button compact" aria-label={copied ? "Proposal copied" : "Copy proposal"} title="Copy proposal" type="button" onClick={async () => { try { await navigator.clipboard.writeText(JSON.stringify(item, null, 2)); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setNotice('Clipboard access is unavailable.'); } }}>{copied ? 'Copied' : <IconCopy size={17} />}</button><button className="ghost-button compact" type="button" aria-label="Download proposal" title="Download proposal" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(item, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = 'agent-proposal.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><IconDownload size={17} /></button></div></header>
     {notice && <p className="agent-proposal-notice" role="status">{notice}</p>}
@@ -74,7 +75,24 @@ export function AgentArtifactReview({ artifacts, chain, sessionId, findings = []
     <div className={drafts.every(draft=>draft.kind === "test_case") ? "ai-artifact-workspace" : "agent-structured-layout ai-artifact-workspace"}><nav className="ai-artifact-outline" aria-label="Choose proposal">{drafts.map((a, index) => <article className="ai-artifact-item" key={index} aria-current={index===selected ? "true" : undefined}><input type="radio" name="agent-proposal" aria-label={`Review ${a.title}`} checked={index===selected} onChange={()=>{setSelected(index);setCaseEditing(false);}}/><button type="button" key={index} aria-pressed={index === selected} onClick={() => { setSelected(index); setCaseEditing(false); setNotice(''); }}><strong>{a.title}</strong><small>{a.kind.replace('_', ' ')} · {a.priority} · {saved[index] ? 'Saved' : decisions[index] || 'Review required'}{a.kind === 'test_case' ? ` · ${a.authoring_mode === 'gherkin' ? 'Gherkin' : `${a.steps?.length || 0} steps`}` : ''}</small></button></article>)}</nav>
       <article className="ai-artifact-detail">
         <p className="agent-proposal-provenance">Destination: {agentArtifactDestination(item.kind)}{item.target_id ? ` · update ${item.target_id} at revision ${item.target_revision || 'not recorded'}` : ' · create a draft'} · {item.citation_ids?.length || 0} source reference{item.citation_ids?.length === 1 ? '' : 's'}</p>
-        {addressed.length > 0 && <section className="agent-proposal-addressed"><h4>Findings linked to this draft</h4><ul>{addressed.map((finding, index) => <li key={finding.id || index}><strong>{finding.title}</strong><p>{finding.proposed_action || finding.gap || finding.detail}</p>{finding.acceptance_check && <small>Acceptance check: {finding.acceptance_check}</small>}</li>)}</ul></section>}
+        <section className="agent-proposal-addressed" aria-label="Evidence supporting this draft">
+          <h4>Evidence supporting this draft</h4>
+          {addressed.map((finding, index) => <div key={finding.id || index}>
+            <strong>{finding.id || `Finding ${index + 1}`} · {finding.title}</strong>
+            <p>{finding.observation || finding.detail}</p>
+            {finding.gap && <p>Gap: {finding.gap}</p>}
+            {finding.impact && <p>Impact: {finding.impact}</p>}
+            {finding.proposed_action && <p>Proposed change: {finding.proposed_action}</p>}
+            {finding.acceptance_check && <p>Acceptance check: {finding.acceptance_check}</p>}
+            <small>References: {(finding.citation_ids || []).join(', ') || 'No source references recorded'}</small>
+          </div>)}
+          {draftSources.available.length > 0 && <ul>{draftSources.available.map(source => <li key={source.id}>
+            <strong>{source.label}</strong><small> · {source.id} · {source.scope}{source.source_kind ? ` · ${source.source_kind}` : ''}</small>
+            {onReviewSources && <button type="button" className="ghost-button compact" onClick={() => onReviewSources([source.id])}>Inspect reference</button>}
+          </li>)}</ul>}
+          {draftSources.missing.length > 0 && <p role="alert">Unavailable source references: {draftSources.missing.join(', ')}. Review a complete source-backed outcome before accepting.</p>}
+          {!draftSources.ids.length && <p>No source references were recorded for this draft.</p>}
+        </section>
         {item.kind === 'automation' && <p className="agent-proposal-notice">Accepting saves a draft Automation Plan. Use Automation Engineer in the saved case to inspect the app, generate instructions and verify the script.</p>}
         {(item.kind === 'test_case' || item.kind === 'automation') && <header><span><IconSparkles size={13}/> Proposal · review before saving</span><div className="ai-artifact-detail__tools"><button type="button" disabled={locked} aria-label={caseEditing ? "Finish editing draft" : "Edit draft"} onClick={()=>setCaseEditing(current=>!current)}>{caseEditing ? <IconCheck size={15}/> : <IconEdit size={15}/>} {caseEditing ? "Done" : "Edit"}</button></div></header>}
         {item.kind === 'story' ? <StoryAiDraftInspector draft={{ id: String(selected), generated: true, title: item.title, description: item.description, acceptanceCriteria: item.acceptance_criteria, priority: Number(item.priority.slice(1)), evidenceRefs: item.citation_ids }} editable={!saving && !saved[selected]} evidencePlacement="intelligence" showGherkin={false} showProperties={false} onTitleChange={value => edit({ title: value })} onDescriptionChange={value => edit({ description: value })} onAcceptanceCriteriaChange={value => edit({ acceptance_criteria: value })} /> : <>

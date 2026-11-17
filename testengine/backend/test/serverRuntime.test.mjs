@@ -8,7 +8,7 @@ import test from "node:test";
 import vm from "node:vm";
 import { createLiveViewGrant, verifyLiveViewGrant } from '../dist/lib/liveViewGrant.js';
 import { createRequire } from 'node:module';
-const backendGrant = createRequire(import.meta.url)('../../../services/automation/backend/lib/automationLiveViewGrant.js').createLiveViewGrant;
+const backendGrant = createRequire(import.meta.url)("../../../services/automation/backend/lib/build/automationLiveViewGrant.js").createLiveViewGrant;
 
 const SHARED_SECRET = "server-runtime-test-secret-with-more-than-32-characters";
 const PAIRED_CALLBACK_SECRET = 'paired-case-specific-callback-key-for-live-fixture';

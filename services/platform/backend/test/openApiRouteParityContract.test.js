@@ -111,6 +111,38 @@ test("OpenAPI and registered Fastify operations have exact route parity", async 
   );
 });
 
+test('documented request and response schemas retain valid required/enum/item shapes', async () => {
+  const openapi = await parseOpenApi();
+  const inspect = (schema, label) => {
+    if (!schema || typeof schema !== 'object') return;
+    if (schema.required !== undefined) assert.ok(Array.isArray(schema.required) && schema.required.every(item => typeof item === 'string'), `${label}: required is a name array`);
+    if (schema.enum !== undefined) assert.ok(Array.isArray(schema.enum), `${label}: enum is an array`);
+    if (schema.items !== undefined) { assert.equal(typeof schema.items, 'object', `${label}: items is a schema`);inspect(schema.items, `${label}.items`); }
+    for (const [key, value] of Object.entries(schema.properties || {})) inspect(value, `${label}.${key}`);
+    for (const key of ['allOf', 'oneOf', 'anyOf']) for (const child of schema[key] || []) inspect(child, `${label}.${key}`);
+    if (schema.additionalProperties && typeof schema.additionalProperties === 'object') inspect(schema.additionalProperties, `${label}.additionalProperties`);
+  };
+  for (const [name, schema] of Object.entries(openapi.components.schemas)) inspect(schema, name);
+  for (const [pathName, item] of Object.entries(openapi.paths)) for (const [method, operation] of Object.entries(resolvePathItem(openapi, item))) {
+    if (!HTTP_METHODS.has(method)) continue;
+    for (const parameter of operation.parameters || []) inspect(parameter.schema, `${method} ${pathName} parameter`);
+    for (const [media, content] of Object.entries(operation.requestBody?.content || {})) inspect(content.schema, `${method} ${pathName} ${media}`);
+    for (const response of Object.values(operation.responses || {})) for (const [media, content] of Object.entries(response.content || {})) inspect(content.schema, `${method} ${pathName} response ${media}`);
+  }
+});
+
+test('new activity, authoring, webhook and resume operations document their distinct runtime boundaries', async () => {
+  const openapi = await parseOpenApi();
+  const stream = openapi.paths['/test-cases/automation/jobs/{transactionId}/events'].get;
+  assert.ok(stream.responses['200'].content['text/event-stream']);
+  assert.ok(stream.parameters.some(parameter => parameter.name === 'Last-Event-ID' && parameter.in === 'header'));
+  assert.ok(openapi.components.schemas.AutomationAuthoringState.properties.can_record);
+  assert.deepEqual(openapi.paths['/agentic-workflow-hooks/{id}'].post.security, [{ workflowWebhookSignature: [] }]);
+  assert.deepEqual(openapi.paths['/agentic-workflow-runs/{id}/resume'].post.security, [{ bearerAuth: [] }]);
+  assert.deepEqual(openapi.components.schemas.WorkflowResumeRequest.required, ['node_id', 'source_hash', 'request_id']);
+  assert.equal(openapi.paths['/projects/{project_id}/knowledge/graph/expand'].post.requestBody.content['application/json'].schema.properties.seeds.maxItems, 6);
+});
+
 test("route collection honors Fastify plugin prefixes", async () => {
   const prefix = "/contract-prefix";
   const [unprefixed, prefixed] = await Promise.all([

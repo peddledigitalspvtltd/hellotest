@@ -1,7 +1,8 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 const source=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8');
-const body=source.slice(source.indexOf('const applyBuild ='),source.indexOf('const buildCaseCore ='));
+const body=implementationFunctionSource('aiAutomationBuilder.service','applyBuild');
 test('atomic first-source choices refresh their own optimistic receipt; later selected-source changes still reject before writes',async()=>{
  let selectedRegion='East',writes=0,snapshotWrites=0;
  const testCase={id:'automation',display_id:'AT_1',app_type_id:'app',project_id:'project',automated:'yes',parameter_values:{'t.manual':'Live inherited'},test_data_options:{},automation_start_url:null};

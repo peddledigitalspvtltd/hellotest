@@ -1,4 +1,4 @@
-import { probePairedLocalAgent } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
+import { probePairedLocalAgent } from "@hellotest/automation/frontend/lib/localAgentPairing";
 
 /** A local Engineer controls the paired machine through an outbound, scoped MCP bridge. */
 export async function preparePairedBrowserBuild<T extends { browser_location?: "local" | "remote"; scheduled_at?: string; test_case_ids?: string[]; test_case_id?: string; project_id?: string; app_type_id?: string }>(input: T, request: (path: string, input: Record<string, unknown>) => Promise<unknown>) {

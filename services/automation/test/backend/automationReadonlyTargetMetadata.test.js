@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {projectModelSnapshot}=require('../../backend/lib/automationBrowserModelTargets');
-const {compactBrowserModelContext}=require('../../backend/lib/automationBrowserModelContext');
+const {projectModelSnapshot}=require("../../backend/lib/browser/automationBrowserModelTargets");
+const {compactBrowserModelContext}=require("../../backend/lib/browser/automationBrowserModelContext");
 const element=(id,tag,readonly)=>({tag,attributes:{id,type:'text','aria-readonly':'true'},displayed:true,disabled:false,locators_validated:true,locator_candidates:['#'+id],...(readonly===undefined?{}:{readonly})});
 test('readonly is a native scalar hint for inputs/textarea, never inferred editability or assertion proof',()=>{
  const observation={tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify({source:'playwright',url:'https://fixture.test/',observation_id:'readonly-controls',scope:'body',elements:[

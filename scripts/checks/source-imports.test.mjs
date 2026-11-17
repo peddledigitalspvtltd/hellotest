@@ -58,3 +58,22 @@ test('reachability handles cycles and leaves disconnected source and CSS as orph
   const graph = new Map([['entry', new Set(['feature'])], ['feature', new Set(['entry', 'style.css'])], ['style.css', new Set()], ['dead.ts', new Set()], ['dead.css', new Set()]]);
   assert.deepEqual([...reachableModules(graph, ['entry'])].sort(), ['entry', 'feature', 'style.css']);
 });
+
+test('workspace resolution audits conditional runtime implementations and exact JSON exports before wildcard members', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'hellotest-conditional-exports-'));
+  try {
+    const owner = resolve(root, 'services/contracts');
+    mkdirSync(resolve(owner, 'agents'), { recursive: true });
+    for (const name of ['index.js', 'index.d.ts', 'helper.js', 'helper.d.ts', 'policy.json']) writeFileSync(resolve(owner, 'agents', name), '');
+    writeFileSync(resolve(owner, 'package.json'), JSON.stringify({ exports: {
+      './agents': { types: './agents/index.d.ts', default: './agents/index.js' },
+      './agents/*': { types: './agents/*.d.ts', require: './agents/*.js' },
+      './agents/policy.json': './agents/policy.json'
+    } }));
+    const from = resolve(root, 'services/automation/backend/index.js');
+    for (const [specifier, target] of [['agents', 'index.js'], ['agents/helper', 'helper.js'], ['agents/policy.json', 'policy.json']]) {
+      assert.equal(resolveSourceImport(root, from, `@hellotest/contracts/${specifier}`), resolve(owner, 'agents', target));
+    }
+    assert.equal(resolveSourceImport(root, from, '@hellotest/contracts/agents/private'), undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

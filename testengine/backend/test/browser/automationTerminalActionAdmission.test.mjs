@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import Fastify from 'fastify';
 import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const { inspectExecutablePlan } = require('../../../../services/automation/backend/services/automationReadiness.service.js');
 const current = prompt => JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]).current_snapshot;
 const envelope = (tool_calls, section_complete = false) => JSON.stringify({ stage: 'act', step_id: 'current', section_complete, tool_calls });

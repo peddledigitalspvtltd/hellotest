@@ -17,11 +17,15 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
   const module = { exports: exported };
   const source = fs.readFileSync(path.join(__dirname, "../../backend/services/aiAutomationBuilder.service.js"), "utf8");
   new Function("require", "exports", "module", source)((name) => {
+ if (typeof name === 'string' && name.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(name);
+ if (name.endsWith('/automationAuthoringAdmission.service') || name === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
     if (name.endsWith("/db")) return database;
     if (name.endsWith("/obsDb")) return {transaction:callback=>callback, prepare: () => ({get:async()=>undefined, all: async () => [], run: async () => ({ changes: 1 }) }) };
-    if(name.endsWith('/repositoryScreenIdentity'))return require('../../backend/lib/repositoryScreenIdentity');
-    if(name.endsWith('/automationRecorderPlan'))return require('../../backend/lib/automationRecorderPlan');
-    if(name.endsWith('/recordingImport.service'))return {load:async()=>null};
+    if(name.endsWith('/repositoryScreenIdentity'))return require("../../backend/lib/build/repositoryScreenIdentity");
+    if(name.endsWith('/automationRecorderPlan'))return require("../../backend/lib/recording/automationRecorderPlan");
+    if(name.endsWith('/recordingImport.service'))return {load:async()=>null,commit:async(_input,_caseId,save)=>save()};
+    if(name.endsWith('/automationRecorderReadiness'))return require("../../backend/lib/recording/automationRecorderReadiness");
     if (name === "crypto") return require("node:crypto");
     if (name.endsWith("/testStepAutomation")) return require("../../../platform/backend/src/utils/testStepAutomation");
     if (name.endsWith("/automationCaseType")) return require("../../../platform/backend/src/utils/automationCaseType");
@@ -46,8 +50,8 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
       return Response.json(recorderSession);
     } };
     if (name.endsWith("/testStep.service")) return {
-      updateTestStep: async (id, update) => { updates.push({ id, ...update }); },
-      createTestStep: async (input) => { creates.push(input); return { id: `created-${creates.length}` }; }
+      updateTestStep: async (id, update) => { updates.push({ id, ...update }); Object.assign(steps.find(step=>step.id===id), update); },
+      createTestStep: async (input) => { creates.push(input); const id=`created-${creates.length}`; steps.push({...input,id}); return { id }; }
     };
     return {};
   }, exported, module);
@@ -99,7 +103,7 @@ test("selected recording actions retain capture order and are never duplicated",
   await f.startRecorderSession({ test_case_id: "case", recorder_mode: "local", recorder_target: "mobile", target_step_id: "ios", created_by: "author" });
   const result = await f.finishRecorderSession({ test_case_id: "case", recorder_session_id: "session", transaction_id: "transaction", included_action_indices: [3, 1, 3], created_by: "author" });
   assert.equal(result.recorder_session.action_count, 2);
-  const code = result.step_updates[0].automation_code;
+  const code = f.updates[0].automation_code;
   assert.ok(code.indexOf("x: 10") < code.indexOf("x: 30"));
   assert.equal((code.match(/x: 30/g) || []).length, 1);
   assert.doesNotMatch(code, /x: 20/);

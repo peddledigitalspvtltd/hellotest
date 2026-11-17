@@ -8,6 +8,7 @@ const { randomUUID } = require('node:crypto');
 test('full web recording commits through real nested step transactions without changing its manual source or shared definition', {
   skip: process.env.WEB_RECORDER_POSTGRES_TEST !== '1', timeout: 120000
 }, async t => {
+
   const target = new URL(process.env.DATABASE_URL);
   assert.match(target.pathname, /^\/agent_verify_web_recorder_[0-9]+$/);
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname));

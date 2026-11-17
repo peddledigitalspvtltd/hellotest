@@ -5,7 +5,7 @@ const execution = require('../../../knowledge/backend/services/knowledgeExecutio
 const user={id:'terminal-user'};
 const node=(id,kind,data={})=>({id,type:'agenticStep',data:{label:id,kind,...data}});
 const workflow=()=>({id:'terminal-workflow',project_id:'terminal-project',name:'Terminal persistence',status:'draft',trigger_kind:'manual',nodes:[node('request','trigger'),node('review','agent',{agentId:'quality-evaluator',prompt:'Review supplied evidence'}),node('finish','output')],edges:[{source:'request',target:'review'},{source:'review',target:'finish'}]});
-function setup(t,{modelError,modelImpl,primaryFailure=false,recoveryFailure=false,cancelWins=false}={}) {
+function setup(t,{modelError,modelImpl,primaryFailure=false,recoveryFailure=false,cancelWins=false,activationFailure=false}={}) {
   const rows=new Map(),calls={model:0,primary:0,recovery:0,logs:[]};
   const available={primary:!primaryFailure,recovery:!recoveryFailure,readFailures:0,onReadFailure:null};
   t.mock.method(console,'error',message=>calls.logs.push(JSON.parse(message)));
@@ -17,6 +17,7 @@ function setup(t,{modelError,modelImpl,primaryFailure=false,recoveryFailure=fals
   t.mock.method(runtime._internals.store,'get',async id=>{if(available.readFailures>0){available.readFailures--;available.onReadFailure?.();throw new Error('timeout exceeded when trying to connect');}return structuredClone(rows.get(id)||null);});
   t.mock.method(runtime._internals.store,'insert',async row=>{rows.set(row.id,structuredClone(row));return{id:row.id};});
   t.mock.method(runtime._internals.store,'save',async(id,status,nodes,output)=>{
+    if(status==='running'&&activationFailure)throw Object.assign(new Error('PRIVATE_ACTIVATION_DATABASE_ERROR'),{code:'08006'});
     if(status!=='running') {
       calls.primary++;
       if(cancelWins)rows.set(id,{...rows.get(id),status:'cancelled',output_payload:{summary:'A person cancelled this run.'}});
@@ -74,11 +75,13 @@ test('terminal recovery preserves a winning cancellation and absence of an activ
 });
 
 test('a transient heartbeat database failure never fabricates user cancellation or repeats the model call',async t=>{
-  let resolveModel,readFailed;
+  let resolveModel,readFailed,modelStarted;
   const modelResult=new Promise(resolve=>{resolveModel=resolve;});
   const observedReadFailure=new Promise(resolve=>{readFailed=resolve;});
-  const {calls,available}=setup(t,{modelImpl:()=>modelResult});
+  const observedModelStart=new Promise(resolve=>{modelStarted=resolve;});
+  const {calls,available}=setup(t,{modelImpl:()=>{modelStarted();return modelResult;}});
   const started=await runtime.start(workflow(),{request_id:require('node:crypto').randomUUID()},user);
+  await observedModelStart;
   available.readFailures=1;available.onReadFailure=readFailed;
   await observedReadFailure;
   assert.equal(runtime._internals.active.get(started.id).controller.signal.aborted,false);
@@ -88,4 +91,15 @@ test('a transient heartbeat database failure never fabricates user cancellation 
   assert.equal(completed.status,'completed');assert.equal(calls.model,1);
   assert.ok(calls.logs.some(entry=>entry.phase==='heartbeat_read'&&entry.code==='WORKFLOW_DATABASE_CONNECT_TIMEOUT'));
   assert.ok(!calls.logs.some(entry=>entry.code==='REQUEST_CANCELLED'));
+});
+
+test('a queue activation write outage records failure before dispatch and never replays a model',async t=>{
+  const {calls}=setup(t,{activationFailure:true});
+  const saved=await run();
+  assert.equal(saved.status,'failed');assert.equal(saved.output_payload.error_code,'WORKFLOW_START_FAILED');
+  assert.ok(saved.node_results.every(node=>node.status==='skipped'));
+  assert.equal(calls.model,0);assert.equal(runtime._internals.active.has(saved.id),false);
+  const refreshed=await runtime.reconcile(saved);assert.equal(refreshed.status,'failed');assert.equal(calls.model,0);
+  assert.match(saved.output_payload.summary,/No workflow steps were executed/);
+  assert.doesNotMatch(JSON.stringify(saved.output_payload),/PRIVATE_ACTIVATION_DATABASE_ERROR/);
 });

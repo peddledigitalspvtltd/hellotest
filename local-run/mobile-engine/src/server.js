@@ -113,6 +113,8 @@ const KEYWORDS = [
   "expectNotDisplayed",
   "expectEnabled",
   "expectValue",
+  "captureText",
+  "screenshot",
   "scrollIntoView",
   "pushFile",
   "pushRemoteFile",
@@ -284,6 +286,21 @@ async function executeCodedMobileScript(driver, source, resolveSelector, params,
   return captures;
 }
 
+async function waitForNativeAssertion(driver, check, timeoutMs, message, restoreTimeoutMs = timeoutMs) {
+  const timeout = Math.max(250, Math.min(120000, Number(timeoutMs) || 10000));
+  const deadline = Date.now() + timeout;
+  await driver.setTimeout?.({ implicit: 0 });
+  try {
+    do {
+      try { if (await check()) return; } catch { /* The element can appear or be replaced while the UI settles. */ }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(100, remaining)));
+    } while (Date.now() <= deadline);
+    throw new Error(message);
+  } finally { await driver.setTimeout?.({ implicit: restoreTimeoutMs }).catch(() => {}); }
+}
+
 async function executeKeyword(driver, command, resolveSelector = (value) => value, platform = "android", defaultTimeoutMs = 10000) {
   if (platform === "ios" && ["pressBack", "pressKeyCode", "startActivity", "openDeepLink", "deepLink"].includes(command.keyword)) throw new Error(`${command.keyword} is Android-only. Use an iOS locator or driver command.`);
   const [selector, value, extra] = command.args;
@@ -360,33 +377,34 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       return { status: "passed", note: `${selector} enabled` };
     }
     case "expectText": {
-      const text = await driver.$(String(resolvedSelector)).getText();
-      if (!String(text).includes(String(value || ""))) {
-        throw new Error(`Expected ${selector} text to contain ${value}, received ${text}`);
-      }
+      const expected = String(value ?? "");
+      await waitForNativeAssertion(driver, async () => {
+        const actual = String(await driver.$(String(resolvedSelector)).getText());
+        return extra?.match === "equals" ? actual === expected : actual.includes(expected);
+      }, extra?.timeoutMs || defaultTimeoutMs, `Expected ${selector} text to ${extra?.match === "equals" ? "equal" : "contain"} the expected text before the assertion timeout.`, defaultTimeoutMs);
       return { status: "passed", note: `${selector} text matched` };
     }
     case "expectDisplayed": {
-      const displayed = await driver.$(String(resolvedSelector)).isDisplayed();
-      if (!displayed) throw new Error(`Expected ${selector} to be displayed`);
+      await waitForNativeAssertion(driver, async () => driver.$(String(resolvedSelector)).isDisplayed(), value?.timeoutMs || defaultTimeoutMs, `Expected ${selector} to be displayed before the assertion timeout.`, defaultTimeoutMs);
       return { status: "passed", note: `${selector} is displayed` };
     }
     case "expectNotDisplayed": {
       const element = await driver.$(String(resolvedSelector));
-      await element.waitForDisplayed({ timeout: numericArgument(value, defaultTimeoutMs), reverse: true });
+      await element.waitForDisplayed({ timeout: numericArgument(value?.timeoutMs ?? value, defaultTimeoutMs), reverse: true });
       return { status: "passed", note: `${selector} is not displayed` };
     }
     case "expectEnabled": {
-      const enabled = await driver.$(String(resolvedSelector)).isEnabled();
-      if (!enabled) throw new Error(`Expected ${selector} to be enabled`);
+      await waitForNativeAssertion(driver, async () => driver.$(String(resolvedSelector)).isEnabled(), value?.timeoutMs || defaultTimeoutMs, `Expected ${selector} to be enabled before the assertion timeout.`, defaultTimeoutMs);
       return { status: "passed", note: `${selector} is enabled` };
     }
     case "expectValue": {
-      const element = await driver.$(String(resolvedSelector));
-      const actual = await element.getAttribute("value").catch(() => null) || await element.getText().catch(() => "");
-      if (!String(actual).includes(String(value || ""))) {
-        throw new Error(`Expected ${selector} value to contain ${value}, received ${actual}`);
-      }
+      const expected = String(value ?? "");
+      await waitForNativeAssertion(driver, async () => {
+        const element = await driver.$(String(resolvedSelector));
+        const attribute = await element.getAttribute("value").catch(() => null);
+        const actual = String(attribute ?? await element.getText().catch(() => ""));
+        return extra?.match === "equals" ? actual === expected : actual.includes(expected);
+      }, extra?.timeoutMs || defaultTimeoutMs, `Expected ${selector} value to ${extra?.match === "equals" ? "equal" : "contain"} the expected value before the assertion timeout.`, defaultTimeoutMs);
       return { status: "passed", note: `${selector} value matched` };
     }
     case "swipe":
@@ -634,6 +652,9 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
     return resolved === String(selector || "") ? resolved : interpolateMobileText(resolved, params);
   };
   const results = [];
+  const captureWarnings = [];
+  let screenshotBytes = 0;
+  const maxScreenshotBytes = 8 * 1024 * 1024;
   const actionTimeoutMs = Math.max(250, Math.min(120000, Number(payload.timeouts?.action_timeout_ms) || 10000));
   const screenshotMode = payload.artifact_policy?.screenshot_mode;
   const shouldCaptureScreenshot = (status, source) => {
@@ -642,11 +663,19 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
     return status === "failed" ? payload.artifact_policy?.screenshot_on_failure !== false : payload.artifact_policy?.screenshot_on_success === true;
   };
   const captureScreenshot = async fileName => {
+    const unavailable = reason => {
+      const warning = `Screenshot ${fileName} was not retained: ${reason}. Device execution results are preserved.`;
+      if (captureWarnings.length < 20) captureWarnings.push(warning);
+      return { evidence: null, evidence_warning: warning };
+    };
+    if (screenshotBytes >= maxScreenshotBytes) return unavailable('the execution evidence budget was reached');
     try {
       const image = await driver.takeScreenshot();
-      return typeof image === "string" && image.length < 4 * 1024 * 1024
-        ? { dataUrl: `data:image/png;base64,${image}`, fileName, mimeType: "image/png" } : null;
-    } catch { return null; }
+      if (typeof image !== 'string' || !image.length || image.length >= 4 * 1024 * 1024) return unavailable('the image exceeded the per-screenshot limit or was empty');
+      if (screenshotBytes + image.length > maxScreenshotBytes) return unavailable('the execution evidence budget was reached');
+      screenshotBytes += image.length;
+      return { evidence: { dataUrl: `data:image/png;base64,${image}`, fileName, mimeType: "image/png" } };
+    } catch { return unavailable('the device could not capture an image'); }
   };
 
   for (const step of steps) {
@@ -670,15 +699,15 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
       await driver.setTimeout?.({ implicit: timeoutMs });
       const captures = await executeCodedMobileScript(driver, source, resolveSelector, params, platform, timeoutMs);
       Object.assign(capturedValues, captures);
-      const evidence = shouldCaptureScreenshot("passed", source) ? await captureScreenshot(`mobile-${step.id}-passed.png`) : null;
-      results.push({ step_id: step.id, status: "passed", note: `${label} step completed.`, captures, duration_ms: Date.now() - startedAt, ...(evidence ? { evidence } : {}) });
+      const evidence = shouldCaptureScreenshot("passed", source) ? await captureScreenshot(`mobile-${step.id}-passed.png`) : {};
+      results.push({ step_id: step.id, status: "passed", note: `${label} step completed.`, captures, duration_ms: Date.now() - startedAt, ...evidence });
     } catch (error) {
-      const evidence = shouldCaptureScreenshot("failed", source) ? await captureScreenshot(`mobile-${step.id}-failed.png`) : null;
+      const evidence = shouldCaptureScreenshot("failed", source) ? await captureScreenshot(`mobile-${step.id}-failed.png`) : { evidence: null };
       results.push({
         step_id: step.id,
         status: "failed",
         duration_ms: Date.now() - startedAt,
-        evidence,
+        ...evidence,
         note: error instanceof Error ? error.message : `${label} step failed.`
       });
       break;
@@ -687,7 +716,7 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
     }
   }
 
-  return { status: results.some((item) => item.status === "failed") ? "failed" : results.some((item) => item.status === "blocked") ? "blocked" : "passed", results };
+  return { status: results.some((item) => item.status === "failed") ? "failed" : results.some((item) => item.status === "blocked") ? "blocked" : "passed", results, ...(captureWarnings.length ? { capture_warnings: captureWarnings } : {}) };
 }
 
 export const executeAndroidStepsWithDriver = executeMobileStepsWithDriver;

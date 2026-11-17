@@ -5,10 +5,12 @@ import {
 } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import { casePrivateParameterNames, collectPrivateParameterNames } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 
-export function buildAutomationCreateParameters({ dataSet, sources, draftSteps, suites, suiteIds }: {
+export function buildAutomationCreateParameters({ dataSet, sources, draftSteps, suites, suiteIds, draftParameterValues = {}, privateParameterNames = [] }: {
   dataSet?: TestDataSet;
   sources: Array<{ testCase: Pick<TestCase, "parameter_values" | "inherited_parameter_values" | "effective_parameter_values" | "effective_parameter_overrides" | "test_data_options" | "effective_private_parameter_names">; steps: TestStep[] }>;
-  draftSteps: Array<Pick<TestStep, "id" | "action" | "expected_result">>;
+  draftSteps: Array<Pick<TestStep, "id" | "action" | "expected_result"> & {api_request?: TestStep["api_request"]}>;
+  draftParameterValues?: Record<string,string>;
+  privateParameterNames?: string[];
   suites: Array<Pick<TestSuite, "id" | "parameter_values">>;
   suiteIds: string[];
 }) {
@@ -25,15 +27,16 @@ export function buildAutomationCreateParameters({ dataSet, sources, draftSteps, 
     }
   });
   sourceValueMaps.forEach(values => { for (const [name,value] of Object.entries(values)) if (!Object.prototype.hasOwnProperty.call(sourceValues,name)) sourceValues[name] = value; });
+  Object.assign(sourceValues, normalizeStepParameterValues(draftParameterValues, "t"));
   const suiteValues = Object.assign({}, ...[...suiteIds].reverse().map((id) => normalizeStepParameterValues(suites.find((suite) => suite.id === id)?.parameter_values || {}, "s")));
   const combinedValues = combineStepParameterValues(buildCaseParameterValues({inheritedValues:sourceValues,dataSet,inheritedOverrideNames:chosenOverrides}), suiteValues);
   const sensitiveNames = collectPrivateParameterNames([...sourceValueMaps, combinedValues], [
-    ...collectSensitiveDataSetParameterNames(dataSet), ...sources.flatMap(({testCase}) => casePrivateParameterNames(testCase))
+    ...collectSensitiveDataSetParameterNames(dataSet), ...sources.flatMap(({testCase}) => casePrivateParameterNames(testCase)), ...privateParameterNames
   ]);
   const definitions = collectCaseStepParameters({
-    steps: [...sources.flatMap(source => source.steps), ...draftSteps.map(step => ({ ...step, automation_code: null, api_request: null }))],
+    steps: [...sources.flatMap(source => source.steps), ...draftSteps.map(step => ({ ...step, automation_code: null, api_request: step.api_request || null }))],
     inheritedValues: sourceValues, availableValues: combinedValues, dataSet,
-    privateNames: sources.flatMap(({ testCase }) => casePrivateParameterNames(testCase))
+    privateNames: [...sources.flatMap(({ testCase }) => casePrivateParameterNames(testCase)), ...privateParameterNames]
   }).map(parameter => sensitiveNames.has(parameter.name) ? { ...parameter, sensitive: true } : parameter);
   const names = new Set(definitions.map(parameter => parameter.name));
   const values = Object.fromEntries(Object.entries(excludeSensitiveStepParameterValues(combinedValues, sensitiveNames)).filter(([name]) => names.has(name)));

@@ -23,7 +23,12 @@ const applicationRecordPredicate = ({source="sources"}={}) => {
     WHEN 'requirement' THEN EXISTS(SELECT 1 FROM requirements graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
     WHEN 'test_case' THEN EXISTS(SELECT 1 FROM test_cases graph_records JOIN app_types graph_apps ON graph_apps.id=graph_records.app_type_id WHERE graph_records.id=${source}.source_ref_id AND graph_apps.project_id=${source}.project_id)
     WHEN 'execution' THEN EXISTS(SELECT 1 FROM executions graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
+    WHEN 'execution_result' THEN EXISTS(SELECT 1 FROM execution_results graph_records JOIN executions graph_runs ON graph_runs.id=graph_records.execution_id WHERE graph_records.id=${source}.source_ref_id AND graph_runs.project_id=${source}.project_id)
     WHEN 'bug' THEN EXISTS(SELECT 1 FROM feedback graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
+    WHEN 'test_suite' THEN EXISTS(SELECT 1 FROM test_suites graph_records JOIN app_types graph_apps ON graph_apps.id=graph_records.app_type_id WHERE graph_records.id=${source}.source_ref_id AND graph_apps.project_id=${source}.project_id)
+    WHEN 'test_module' THEN EXISTS(SELECT 1 FROM test_case_modules graph_records JOIN app_types graph_apps ON graph_apps.id=graph_records.app_type_id WHERE graph_records.id=${source}.source_ref_id AND graph_apps.project_id=${source}.project_id)
+    WHEN 'release' THEN EXISTS(SELECT 1 FROM requirement_releases graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
+    WHEN 'sprint' THEN EXISTS(SELECT 1 FROM requirement_iterations graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
     ELSE TRUE END)`;
 };
 const precedence = (binding) => (binding.inherited ? 0 : 2) + (binding.effect === "DENY" ? 2 : 1);
@@ -87,7 +92,7 @@ const replaceBindings = async ({ sourceId, bindings, user }) => {
   if (!source) throw error("Knowledge source not found.", 404);
   await assertHistoricalAccess(user, source.project_id);
   if (!Array.isArray(bindings) || bindings.length > 250) throw error("Up to 250 security bindings are supported.", 400);
-  return db.transaction(async () => {
+  const result = await db.transaction(async () => {
     await db.prepare("SELECT id FROM ai_knowledge_sources WHERE id = ? FOR UPDATE").get(source.id);
     const normalized = [];
     for (const binding of bindings) {
@@ -121,6 +126,17 @@ const replaceBindings = async ({ sourceId, bindings, user }) => {
     }
     return { source_id: source.id, binding_count: normalized.length, policy_updated: true };
   })();
+  // The vector filter is only a candidate prefilter; PostgreSQL rechecks each
+  // returned fragment. Queue a payload refresh so newly granted principals are
+  // not hidden by a stale external ACL projection.
+  const current = await db.prepare(`SELECT documents.id AS document_id, sources.revision_token
+    FROM ai_knowledge_sources sources LEFT JOIN ai_knowledge_documents documents
+      ON documents.source_id = sources.id AND documents.is_active = TRUE
+    WHERE sources.id = ? AND sources.project_id = ?`).get(source.id, source.project_id);
+  if (current?.document_id) await require("./knowledgeVectorProjection.service").queueSource({
+    projectId: source.project_id, sourceId: source.id, documentId: current.document_id, revisionToken: current.revision_token
+  });
+  return result;
 };
 
 const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal, timeoutMs, requireCurrentNativeRecords=false, allowedSourceKinds, appTypeId } = {}) => {

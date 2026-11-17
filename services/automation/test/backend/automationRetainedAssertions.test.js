@@ -1,10 +1,10 @@
 const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createRetainedAssertionContract, pendingFinalAssertions, retainedFinalAssertionHints } = require('../../backend/lib/automationRetainedAssertions');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { parameterReference, referenceKey, createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
-const { recordBrowserOperation, recordedSectionRequests } = require('../../backend/lib/automationBrowserRecording');
+const { createRetainedAssertionContract, pendingFinalAssertions, retainedFinalAssertionHints } = require("../../backend/lib/browser/automationRetainedAssertions");
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { parameterReference, referenceKey, createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
+const { recordBrowserOperation, recordedSectionRequests } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const op = (name, args) => ({ name, arguments: args });
 const check = (assertion, locator, value) => op('browser_assert', { assertion, ...(locator === undefined ? {} : { locator }), ...(value === undefined ? {} : { value }) });

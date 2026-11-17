@@ -1,7 +1,7 @@
 const db = require('@hellotest/platform/backend/src/db');
 const { getOptionalEvidenceAccess } = require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
 const testSteps = require('@hellotest/testing/backend/services/testStep.service');
-const { normalizeFlowPlan } = require('../lib/automationFlowPlanning');
+const { normalizeFlowPlan } = require("../lib/build/automationFlowPlanning");
 const { resolveAutomationCaseSteps, storedAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 
 /** Persist only draft manual steps; code still requires the per-section execution/save gate. */

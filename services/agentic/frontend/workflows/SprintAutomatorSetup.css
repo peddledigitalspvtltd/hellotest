@@ -1,24 +1,26 @@
-.sprint-automator-setup { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; position:relative; z-index:5; margin:0 0 12px; padding:12px 16px; border:1px solid var(--border-color,#dce2ea); border-radius:10px; background:var(--surface,var(--surface-color,#fff)); color:var(--text-primary,#17243a); }
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
+.sprint-automator-setup { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; position:relative; z-index:5; margin:0 0 12px; padding:12px 16px; border:1px solid var(--border-color,var(--ui-border)); border-radius:10px; background:var(--surface,var(--surface-color,var(--ui-surface))); color:var(--text-primary,var(--ui-text)); }
 .sprint-scope-label { display:flex; flex-direction:column; gap:3px; font-size:13px; }
-.sprint-automator-setup small,.sprint-automator-setup p { color:var(--text-secondary,#526079); font-size:11px; line-height:1.5; font-weight:400; }
+.sprint-automator-setup small,.sprint-automator-setup p { color:var(--text-secondary,var(--ui-text-muted)); font-size:11px; line-height:1.5; font-weight:400; }
 .sprint-automator-setup p { margin:0; }
 .sprint-combobox { position:relative; width:min(440px,100%); flex:1 1 240px; min-width:0; }
-.sprint-combobox-control { display:flex; align-items:center; min-width:0; border:1px solid var(--border-color,#cdd6e3); border-radius:7px; background:var(--input-bg,var(--surface,#fff)); }
-.sprint-combobox-control:focus-within { outline:2px solid var(--accent-color,#466ff5); outline-offset:2px; }
+.sprint-combobox-control { display:flex; align-items:center; min-width:0; border:1px solid var(--border-color,var(--ui-border)); border-radius:7px; background:var(--input-bg,var(--surface,var(--ui-surface))); }
+.sprint-combobox-control:focus-within { outline:2px solid var(--accent-color,var(--ui-blue-border)); outline-offset:2px; }
 .sprint-combobox-control input { flex:1; width:100%; min-width:0; min-height:36px; box-sizing:border-box; border:0; border-radius:7px; padding:8px 10px; background:transparent; color:inherit; font:inherit; font-size:12px; outline:none; }
-.sprint-combobox-control button { flex-shrink:0; display:grid; place-items:center; border:0; padding:7px; background:transparent; color:var(--text-secondary,#526079); cursor:pointer; }
+.sprint-combobox-control button { flex-shrink:0; display:grid; place-items:center; border:0; padding:7px; background:transparent; color:var(--text-secondary,var(--ui-text-muted)); cursor:pointer; }
 .sprint-combobox-control button:last-child { margin-right:4px; }
 .sprint-combobox-control :disabled { opacity:.6; cursor:not-allowed; }
-.sprint-combobox-menu { position:absolute; inset:calc(100% + 6px) 0 auto; z-index:50; max-height:330px; overflow-y:auto; border:1px solid var(--border-color,#cdd6e3); border-radius:8px; padding:5px; background:var(--surface,var(--surface-color,#fff)); box-shadow:0 10px 24px #10223824; }
+.sprint-combobox-menu { position:absolute; inset:calc(100% + 6px) 0 auto; z-index:50; max-height:330px; overflow-y:auto; border:1px solid var(--border-color,var(--ui-border)); border-radius:8px; padding:5px; background:var(--surface,var(--surface-color,var(--ui-surface))); box-shadow:0 10px 24px color-mix(in srgb, var(--ui-blue-strong) 14.118%, transparent); }
 .sprint-combobox-menu [role=option] { display:flex; flex-direction:column; gap:1px; padding:8px; border-radius:5px; cursor:pointer; font-size:12px; overflow-wrap:anywhere; }
-.sprint-combobox-menu [role=option].is-active { background:var(--surface-secondary,#edf2fc); }
-.sprint-combobox-menu [role=option][aria-selected=true] { color:var(--accent-color,#315ee7); }
+.sprint-combobox-menu [role=option].is-active { background:var(--surface-secondary,var(--ui-surface-subtle)); }
+.sprint-combobox-menu [role=option][aria-selected=true] { color:var(--accent-color,var(--ui-blue-text)); }
 .sprint-combobox-menu p { padding:8px; }
-.sprint-combobox-menu button { background:transparent; border:0; color:var(--accent-color,#315ee7); text-decoration:underline; cursor:pointer; }
-.sprint-combobox button:focus-visible { outline:2px solid var(--accent-color,#466ff5); outline-offset:1px; }
-.sprint-automator-setup .sprint-setup-error { flex-basis:100%; color:var(--danger-color,#b72d3f); }
+.sprint-combobox-menu button { background:transparent; border:0; color:var(--accent-color,var(--ui-blue-text)); text-decoration:underline; cursor:pointer; }
+.sprint-combobox button:focus-visible { outline:2px solid var(--accent-color,var(--ui-blue-border)); outline-offset:1px; }
+.sprint-automator-setup .sprint-setup-error { flex-basis:100%; color:var(--danger-color,var(--ui-red-text)); }
 .sprint-automation-guidance { flex-basis:100%; }
-.sprint-automation-guidance button { border:0; padding:0; background:transparent; color:var(--accent-color,#315ee7); font:inherit; text-decoration:underline; cursor:pointer; }
-:root[data-theme=dark] .sprint-combobox-control,:root[data-theme=dark] .sprint-combobox-menu { background:#111d2a; color:#edf4ff; border-color:#415166; }
-:root[data-theme=dark] .sprint-combobox-menu [role=option].is-active { background:#26364a; }
+.sprint-automation-guidance button { border:0; padding:0; background:transparent; color:var(--accent-color,var(--ui-blue-text)); font:inherit; text-decoration:underline; cursor:pointer; }
+:root[data-theme=dark] .sprint-combobox-control,:root[data-theme=dark] .sprint-combobox-menu { background:var(--ui-inverse-surface); color:var(--ui-on-solid); border-color:var(--ui-border-emphasis); }
+:root[data-theme=dark] .sprint-combobox-menu [role=option].is-active { background:var(--ui-inverse-surface); }
 @media(max-width:600px) { .sprint-automator-setup { padding:10px 12px; gap:8px; } .sprint-scope-label { flex-direction:row; align-items:center; flex-wrap:wrap; gap:8px; } .sprint-combobox { flex-basis:100%; } }

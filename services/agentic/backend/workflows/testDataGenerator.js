@@ -1,7 +1,7 @@
 const dataSets = require('@hellotest/testing/backend/services/testDataSet.service');
-const syntheticData = require('@hellotest/ai/backend/services/aiTestDataGeneration.service');
+const syntheticData = require('@hellotest/ai/services/aiTestDataGeneration');
 const { normalizeParameterLayer, normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
-const { referenceKey, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
+const { referenceKey, createBrowserParameterResolver } = require('@hellotest/automation/parameters');
 const { fail } = require('./connections');
 const TASK_DEFAULTS = require('../../shared/workflowNativeTasks.json');
 const WORKSPACE_SPECIALIST = TASK_DEFAULTS['test-data-generator'].workspaceSpecialist;

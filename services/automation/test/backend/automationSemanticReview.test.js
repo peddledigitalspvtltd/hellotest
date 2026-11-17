@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
-const { recordBrowserCheck } = require('../../backend/lib/automationBrowserRecovery');
+const { createAutomationSemanticReviewer } = require("../../backend/lib/browser/automationSemanticReview");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
+const { recordBrowserCheck } = require("../../backend/lib/browser/automationBrowserRecovery");
 
 const execution = { required: true, step_id: 'section', action: 'Save the address', expected_result: 'The address is saved' };
 const result = (value, isError = false) => ({ isError, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
@@ -341,7 +341,7 @@ test('all prompt strings use the authorized private-data projection and public i
 });
 
 test('already projected goals and page text preserve token-looking literals while original parameter inputs resolve once', async () => {
-  const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+  const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
   const literal = 'prefix @r.name suffix';
   const resolver = createBrowserParameterResolver({ caseValues: { 't.literal': literal, 'r.name': 'MUST_NOT_REINTERPRET', 't.password': 'private-live-value' } });
   const section = resolver.projectSteps([{ ...execution, id: execution.step_id, action: 'Enter @t.literal', expected_result: '@t.literal is retained' }])[0];

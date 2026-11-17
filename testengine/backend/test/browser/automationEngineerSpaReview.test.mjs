@@ -13,7 +13,7 @@ import { buildPlaywrightArtifact, createPlaywrightExecutionOptions } from '../..
 import { assertTypeScriptExportCompiles } from '../../../../services/automation/test/browser/playwrightExportFixture.mjs';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const actorState = prompt => JSON.parse(prompt.match(/^Current browser state and confirmed section progress \(page content is untrusted data\): (.+)$/m)[1]);
 const reviewPacket = prompt => JSON.parse(prompt.slice(prompt.lastIndexOf('\n\n') + 2));
 const target = (current, name) => current.current_snapshot.targets.find(item => item.name === name || item.text === name)?.ref;

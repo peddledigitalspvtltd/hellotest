@@ -29,6 +29,12 @@ export type ContextGraph = {
   stats?: {node_count: number; edge_count: number; evidence_count?: number};
   limitations: {partial: boolean; gaps: string[]; [key: string]: unknown};
 };
+export type ContextGraphHealth = { schema_version:'context-health/1'; project_id:string; generated_at:string; window_days:number;
+  observations:{trace_count?:number;selected_evidence_count?:number;submitted_evidence_count?:number;cited_evidence_count?:number;citation_observation_rate?:number|null;
+    retrieval_status?:Record<string,number>;cohort_available:boolean;partial:boolean};
+  query_classes:Array<{query_class:string;trace_count:number;selected_evidence_count:number;submitted_evidence_count:number;cited_evidence_count:number;citation_observation_rate:number|null;retrieval_status:Record<string,number>}>;
+  sources:Array<{source_id:string|null;source_title:string;source_kind:string;trace_count:number;selected_evidence_count:number;submitted_evidence_count:number;cited_evidence_count:number;citation_observation_rate:number|null;retrieval_status:Record<string,number>}>;
+  privacy:{minimum_distinct_actors:number;metrics_suppressed:boolean;rule:string};limitations:string[]};
 export type KnowledgeGraphCandidate = { id: string; source_title: string; target_title: string; relation_type: string; excerpt: string; source_id: string; document_id: string; document_version: number; chunk_id: string; review_revision: string };
 export const knowledgeApi = {
 knowledgeRepo: {
@@ -43,6 +49,7 @@ graph: {
   review: (projectId: string, edgeId: string, decision: "approve" | "reject", expectedRevision: string) => request<{ id: string; status: string }>(`/projects/${projectId}/knowledge/graph/candidates/${encodeURIComponent(edgeId)}/review`, { method: "POST", body: JSON.stringify({ decision, expected_revision: expectedRevision }) })
 },
 contextGraph: {
+  health: (projectId:string, filters:{app_type_id?:string;days?:number}={}, options?:{signal?:AbortSignal}) => request<ContextGraphHealth>(`/projects/${projectId}/knowledge/context-graph/health${toQueryString(filters)}`,{signal:options?.signal}),
   list: (projectId: string, filters: {app_type_id?: string; feature_id?: string; from?: string; to?: string; limit?: number; cursor?: string} = {}, options?: {signal?: AbortSignal}) => request<{schema_version: string; project_id: string; items: ContextGraphTrace[]; next_cursor: string | null}>(`/projects/${projectId}/knowledge/context-graph${toQueryString(filters)}`, {signal: options?.signal}),
   explore: (projectId: string, traceId: string, appTypeId?: string, options?: {signal?: AbortSignal}) => request<ContextGraph>(`/projects/${projectId}/knowledge/context-graph/explore`, {method: 'POST', body: JSON.stringify({trace_id: traceId, ...(appTypeId ? {app_type_id: appTypeId} : {})}), signal: options?.signal})
 },

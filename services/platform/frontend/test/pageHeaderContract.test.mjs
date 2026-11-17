@@ -1,3 +1,4 @@
+import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { sourceFile } from "./helpers/sourceFile.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -27,7 +28,7 @@ test("workspace pages use the canonical heading and mature description block", a
     "TestEnvironmentPage",
     "TestOpsPage"
   ];
-  const sources = await Promise.all(pageFiles.map((name) => readFile(sourceFile(`${name}.tsx`, "pages"), "utf8")));
+  const sources = await Promise.all(pageFiles.map((name) => name === "AutomationPage" ? Promise.resolve(automationWorkspaceSource()) : readFile(sourceFile(`${name}.tsx`, "pages"), "utf8")));
 
   for (const [index, source] of sources.entries()) {
     assert.match(source, /<PageHeader/ , `${pageFiles[index]} must render the canonical page header`);
@@ -61,13 +62,13 @@ test("page identity remains visible when catalog pages open focused record works
   const guardedPages = [
     ["ProjectsPage", "{!focusedProject && portfolioAnalyticsQuery.data ? ("],
     ["RequirementsPage", "{!isRequirementWorkspaceOpen ? ("],
-    ["TestCasesPage", "{!isCaseWorkspaceOpen ? ("],
+    ["TestCasesPage", "{!isCaseWorkspaceOpen && !workflowReviewScope ? ("],
     ["IssuesPage", "{!(isCreating || selectedItem) ? ("]
   ];
 
   for (const [pageName, catalogGuard] of guardedPages) {
     const source = await readFile(sourceFile(`${pageName}.tsx`, "pages"), "utf8");
-    assert.ok(source.indexOf("<PageHeader") < source.indexOf(catalogGuard), `${pageName} header must render outside its catalog-only guard`);
+    assert.ok(source.indexOf(catalogGuard) >= 0 && source.indexOf("<PageHeader") >= 0 && source.indexOf("<PageHeader") < source.indexOf(catalogGuard), `${pageName} header must render outside its catalog-only guard`);
   }
 
   const [sharedSteps, suites, environments] = await Promise.all([
@@ -102,12 +103,12 @@ test("Product Management, Test Authoring, Test Environment, and Defects expose m
 
 test("multi-route workspaces expose a page-specific title instead of a generic shell label", async () => {
   const [automation, testOps, testEnvironment] = await Promise.all([
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
     readSource("../src/platform/pages/TestOpsPage.tsx"),
     readSource("../../../testing/frontend/pages/TestEnvironmentPage.tsx")
   ]);
 
-  for (const title of ["Automation", "Object Repository"]) assert.match(automation, new RegExp(`title: "${title}"`));
-  for (const title of ["Batch Process", "OPS Telemetry", "Automation Builder"]) assert.match(testOps, new RegExp(`title: "${title}"`));
+  for (const title of ["Automation", "Object Repository"]) assert.match(automation, new RegExp(`(?:title: |title=)"${title}"`));
+  for (const title of ["Batch Process", "OPS Telemetry", "Automation Builder"]) assert.match(testOps, new RegExp(`(?:title: |title=)"${title}"`));
   for (const title of ["Test Environments", "Test Configurations", "Test Data"]) assert.match(testEnvironment, new RegExp(`"${title}"`));
 });

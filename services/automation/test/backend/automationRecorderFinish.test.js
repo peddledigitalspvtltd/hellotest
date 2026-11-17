@@ -1,40 +1,42 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { recorderPlanFingerprint } = require('../../backend/lib/automationRecorderPlan');
-const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-const body = source.slice(source.indexOf('exports.finishRecorderSession ='), source.indexOf('exports.connectCaseBrowser ='));
+const { recorderPlanFingerprint } = require("../../backend/lib/recording/automationRecorderPlan");
+const source = fs.readFileSync(require.resolve('../../backend/services/builder/recorderImport'), 'utf8');
+const body = source.slice(source.indexOf('exports.finishRecorderSession ='), source.indexOf('return { selectStaleRecorderTransactions'));
 
-function fixture({ stopped = false, changed = false, savedImport = null, owner = 'user' } = {}) {
+function fixture({ stopped = false, changed = false, savedImport = null, owner = 'user', capturedActions } = {}) {
   const testCase = { id: 'automation', project_id: 'project', app_type_id: 'app', automated: 'yes' };
   const steps = [{ id: 'manual-copy', step_order: 1, step_type: 'web', action: 'Prior manual action' }];
   const calls = [], finalizations = [];
   const metadata = { test_case_id: testCase.id, recorder_session_id: 'session', recorder_target: 'web', recorder_mode: 'remote',
     recorder_plan_key: recorderPlanFingerprint(steps), test_suite_id: 'original-suite', test_environment_id: 'original-environment', engine_base_url: 'https://engine.test' };
   if (changed) steps[0].action = 'Concurrent edit';
-  const capture = { id: 'session', status: 'stopped', start_url: 'https://fixture.test/form', actions: [{ index: 1, type: 'fill', value: 'Exact final input', locator: '#name' }], network: [], action_count: 1 };
+  const capture = { id: 'session', status: 'stopped', start_url: 'https://fixture.test/form', actions: capturedActions || [{ index: 1, type: 'fill', value: 'Exact final input', locator: '#name' }], network: [], action_count: capturedActions?.length || 1 };
   const deps = { exports: {}, normalizeText: value => String(value || '').trim(), selectCaseWithScope: { get: async () => testCase },
     selectStepsForCase: { all: async () => steps }, resolveTestEngineIntegration: async () => ({ base_url: 'https://engine.test', config: {} }),
     workspaceTransactionService: { getTransaction: async () => ({ metadata, created_by: owner, project_id: 'project', action: 'test_case_recorder' }) }, parseTransactionMetadata: transaction => transaction?.metadata || {},
     require: id => {
       if (id.endsWith('/recordingImport.service')) return { load: async () => savedImport };
+      if (id.endsWith('/automationRecorderReplayPlan')) return require("../../backend/lib/recording/automationRecorderReplayPlan");
       assert.ok(id.endsWith('/automationRecorderPlan'));return { recorderPlanFingerprint };
     },
     resolveAutomationCaseSteps: () => ({ automation_case_type: 'web', allowed_step_types: ['web'], steps }),
     isMobileRecorderTarget: () => false, isMobileAppType: () => false, resolveMobileEngineBaseUrl: () => '',
     readEngineJson: async (url, options) => { calls.push([url, options?.method || 'GET']);return stopped || options?.method === 'POST' ? capture : { ...capture, status: 'running', actions: [], action_count: 0 }; },
     normalizeCapturedActions: actions => actions, normalizeCapturedNetwork: network => network, MAX_CAPTURED_ACTIONS: 180,
-    automationCasePreparationService: { prepareAutomationTarget: async () => ({ test_case_id: testCase.id, source_test_case_id: null, target_step_id: null }) },
+    preflightRecorderUploadBindings: async () => { throw Object.assign(new Error('Bind this upload to a configured file parameter. Existing instructions were retained.'), { code: 'AUTOMATION_RECORDER_UPLOAD_BINDING_REQUIRED', statusCode: 422 }); },
+    automationCasePreparationService: { prepareAutomationTarget: async () => { calls.push(['prepareTarget', 'MUTATION']); return { test_case_id: testCase.id, source_test_case_id: null, target_step_id: null }; } },
     finalizeRecorderBuild: async input => { finalizations.push(input);return { test_case_id: testCase.id, generated_step_count: input.capturedActions.length }; }
   };
-  new Function(...Object.keys(deps), body)(...Object.values(deps));
+  new Function("ports", ...Object.keys(deps), body)(deps, ...Object.values(deps));
   return { finish: deps.exports.finishRecorderSession, calls, finalizations };
 }
 
 test('finishing compiles the frozen stop response including the last input and original suite context', async () => {
   const f = fixture(), bindings = [{ source_action_index: 1, parameter_reference: '@s.name' }];
   const result = await f.finish({ test_case_id: 'automation', recorder_session_id: 'session', transaction_id: 'transaction', parameter_bindings: bindings, created_by: 'user' });
-  assert.deepEqual(f.calls.map(call => call[1]), ['GET', 'POST']);
+  assert.deepEqual(f.calls.map(call => call[1]), ['GET', 'POST', 'MUTATION']);
   assert.equal(result.generated_step_count, 1);assert.equal(f.finalizations[0].capturedActions[0].value, 'Exact final input');
   assert.deepEqual(f.finalizations[0].parameterBindings, bindings);
   assert.equal(f.finalizations[0].parameterSelection.test_suite_id, 'original-suite');
@@ -68,8 +70,28 @@ test('only the user who started the scoped recording can import it, and an initi
 test('retrying a stopped recording reuses its capture and a concurrent plan edit fails before import', async () => {
   const f = fixture({ stopped: true });
   await f.finish({ test_case_id: 'automation', recorder_session_id: 'session', transaction_id: 'transaction', created_by: 'user' });
-  assert.deepEqual(f.calls.map(call => call[1]), ['GET']);assert.equal(f.finalizations.length, 1);
+  assert.deepEqual(f.calls.map(call => call[1]), ['GET', 'MUTATION']);assert.equal(f.finalizations.length, 1);
   const changed = fixture({ changed: true });
   await assert.rejects(changed.finish({ test_case_id: 'automation', recorder_session_id: 'session', transaction_id: 'transaction', created_by: 'user' }), { code: 'AUTOMATION_RECORDER_CASE_CHANGED' });
   assert.deepEqual(changed.calls, []);assert.deepEqual(changed.finalizations, []);
+});
+
+test('unsupported popup/frame or missing-locator input stops before creating a linked automation case', async () => {
+  for (const capturedActions of [
+    [{ index: 1, type: 'click', locator: '#open', page_id: 'page' }, { index: 2, type: 'tab', locator: 'browser.tab', text: 'Tab opened', page_id: 'popup' }],
+    [{ index: 1, type: 'fill', locator: '#name', value: 'data', frame_scope: 'child' }],
+    [{ index: 1, type: 'fill', text: 'Name', value: 'data' }]
+  ]) {
+    const f = fixture({ stopped: true, capturedActions });
+    await assert.rejects(f.finish({ test_case_id: 'automation', recorder_session_id: 'session', transaction_id: 'transaction', created_by: 'user' }), { code: 'AUTOMATION_RECORDER_REPLAY_UNSUPPORTED' });
+    assert.deepEqual(f.calls.map(call => call[1]), ['GET']);
+    assert.deepEqual(f.finalizations, []);
+  }
+});
+
+test('an unbound browser upload is rejected before target preparation and preserves its stopped capture', async () => {
+  const f = fixture({ stopped: true, capturedActions: [{ index: 1, type: 'upload', source: 'page-recorder', locator: '#file', value: 'report.csv' }] });
+  await assert.rejects(f.finish({ test_case_id: 'automation', recorder_session_id: 'session', transaction_id: 'transaction', created_by: 'user' }), { code: 'AUTOMATION_RECORDER_UPLOAD_BINDING_REQUIRED' });
+  assert.deepEqual(f.calls.map(call => call[1]), ['GET']);
+  assert.deepEqual(f.finalizations, []);
 });

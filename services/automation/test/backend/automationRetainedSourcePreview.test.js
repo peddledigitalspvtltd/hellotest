@@ -2,7 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {previewRetainedSource,sourcePacket,permissions}=require('../../backend/services/automationRetainedSourcePreview.service');
-const {createGenerationManifest}=require('../../backend/lib/automationGenerationManifest');
+const {createGenerationManifest}=require("../../backend/lib/build/automationGenerationManifest");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const clone=value=>structuredClone(value);
 const action='Fill Event Name with @r.first_name and click Search.';
@@ -202,11 +202,12 @@ test('source-only route keeps explicit project/content gates and rejects caller-
  const routes=fs.readFileSync(require.resolve('../../../testing/backend/routes/testCases.routes.js'),'utf8');const section=routes.slice(routes.indexOf('fastify.post("/test-cases/automation/jobs/:transactionId/source-proposal"'),routes.indexOf('fastify.post("/test-cases/automation/build-batch"'));
  assert.match(section,/await fastify\.authenticate\(req\)/);assert.match(section,/projectService\.getProject/);assert.match(section,/requirePermission\(code/);assert.match(section,/Only recorded section evidence identifiers/);assert.match(section,/cache-control/);
  assert.equal(require('../../../platform/backend/src/security/permissions.catalog').ROUTE_PERMISSIONS.get('POST /test-cases/automation/jobs/:transactionId/source-proposal'),'automation.build');
- assert.equal(require('../../../automation/package.json').exports['./backend/services/automationRetainedSourcePreview.service'],'./backend/services/automationRetainedSourcePreview.service.js');
+ assert.equal(require('../../../automation/package.json').exports['./retained-source'],'./backend/services/automationRetainedSourcePreview.service.js');
  assert.equal(require('../../../trace/package.json').exports['./backend/services/llmTraceQuery.service'],'./backend/services/llmTraceQuery.service.js');
 });
 
 test('real HTTP source-proposal admission rechecks project and all content permissions before model preview; caller source is rejected',async t=>{
+
  const Fastify=require('fastify'),app=Fastify();
  t.after(async()=>{await app.close();await Promise.all([require('@hellotest/platform/backend/src/db').close(),require('@hellotest/platform/backend/src/obsDb').close()]);});
  const projects=require('@hellotest/platform/backend/public/projectAccess'),transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service'),previewService=require('../../backend/services/automationRetainedSourcePreview.service');

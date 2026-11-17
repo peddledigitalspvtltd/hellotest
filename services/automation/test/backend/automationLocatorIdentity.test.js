@@ -1,5 +1,5 @@
 const test = require('node:test'), assert = require('node:assert/strict');
-const { sameRecordedLocator, recordedLocatorIdentity } = require('../../backend/lib/automationLocatorIdentity');
+const { sameRecordedLocator, recordedLocatorIdentity } = require("../../backend/lib/build/automationLocatorIdentity");
 
 test('closed locator spellings share identity while preserving exact names, indices and subjects', () => {
   for (const [left, right] of [

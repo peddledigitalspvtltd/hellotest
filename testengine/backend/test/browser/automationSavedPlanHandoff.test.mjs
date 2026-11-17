@@ -4,11 +4,11 @@ import {createRequire} from 'node:module';
 import Fastify from 'fastify';
 import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const {createRetainedAssertionContract}=require('../../../../services/automation/backend/lib/automationRetainedAssertions.js');
-const {compileRecordedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const {createRetainedAssertionContract}=require("../../../../services/automation/backend/lib/browser/automationRetainedAssertions.js");
+const {compileRecordedProgram}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
 const {inspectExecutablePlan}=require('../../../../services/automation/backend/services/automationReadiness.service.js');
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools.js');
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools.js");
 const receipt=result=>JSON.parse(result.content.find(block=>block.type==='text').text);
 
 test('saved iframe Search hands off through bounded document refresh, native checks and mandatory review/source validation without another actor',{timeout:90000},async t=>{

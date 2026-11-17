@@ -12,10 +12,10 @@ import {runAutomationVerificationCli} from '../../dist/lib/automationVerificatio
 import {createWebRunSession} from '../../dist/lib/webEngine.js';
 
 const require=createRequire(import.meta.url);
-const {compileRecordedProgram:compileSavedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const {prepareVerificationSections}=require('../../../../services/automation/backend/lib/automationVerificationSections.js');
-const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
-const {optionLocatorNameBinding,selectionLocatorNameBinding}=require('../../../../services/automation/backend/lib/automationOptionParameterBinding.js');
+const {compileRecordedProgram:compileSavedProgram}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const {prepareVerificationSections}=require("../../../../services/automation/backend/lib/verification/automationVerificationSections.js");
+const {createBrowserParameterResolver}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
+const {optionLocatorNameBinding,selectionLocatorNameBinding}=require("../../../../services/automation/backend/lib/build/automationOptionParameterBinding.js");
 const op=(name,args)=>({name,arguments:args});
 const option=reference=>`getByRole("option", ${JSON.stringify({name:reference,exact:true})})`;
 const menuScope='.select-wrapper:has(select#eventTemplate) > ul.dropdown-content';

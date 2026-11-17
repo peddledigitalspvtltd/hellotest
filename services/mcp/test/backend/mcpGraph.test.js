@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {createRequire}=require('node:module');
-const G=require('../../backend/graphContext');
+const G=require('../../backend/knowledgeGraphTools');
 const actor={user:{id:'reader'},projectId:'project-a',clientId:'host-a'};
 const fail=(message,statusCode=403,code='MCP_ACCESS_DENIED')=>Object.assign(new Error(message),{publicMessage:message,statusCode,code});
 function fixture(options={}) {
@@ -61,7 +61,7 @@ test('graph delivery rejects foreign nested records and edges whose evidence wit
 
 test('real SDK serves graph tools, exact traced evidence and project-scoped ontology resources',async t=>{
  const f=fixture(),filename=path.resolve(__dirname,'../../backend/mcpServer.js'),native=createRequire(filename),module={exports:{}};
- const mocks={'./graphContext':{...G,...f.boundary},'./backplane':{auditFailure:()=>{}},'./auth':{permit:async()=>{},fail},'./projections':{entities:{projects:{}}},'./gateway':{installTransport:()=>{}},'@hellotest/platform/backend/src/db':{prepare:()=>({run:async()=>{}})}};
+ const mocks={'./knowledgeGraphTools':{...G,...f.boundary},'./backplane':{auditFailure:()=>{}},'./auth':{permit:async()=>{},fail},'./projections':{entities:{projects:{}}},'./gateway':{installTransport:()=>{}},'@hellotest/platform/backend/src/db':{prepare:()=>({run:async()=>{}})}};
  new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(name=>mocks[name]||native(name),module,module.exports);
  const server=module.exports;t.after(()=>server.handler.close());
  const result=await server.callLocal(actor,'hellotest_graph_trace',{source:{kind:'requirement',ref_id:'story-a'},target:{kind:'test_case',ref_id:'case-a'}});assert.equal(result.edges[0].id,'edge-a');assert.equal(result.evidence[0].document_id,'version-a');

@@ -1,14 +1,14 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../backend/lib/automationProgramTools');
-const {prepareVerificationSections}=require('../../backend/lib/automationVerificationSections');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {recordedSectionRequests,adoptPlanningNavigation}=require('../../backend/lib/automationBrowserRecording');
-const {planAutomationFlow}=require('../../backend/lib/automationFlowPlanning');
-const {exactLinearCoverage}=require('../../backend/lib/automationActionReconciliation');
-const {navigationParameterNames}=require('../../backend/lib/automationNavigationParameters');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../backend/lib/build/automationProgramTools");
+const {prepareVerificationSections}=require("../../backend/lib/verification/automationVerificationSections");
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {recordedSectionRequests,adoptPlanningNavigation}=require("../../backend/lib/browser/automationBrowserRecording");
+const {planAutomationFlow}=require("../../backend/lib/build/automationFlowPlanning");
+const {exactLinearCoverage}=require("../../backend/lib/build/automationActionReconciliation");
+const {navigationParameterNames}=require("../../backend/lib/browser/automationNavigationParameters");
 
 const destination='https://application.fixture/entry';
 function state(action='Open @t.base_url',values={}){

@@ -220,7 +220,7 @@ test('a slow initial response leaves a full bounded repair deadline and the same
   };
   const result=await load('artifactAssurance.service',provider.overrides).reviewArtifact({artifactType:'story',savedArtifact:story,projectId:'project'});
   assert.equal(result.response_repaired,true);assert.equal(provider.calls.length,2);
-  assert.equal(provider.calls[1].policy.timeoutMs,60000);
+  assert.equal(provider.calls[1].policy.timeoutMs,120000-59000, "Repair uses the exact remaining shared deadline.");
   assert.equal(provider.calls[1].policy.maxOutputTokens,provider.calls[0].policy.maxOutputTokens);
   assert.equal(result.model_execution.deadline_ms,120000);
 });
@@ -323,7 +323,8 @@ test('Test Case assurance retains the linked Story title, long description, acce
   for (const value of ['FULL_STORY_TITLE', 'LATE_PRODUCT_RULE', 'FIFTH_ACCEPTANCE_RULE', 'EXECUTABLE_SPEC_CONTEXT', 'SYNTHETIC-INV-001']) assert.ok(prompt.includes(value), value);
   const expanded = require('./helpers/managedInstructions').expandManagedInstructions(prompt);
   assert.match(expanded, /corresponding observable expected result|corresponding observable expected|observable per-step outcomes/);
-  assert.match(expanded, /synthetic/);
+  assert.match(expanded, /Declared literals and resolved references are equally valid/);
+  assert.match(expanded, /preserve protected references and never disclose credentials/);
   assert.match(expanded, /focused positive case/);
 });
 

@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import {parse} from 'acorn';
 import {compileRecordedProgram as compile} from '../dist/lib/automationVerificationProgram.js';
 import {validateAutomationVerificationRequest,registerAutomationVerification} from '../dist/lib/automationVerification.js';
-const require=createRequire(import.meta.url),{compileRecordedProgram:hostCompile}=require('../../../services/automation/backend/lib/automationRecordedProgram.js');
+const require=createRequire(import.meta.url),{compileRecordedProgram:hostCompile}=require("../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
 const op=(name,args)=>({name,arguments:args});
 const operations=[op('browser_fill',{locator:'#name',value:'@r.name'}),op('browser_assert',{assertion:'field_valid',locator:'#name'}),op('browser_assert',{assertion:'value',locator:'#name',value:'@r.name'})];
 const input=()=>({schema_version:1,verification_id:randomUUID(),lease_token:randomUUID(),start_url:'https://fixture.test/form',parameters:{'r.name':''},sections:[{step_id:'one',automation_code:compile(operations).source,operations:structuredClone(operations)}],replay_policy:{mode:'authorized_run',allow_mutations:true}});

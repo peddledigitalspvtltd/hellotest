@@ -3,6 +3,8 @@ const { defineRoute } = require("@hellotest/platform/backend/src/routes/routeDef
 module.exports = {
   id: "automation",
   routes: [
+    defineRoute("automation", "automation", "automationActivity.routes.js"),
+    defineRoute("automation", "ai", "automationRepair.routes.js"),
     defineRoute("automation", "engine", "testEngineCallbacks.routes.js"),
     defineRoute("automation", "engine", "testEngineInternal.routes.js"),
     defineRoute("automation", "engine", "engine.routes.js"),

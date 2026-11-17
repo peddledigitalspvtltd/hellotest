@@ -68,7 +68,7 @@ exports.verify = async ({ app, db, createToken }) => {
       await db.prepare('INSERT INTO role_permissions(role_id,permission_id) VALUES(?,?)').run('mcp-fixture-role', permission.id);
       added.push(permission.id);
     }
-    const issued = await app.inject({ method: 'POST', url: '/agentic-workflows/mcp/credentials', headers, payload: { project_id: project, client_id: 'knowledge-lifecycle-fixture' } });
+    const issued = await app.inject({ method: 'POST', url: '/agentic-workflows/mcp/credentials', headers, payload: { project_id: project, client_id: 'knowledge-lifecycle-fixture', scopes: ['knowledge', 'records', 'actions'] } });
     assert.equal(issued.statusCode, 200, issued.body);
     credential = issued.json();
 

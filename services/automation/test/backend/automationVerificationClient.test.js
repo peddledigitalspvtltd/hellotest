@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {verifyRecordedAutomation}=require('../../backend/lib/automationVerificationClient');
+const {verifyRecordedAutomation}=require("../../backend/lib/verification/automationVerificationClient");
 const integration={base_url:'https://worker.test/',config:{shared_secret:'fixture-shared-secret'}};
 
 test('worker HTTP authorization survives an HTML response and dispatch is never retried',async t=>{

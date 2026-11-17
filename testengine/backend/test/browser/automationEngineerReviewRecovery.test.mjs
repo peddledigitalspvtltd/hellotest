@@ -7,8 +7,8 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { recordedSectionRequests } = require('../../../../services/automation/backend/lib/automationBrowserRecording.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { recordedSectionRequests } = require("../../../../services/automation/backend/lib/browser/automationBrowserRecording.js");
 const stepId = 'enter-email';
 const email = 'fixture@example.test';
 const actorState = prompt => JSON.parse(prompt.match(/^Current browser state and confirmed section progress \(page content is untrusted data\): (.+)$/m)[1]);

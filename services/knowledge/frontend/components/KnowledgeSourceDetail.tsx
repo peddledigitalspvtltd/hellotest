@@ -5,10 +5,10 @@ import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconArchive, IconExternalLink, IconRefresh, IconDownload, IconSearch } from "@tabler/icons-react";
 import { knowledgeApi } from "../api.client";
-import { knowledgeCitationHref } from "@hellotest/chatbot/frontend/lib/knowledgeAnswer";
+import { knowledgeCitationHref } from "@hellotest/platform/frontend/src/shared/lib/knowledgeCitation";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
-import { KnowledgeFormattedText } from "@hellotest/chatbot/frontend/components/KnowledgeFormattedText";
+import { FormattedText as KnowledgeFormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
 import "./KnowledgeSourceDetail.css";
 
 const label = (value?: string | null) => String(value || "Unknown").replace(/_/g, " ");

@@ -62,7 +62,7 @@ test('manual private and run-scoped edits save case-owned values, while suite ed
 
 test('automation permits private run defaults at case level and still respects scoped edit permission',()=>{
   let own={},suite={},disabled=false;
-  const handler=pageBinding('../../../automation/frontend/pages/AutomationPage.tsx','handleParameterValueChange',{
+  const handler=pageBinding('../../../automation/frontend/workspaces/case/useAutomationCaseServices.tsx','handleParameterValueChange',{
     parseStepParameterName,visiblePrivateNames:new Set(['r.opaque']),caseParameterPrivacyScope:'project:automation',
     caseParameterOverrideDraftRef:{current:{scope:'',names:new Set()}},
     resolveParameterInputState:()=>({disabled}),setPrivateCaseParameterDraft:()=>{},
@@ -71,7 +71,7 @@ test('automation permits private run defaults at case level and still respects s
   handler('r.opaque','replacement secret');assert.deepEqual(own,{'r.opaque':'replacement secret'});
   handler('s.region','shared value');assert.deepEqual(suite,{'s.region':'shared value'});
   disabled=true;handler('r.opaque','disallowed edit');assert.equal(own['r.opaque'],'replacement secret');
-  const scopeState=pageBinding('../../../automation/frontend/pages/AutomationPage.tsx','resolveParameterInputState',{
+  const scopeState=pageBinding('../../../automation/frontend/workspaces/case/useAutomationCaseServices.tsx','resolveParameterInputState',{
     canUpdateAutomationCase:true,hasPermission:()=>false,session:{},projectId:'project',selectedParameterSuite:{id:'suite'},activeCaseSuiteIds:['suite']
   });
   assert.notEqual(scopeState('r').disabled,true);
@@ -87,7 +87,7 @@ test('automation flushes edited or explicitly reselected parameters before build
     canUpdateAutomationCase:true,canViewTestData:true,selectedParameterSuite:null,activeCaseSuiteIds:[],suiteParameterValues:{},hasPermission:()=>false,session:{},
     api:{testCases:{update:async(id,input)=>{writes.push({id,input});return{revision:8};}}},
     automationCaseDetailQueryKey:()=>['case'],queryClient:{setQueriesData:(query,update)=>cache.push(update(activeCase))}};
-  const flush=pageBinding('../../../automation/frontend/pages/AutomationPage.tsx','flushAutomationBuildParameters',dependencies);
+  const flush=pageBinding('../../../automation/frontend/workspaces/case/useAutomationCaseServices.tsx','flushAutomationBuildParameters',dependencies);
   await flush(['another-case']);assert.equal(writes.length,0);
   await flush(['automation']);
   assert.deepEqual(writes[0].input.parameter_values,{'r.blank':''});
@@ -96,6 +96,6 @@ test('automation flushes edited or explicitly reselected parameters before build
   assert.equal(Object.hasOwn(writes[0].input.parameter_values,'t.private_input'),false);
   assert.equal(cache[0].revision,8);
   assert.deepEqual(activeCase.parameter_values,{'r.blank':''});
-  const denied=pageBinding('../../../automation/frontend/pages/AutomationPage.tsx','flushAutomationBuildParameters',{...dependencies,canUpdateAutomationCase:false});
+  const denied=pageBinding('../../../automation/frontend/workspaces/case/useAutomationCaseServices.tsx','flushAutomationBuildParameters',{...dependencies,canUpdateAutomationCase:false});
   await assert.rejects(denied(['automation']),/Case update and Test Data access/);assert.equal(writes.length,1);
 });

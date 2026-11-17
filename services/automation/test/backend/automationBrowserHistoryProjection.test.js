@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {modelObservationHistory,browserPromptContext}=require('../../backend/lib/automationBrowserContext');
+const {modelObservationHistory,browserPromptContext}=require("../../backend/lib/browser/automationBrowserContext");
 const url='https://fixture.test/login';
 const observation=(step,tool,value,args={},extra={})=>({tool,execution_step_id:step,arguments:args,observed_at:'2026-10-18T12:00:00Z',
  result:{content:[{type:'text',text:JSON.stringify({source:'playwright',url,...value})}]},...extra});

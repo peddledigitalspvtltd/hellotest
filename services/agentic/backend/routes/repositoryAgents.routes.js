@@ -9,7 +9,8 @@ module.exports = async function repositoryAgentsRoutes(fastify) {
   fastify.get('/repository-agents', async req => {
     await fastify.authenticate(req);
     await fastify.requirePermission('agentic_workflow.view')(req);
-    return { agents: AGENTS, limits: LIMITS, runtime: await compiler.runtimeStatus() };
+    const runtime=await compiler.runtimeStatus();
+    return { agents: runtime.available?AGENTS:[], limits: LIMITS, runtime, capabilities:{repository_analysis:runtime.available} };
   });
   fastify.get('/repository-agents/runs', async req => {
     await fastify.authenticate(req);

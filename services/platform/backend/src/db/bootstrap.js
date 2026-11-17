@@ -2582,7 +2582,7 @@ const statements = [
   rebrandJsonColumn("integrations", "config"),
   rebrandJsonColumn("app_settings", "value"),
   rebrandJsonColumn("quality_dashboards", "gadgets"),
-  ...require('@hellotest/ai/backend/services/qualityRecordSchema'),
+  ...require('@hellotest/ai/services/qualityRecordSchema'),
   ...require('./projectDeletionGuardSchema'),
   ...require('./requirementBacklogHistorySchema'),
   ...require('./releaseRelationsSchema'),
@@ -2590,13 +2590,18 @@ const statements = [
   ...require('./sharedStepDataSchema'),
   ...require('@hellotest/knowledge/backend/refreshSchema'),
   ...require('@hellotest/knowledge/backend/graphSchema').statements,
+  ...require('@hellotest/knowledge/backend/contextTracePayloadSchema'),
+  ...require('@hellotest/knowledge/backend/nativeOutboxSchema'),
   ...require('@hellotest/knowledge/backend/vectorProjectionSchema'),
-  ...require('@hellotest/automation/backend/pairedExecutionSchema').statements,
-  ...require('@hellotest/automation/backend/recordingImportSchema').statements,
+  ...require('@hellotest/knowledge/backend/retrievalSchema'),
+  ...require('@hellotest/knowledge/backend/semanticWorkSchema'),
+  ...require('@hellotest/automation/schemas/paired-execution').statements,
+  ...require('@hellotest/automation/schemas/recording-import').statements,
   ...require('./automationCaseIdentitySchema'),
   ...require('./automationCaseDeletionSchema'),
   ...require('./automationStartUrlSchema'),
-  ...require('./executionCaseOwnershipSchema')
+  ...require('./executionCaseOwnershipSchema'),
+  ...require('@hellotest/agentic/backend/agents/activityOutboxSchema')
 ];
 
 const executeStatements = () => db.transaction(async () => {

@@ -73,12 +73,35 @@ test('public context forwards retrieval hints separately from source authorizati
  assert.equal(received.planningMode,'deterministic');
 });
 
-test('disjoint source filters and foreign private context cannot widen the project read',async()=>{
- let calls=0;const active=backplane(async()=>{calls++;return {};});
+test('disjoint source filters are rejected and forged side-channel fields on the actor cannot redirect or widen the project read',async()=>{
+ let calls=0,received;const active=backplane(async value=>{calls++;received=value;return {};});
  await assert.rejects(active.context(actor,{question:'Inspect',source_ids:['one'],filters:{source_ids:['two']}}),{code:'MCP_INVALID_ARGUMENT'});
- await assert.rejects(active.context({...actor,packetInput:{projectId:'foreign'}},{question:'Inspect'}),{code:'MCP_ACCESS_DENIED'});
- await assert.rejects(active.context({...actor,retrievalInput:{request:{project_id:'foreign'}}},{question:'Inspect'}),{code:'MCP_ACCESS_DENIED'});
  assert.equal(calls,0);
+ // The former in-process side channel no longer exists, so properties attached to the
+ // actor are inert: the read stays in the credential's project and the audited question.
+ await active.context({...actor,packetInput:{projectId:'foreign',query:'smuggled'},retrievalInput:{request:{project_id:'foreign',query:'smuggled'}}},{question:'Inspect'});
+ assert.equal(calls,1);assert.equal(received.projectId,'project');assert.equal(received.query,'Inspect');
+ assert.equal(received.packetInput,undefined);assert.equal(received.retrievalInput,undefined);
+});
+
+test('conversation, Smart Context and planning mode are public audited arguments that reach retrieval',async()=>{
+ let received;const active=backplane(async value=>{received=value;return {project_id:'project',evidence:[]};});
+ const parsed=contextSchema.parse({question:'And its failed cases?',
+  conversation:{messages:[{role:'user',content:'Summarize checkout release readiness'},{role:'assistant',content:'Readiness is amber.'}],session_id:'session-1'},
+  smart_context:{query:'checkout release',source_ids:['source-a'],source_kinds:['text'],reviewed_context:'Focus on the release gate'},
+  planning_mode:'deterministic',follow_up_rounds:true,filters:{source_ids:['source-a','source-b'],source_kinds:['text','file']}});
+ await active.context(actor,parsed);
+ assert.deepEqual(received.history,parsed.conversation.messages);
+ assert.equal(received.conversation.session_id,'session-1');
+ assert.deepEqual(received.smartContext,parsed.smart_context);
+ assert.equal(received.planningMode,'deterministic');assert.equal(received.followUpRounds,true);
+ assert.deepEqual(received.filters.source_ids,['source-a'],'Smart Context narrows to the intersection and never widens');
+ assert.deepEqual(received.filters.source_kinds,['text']);
+ assert.equal(received.integrationId,undefined,'no model integration is needed or sent for deterministic retrieval');
+ await assert.rejects(active.context(actor,{question:'q',smart_context:{source_ids:['other']},filters:{source_ids:['source-a']}}),{code:'MCP_INVALID_ARGUMENT'});
+ await assert.rejects(active.context(actor,{question:'q',planning_mode:'model'}),{code:'MCP_INVALID_ARGUMENT'},'model planning requires an integration');
+ for(const bad of [{conversation:{messages:[{role:'system',content:'x'}]}},{conversation:{messages:Array(7).fill({role:'user',content:'x'})}},{smart_context:{unknown:1}},{planning_mode:'free'}])
+  assert.equal(contextSchema.safeParse({question:'q',...bad}).success,false);
 });
 
 test('context deadlines follow the read budget without extending action calls',()=>{

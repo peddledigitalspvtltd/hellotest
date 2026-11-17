@@ -24,7 +24,12 @@ test("real PostgreSQL/Qdrant reconcile uncertain writes, index loss, tombstones 
   let loseAcknowledgement = false, writes = 0;
   const operations = [];
   t.mock.method(globalThis, "fetch", async (url, init) => {
-    const response = await originalFetch(url, init);
+    let response;
+    try { response = await originalFetch(url, init); }
+    catch (error) {
+      operations.push({ path: new URL(url).pathname, method: init?.method || "GET", network_error_code: error?.code || "FETCH_FAILED" });
+      throw error;
+    }
     operations.push({ path: new URL(url).pathname, method: init?.method || "GET", status: response.status });
     if (String(url).includes(`/collections/${collection}/points?`)) {
       writes++;
@@ -65,6 +70,13 @@ test("real PostgreSQL/Qdrant reconcile uncertain writes, index loss, tombstones 
         project_id TEXT, source_id TEXT, is_current BOOLEAN, required_indexes_ready BOOLEAN,
         embedding_model TEXT, embedding_dimensions INTEGER, vector_provider TEXT DEFAULT 'postgresql',
         error_fingerprint TEXT, indexed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP) ON COMMIT DROP`);
+      await db.query(`CREATE TEMP TABLE ai_knowledge_security_bindings(
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        document_id TEXT, chunk_id TEXT, principal_type TEXT NOT NULL,
+        principal_id TEXT NOT NULL, permission TEXT NOT NULL DEFAULT 'READ',
+        effect TEXT NOT NULL, inherited BOOLEAN NOT NULL DEFAULT FALSE,
+        policy_version TEXT NOT NULL DEFAULT '1', created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ON COMMIT DROP`);
       for (const statement of schema) await db.query(statement.replace("CREATE TABLE IF NOT EXISTS ai_knowledge_vector_jobs", "CREATE TEMP TABLE ai_knowledge_vector_jobs"));
       const sourceId = randomUUID(), documentId = randomUUID(), chunkId = randomUUID();
       await db.prepare(`INSERT INTO ai_knowledge_sources(id,project_id,title,source_kind,revision_token,extraction_status)
@@ -79,10 +91,11 @@ test("real PostgreSQL/Qdrant reconcile uncertain writes, index loss, tombstones 
       const job = () => db.prepare(`SELECT * FROM ai_knowledge_vector_jobs WHERE source_id = ?`).get(sourceId);
       assert.equal(await projection.discoverPending(), 1, "Existing canonical revisions without a journal are recovered after upgrade/restart");
       await assert.rejects(projection.queueSource({ projectId: "project-b", sourceId, documentId, revisionToken: "revision-a" }), /different project/);
-      assert.equal((await run()).status, "retry_scheduled");
+      const firstRun = await run();
+      assert.equal(firstRun.status, "retry_scheduled", `Vector reconciliation should catch the lost acknowledgement: ${JSON.stringify(firstRun)}`);
       assert.equal((await job()).status, "queued");
       assert.equal((await job()).attempts, 1);
-      assert.equal(writes, 1, `The actual Qdrant upsert must execute before acknowledgement loss is tested: ${JSON.stringify(operations)}`);
+      assert.equal(writes, 1, `The actual Qdrant upsert must execute before acknowledgement loss is tested; job=${JSON.stringify(await job())}; operations=${JSON.stringify(operations)}`);
       assert.ok((await job()).error_fingerprint && !(await job()).error_fingerprint.includes("Fixture"));
       const source = await db.prepare(`SELECT * FROM ai_knowledge_sources WHERE id = ?`).get(sourceId);
       const check = () => vector.verifyDocument({ projectId: "project-a", source, documentId,

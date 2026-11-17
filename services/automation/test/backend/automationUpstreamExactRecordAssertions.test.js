@@ -1,10 +1,10 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {assertExactRecordAssertions}=require('../../backend/lib/automationExactRecordAssertions');
-const {generateUpstreamSectionSource}=require('../../backend/lib/automationUpstreamSectionSource');
-const {createUpstreamPrivateBindingScope}=require('../../backend/lib/automationUpstreamPrivateBindings');
+const {assertExactRecordAssertions}=require("../../backend/lib/build/automationExactRecordAssertions");
+const {generateUpstreamSectionSource}=require("../../backend/lib/upstream/automationUpstreamSectionSource");
+const {createUpstreamPrivateBindingScope}=require("../../backend/lib/upstream/automationUpstreamPrivateBindings");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
-const {validSavedInstructionMapping}=require('../../backend/lib/automationInstructionMapping');
+const {validSavedInstructionMapping}=require("../../backend/lib/build/automationInstructionMapping");
 const step={id:'record-result',step_order:14,action:'Search the configured event records',expected_result:'The row with exact name @r.template for @r.first @r.last has the expected type and status',parameter_references:['r.template','r.first','r.last']};
 
 test('exact composite record assertions reject positional ambiguity directly and through locator aliases',()=>{

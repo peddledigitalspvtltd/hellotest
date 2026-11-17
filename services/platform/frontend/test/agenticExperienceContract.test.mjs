@@ -1,3 +1,4 @@
+import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -5,10 +6,16 @@ import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
+const readAgentExperience = async () => {
+  const native = await readSource("../../../agentic/frontend/components/AgenticExperience.tsx");
+  assert.match(native, /@hellotest\/ai\/agent-experience/);
+  return [native, await readSource("../../../ai/frontend/components/AgentExperiencePrimitives.tsx")].join("\n");
+};
+
 const countMatches = (source, pattern) => source.match(pattern)?.length || 0;
 
 test("agent workbench exposes every governed QA specialist as a first-class action", async () => {
-  const component = await readSource("../../../agentic/frontend/components/AgenticExperience.tsx");
+  const component = await readAgentExperience();
   const page = await readSource("../../../agentic/frontend/pages/AgenticWorkflowsPage.tsx");
   const directory = await readSource("../../../agentic/frontend/agents/AgentDirectory.tsx");
 
@@ -24,7 +31,7 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
     "Quality Evaluator",
     "Object Repository Curator"
   ]) {
-    const catalog = await readSource("../../../agentic/shared/workflowSpecialists.json");
+    const catalog = await readSource("../../../contracts/agents/workflowSpecialists.json");
     assert.match(catalog, new RegExp(specialist));
   }
 
@@ -60,7 +67,7 @@ test("AI Agents has a dedicated sidebar catalog and opens a focused specialist W
 });
 
 test("agent traces expose evidence and evaluation without hidden reasoning", async () => {
-  const component = await readSource("../../../agentic/frontend/components/AgenticExperience.tsx");
+  const component = await readAgentExperience();
 
   for (const stage of ["Intent understood", "Context built", "Guardrails applied", "Specialist analysis", "Outcome produced", "Output evaluated"]) {
     assert.match(component, new RegExp(stage));
@@ -91,17 +98,17 @@ test("shared AI surfaces reuse the governed process rail", async () => {
 
 test("every AI output is review-first, editable, selectable, and explicitly accepted", async () => {
   const [experience, storyStudio, richText, insights, bugs, automation, executions] = await Promise.all([
-    readSource("../../../agentic/frontend/components/AgenticExperience.tsx"),
+    readAgentExperience(),
     readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
     readSource("../src/platform/components/RichTextEditor.tsx"),
     readSource("../../../ai/frontend/components/AiInsightPreviewDialog.tsx"),
     readSource("../../../testing/frontend/pages/IssuesPage.tsx"),
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
     readSource("../../../testing/frontend/pages/ExecutionsPage.tsx")
   ]);
 
   assert.match(experience, /export function AiFeatureComposer/);
-  assert.match(experience, /<AgentArtifactReview[^>]*approvalBlocked=\{review.blockedReason\}/);
+  assert.match(experience, /<AgentArtifactReview[\s\S]*?approvalBlocked=\{review.blockedReason\}/);
   const artifactReview = await readSource("../../../agentic/frontend/agents/AgentArtifactReview.tsx");
   assert.match(artifactReview, /Accept and create/);
   assert.match(artifactReview, /Accept and update Story/);
@@ -125,13 +132,13 @@ test("every AI output is review-first, editable, selectable, and explicitly acce
 
 test("feature AI surfaces expose an explicit run brief and avoid duplicate mission inputs", async () => {
   const [experience, storyShell, storyPage, testCreate, testImprove, bugs, automation, executions, contextPanel] = await Promise.all([
-    readSource("../../../agentic/frontend/components/AgenticExperience.tsx"),
+    readAgentExperience(),
     readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
     readSource("../../../manual/frontend/pages/RequirementsPage.tsx"),
     readSource("../../../ai/frontend/components/AiDesignStudioModal.tsx"),
     readSource("../../../ai/frontend/components/AiCaseAuthoringModal.tsx"),
     readSource("../../../testing/frontend/pages/IssuesPage.tsx"),
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
     readSource("../../../testing/frontend/pages/ExecutionsPage.tsx"),
     readSource("../../../ai/frontend/components/AiPromptContextPanel.tsx")
   ]);
@@ -158,7 +165,7 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
 
 test("core AI authoring flows share the compact context, draft, and generation-flow workspace", async () => {
   const [experience, storyShell, insights, bugs, contextPanel, api] = await Promise.all([
-    readSource("../../../agentic/frontend/components/AgenticExperience.tsx"),
+    readAgentExperience(),
     readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
     readSource("../../../ai/frontend/components/AiInsightPreviewDialog.tsx"),
     readSource("../../../testing/frontend/pages/IssuesPage.tsx"),
@@ -270,7 +277,7 @@ test("Story drafts use a focused artifact outline with cited evidence in the ins
 
 test("compact AI workspaces show four focused phases with evidence in an on-demand flyout", async () => {
   const [experience, storyShell, insights, bugs] = await Promise.all([
-    readSource("../../../agentic/frontend/components/AgenticExperience.tsx"),
+    readAgentExperience(),
     readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
     readSource("../../../ai/frontend/components/AiInsightPreviewDialog.tsx"),
     readSource("../../../testing/frontend/pages/IssuesPage.tsx")
@@ -295,7 +302,7 @@ test("compact AI workspaces show four focused phases with evidence in an on-dema
 });
 
 test("feature rails use truthful profiles, backend stage snapshots, and an awaiting-review gate", async () => {
-  const experience = await readSource("../../../agentic/frontend/components/AgenticExperience.tsx");
+  const experience = await readAgentExperience();
 
   for (const profile of ["story-create", "story-complete", "bug-create", "smart-run", "bug-triage"]) {
     assert.match(experience, new RegExp(`"${profile}"`));

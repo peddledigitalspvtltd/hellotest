@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),Module=require('node:module');
-const {normalizeAgentContext,retrieveAgentContext}=require('../../backend/lib/automationAgentContext');
+const {normalizeAgentContext,retrieveAgentContext}=require("../../backend/lib/build/automationAgentContext");
 test('agent context keeps explicit source exclusions, bounds input and drops unknown authority fields',()=>{
  const value=normalizeAgentContext({context_scopes:[],inputs:{test_case_id:'case',user_id:'not-authority',project_id:'not-scope'},smart_context:{source_ids:['one','one'],query:'focus'}});
  assert.deepEqual(value.context_scopes,[]);assert.deepEqual(value.inputs,{test_case_id:'case'});assert.deepEqual(value.smart_context.source_ids,['one']);

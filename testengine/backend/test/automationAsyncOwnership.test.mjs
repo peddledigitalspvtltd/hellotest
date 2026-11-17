@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { assertAutomationAsyncOwnership } from '../dist/lib/automationAsyncOwnership.js';
 const require=createRequire(import.meta.url);
-const {compileRecordedProgram}=require('../../../services/automation/backend/lib/automationRecordedProgram');
+const {compileRecordedProgram}=require("../../../services/automation/backend/lib/browser/automationRecordedProgram");
 
 test('awaited closed validation polls own implicit read promises in both compiler layouts',()=>{
  const operations=[{name:'browser_fill',arguments:{locator:'#password',value:'@r.password'}},

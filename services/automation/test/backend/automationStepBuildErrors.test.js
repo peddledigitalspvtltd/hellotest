@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {reduceActivityProgress}=require('../../backend/lib/automationActivityProgress');
-const {stepBuildError,providerFailureMessages}=require('../../backend/lib/automationStepBuildErrors');
-const {buildFailureProgress}=require('../../backend/lib/automationBuildFailureProgress');
+const {reduceActivityProgress}=require("../../backend/lib/build/automationActivityProgress");
+const {stepBuildError,providerFailureMessages}=require("../../backend/lib/build/automationStepBuildErrors");
+const {buildFailureProgress}=require("../../backend/lib/build/automationBuildFailureProgress");
 
 test('a repeated unobserved target gets safe per-step discovery guidance without claiming previous actions did not run',()=>{
  const error=stepBuildError({phase:'automation.agent.browser.failed',message:'private page payload',details:{error_code:'AUTOMATION_BROWSER_TARGET_PROPOSAL_STALLED',locator:'#private-field',provider:'private provider data'}},'now');

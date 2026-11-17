@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/login', ...value }) }] });
 const snapshot = () => receipt({ observation_id: 'current-page', scope: 'body', title: 'Sign in', accessibility: '- textbox "Email"', elements: [{ tag: 'input', role: 'textbox', accessible_name: 'Email', attributes: { id: 'email', type: 'email' }, displayed: true, disabled: false, locators_validated: true, locator_candidates: ['#email'] }] });

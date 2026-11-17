@@ -190,12 +190,14 @@ export function buildReadableAutomationInstructions(code: string, context: Autom
       else add("Run custom code poll", [], "custom", depth, contexts, undefined, "Custom polling source is retained. Review Source for its callback, predicate and timeout.");
       return true;
     }
-    const assertion = expectCall?.type === "CallExpression" && (expectNames.has(identifier(expectCall.callee)) || namespaces.has(identifier(expectCall.callee.object)) && methodName(expectCall.callee) === "expect");
+    const soft = expectCall?.type === "CallExpression" && methodName(expectCall.callee) === "soft"
+      && (expectNames.has(identifier(expectCall.callee.object)) || namespaces.has(identifier(expectCall.callee.object?.object)) && methodName(expectCall.callee.object) === "expect");
+    const assertion = expectCall?.type === "CallExpression" && (soft || expectNames.has(identifier(expectCall.callee)) || namespaces.has(identifier(expectCall.callee.object)) && methodName(expectCall.callee) === "expect");
     if (assertion) {
       const target = targetFor(expectCall.arguments[0]), not = receiver !== expectCall;
-      const labels: Record<string, string> = { toBeVisible: "Verify visible", toBeHidden: "Verify hidden", toBeEnabled: "Verify enabled", toBeDisabled: "Verify disabled", toHaveText: "Verify text", toContainText: "Verify text contains", toHaveValue: "Verify value", toHaveURL: "Verify URL", toBeChecked: "Verify checked", toEqual: "Verify equals", toBe: "Verify equals", toBeTruthy: "Verify true", toBeFalsy: "Verify false", toContain: "Verify contains", toMatch: "Verify matches" };
+      const labels: Record<string, string> = { toBeVisible: "Verify visible", toBeHidden: "Verify hidden", toBeEnabled: "Verify enabled", toBeDisabled: "Verify disabled", toBeAttached: "Verify attached", toBeEditable: "Verify editable", toBeEmpty: "Verify empty", toBeFocused: "Verify focused", toBeInViewport: "Verify in viewport", toHaveText: "Verify text", toContainText: "Verify text contains", toHaveValue: "Verify value", toHaveValues: "Verify selected values", toHaveURL: "Verify URL", toHaveTitle: "Verify page title", toHaveCount: "Verify count", toHaveAttribute: "Verify attribute", toHaveClass: "Verify class", toHaveCSS: "Verify CSS", toHaveId: "Verify ID", toHaveJSProperty: "Verify property", toHaveRole: "Verify role", toHaveAccessibleName: "Verify accessible name", toHaveAccessibleDescription: "Verify accessible description", toHaveScreenshot: "Verify screenshot", toBeChecked: "Verify checked", toEqual: "Verify equals", toStrictEqual: "Verify strictly equals", toBe: "Verify equals", toBeTruthy: "Verify true", toBeFalsy: "Verify false", toBeNull: "Verify null", toBeUndefined: "Verify undefined", toBeDefined: "Verify defined", toBeGreaterThan: "Verify greater than", toBeGreaterThanOrEqual: "Verify at least", toBeLessThan: "Verify less than", toBeLessThanOrEqual: "Verify at most", toContain: "Verify contains", toMatch: "Verify matches", toHaveLength: "Verify length" };
       if (!labels[method]) return false;
-      add(`${labels[method]}${not ? " (not)" : ""}`, [target, value(args[0])], "assertion", depth, contexts);return true;
+      add(`${labels[method]}${soft ? " (soft)" : ""}${not ? " (not)" : ""}`, [target, ...args.map(argument => value(argument))], "assertion", depth, contexts);return true;
     }
     const locatorReceiver = isLocator(receiver);
     if (!helper && !nativePage && !keyboard && !locatorReceiver) return false;

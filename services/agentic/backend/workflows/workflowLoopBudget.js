@@ -1,8 +1,8 @@
 const graph = require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph');
-const { readPath } = require('./nodeOperations')._internals;
+const { readPath } = require('./nodes/shared/values');
 const { generationOptions } = require('./generationNodeOptions');
 
-const LIMITS = Object.freeze({ batches: 100, node_executions: 1000 });
+const LIMITS = require('./workflowLoopLimits');
 const isLoop = node => node?.data?.kind === 'loop' && node.data.loopAction === 'workflow';
 const sourcePath = node => String(node.data.loopSourceKey || 'input.items').replace(/^\$/, '');
 

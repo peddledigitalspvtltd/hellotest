@@ -29,6 +29,7 @@ test("route ownership is lazy and every manifest entry has one loader", () => {
   assert.ok(routeModules.length > 0);
   assert.ok(routeModules.every((route) => typeof route.load === "function" && typeof route.service === "string"));
   assert.equal(routeModules.filter((route) => route.service === "chatbot").length, 1);
-  assert.equal(routeModules.filter((route) => route.service === "ai").length, 1);
+  assert.ok(routeModules.filter((route) => route.service === "ai").length > 0);
+  assert.equal(new Set(routeModules.map(route=>route.source)).size,routeModules.length,"Every owned route source registers once.");
   assert.deepEqual(serviceManifests.map((manifest) => manifest.id), ["platform", "testing", "knowledge", "manual", "dashboard", "automation", "agentic", "chatbot", "ai", "trace", "integration"]);
 });

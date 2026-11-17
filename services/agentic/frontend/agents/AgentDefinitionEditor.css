@@ -1,47 +1,49 @@
-.agent-definition-editor { --studio-muted: var(--text-secondary, #61718a); --studio-accent: #5068dd; --studio-paper: var(--surface-strong, #fff); display: grid; gap: 18px; color: var(--text-primary, #172b4d); }
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
+.agent-definition-editor { --studio-muted: var(--text-secondary, var(--ui-surface-inset)); --studio-accent: var(--ui-blue-solid); --studio-paper: var(--surface-strong, var(--ui-surface)); display: grid; gap: 18px; color: var(--text-primary, var(--ui-text)); }
 /* Shared modal styles pin their layer with !important; nested pickers must sit above this flyout. */
 body:has(.ai-evidence-flyout .agent-definition-editor) :is(.ai-prompt-template-backdrop, .smart-context-backdrop) { z-index: 1700 !important; }
-.agent-model-contract { display: flex; gap: 12px; padding: 14px; background: var(--surface-secondary, #f0f6fa); border: 1px solid var(--border, #dce3ec); border-radius: 10px; }
-.agent-model-contract svg { flex-shrink: 0; color: #5068dd; }
-.agent-model-contract p, .agent-definition-editor section > p { margin: 6px 0 0; font-size: .8rem; color: var(--text-secondary, #61718a); line-height: 1.55; }
-.agent-definition-editor nav { display: flex; gap: 5px; border-bottom: 1px solid var(--border, #dce3ec); overflow-x: auto; padding-bottom: 10px; }
-.agent-definition-editor nav button { white-space: nowrap; border: 0; border-radius: 7px; padding: 10px; background: transparent; color: var(--text-secondary, #61718a); cursor: pointer; }
-.agent-definition-editor nav button[aria-pressed="true"] { color: #31529e; background: #edf2ff; font-weight: 650; }
+.agent-model-contract { display: flex; gap: 12px; padding: 14px; background: var(--surface-secondary, var(--ui-surface-subtle)); border: 1px solid var(--border, var(--ui-border)); border-radius: 10px; }
+.agent-model-contract svg { flex-shrink: 0; color: var(--ui-blue-text); }
+.agent-model-contract p, .agent-definition-editor section > p { margin: 6px 0 0; font-size: .8rem; color: var(--text-secondary, var(--ui-text-muted)); line-height: 1.55; }
+.agent-definition-editor nav { display: flex; gap: 5px; border-bottom: 1px solid var(--border, var(--ui-border)); overflow-x: auto; padding-bottom: 10px; }
+.agent-definition-editor nav button { white-space: nowrap; border: 0; border-radius: 7px; padding: 10px; background: transparent; color: var(--text-secondary, var(--ui-text-muted)); cursor: pointer; }
+.agent-definition-editor nav button[aria-pressed="true"] { color: var(--ui-text-muted); background: var(--ui-surface-subtle); font-weight: 650; }
 .agent-definition-editor > fieldset { display: grid; gap: 18px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .agent-definition-editor label { display: grid; gap: 7px; font-size: .83rem; min-width: 0; }
-.agent-definition-editor label small, .agent-contract-note { color: var(--text-secondary, #61718a); font-size: .76rem; line-height: 1.6; }
-.agent-definition-editor :is(input:not([type="checkbox"]), select, textarea) { width: 100%; box-sizing: border-box; min-width: 0; border: 1px solid var(--border, #dce3ec); border-radius: 7px; padding: 10px 12px; background: var(--surface-strong, #fff); color: inherit; font: inherit; }
+.agent-definition-editor label small, .agent-contract-note { color: var(--text-secondary, var(--ui-text-muted)); font-size: .76rem; line-height: 1.6; }
+.agent-definition-editor :is(input:not([type="checkbox"]), select, textarea) { width: 100%; box-sizing: border-box; min-width: 0; border: 1px solid var(--border, var(--ui-border)); border-radius: 7px; padding: 10px 12px; background: var(--surface-strong, var(--ui-surface)); color: inherit; font: inherit; }
 .agent-definition-editor textarea { resize: vertical; }
 .agent-definition-editor input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
-.agent-definition-editor :is(input, select, textarea, button):focus-visible { outline: 2px solid #318aab; outline-offset: 2px; }
+.agent-definition-editor :is(input, select, textarea, button):focus-visible { outline: 2px solid var(--ui-blue-border); outline-offset: 2px; }
 .agent-definition-editor h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: .95rem; }
 .agent-scope-grid, .agent-limit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .agent-scope-grid label, .agent-completion-contract label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 9px; }
-.agent-completion-contract { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border, #dce3ec); border-radius: 9px; }
+.agent-completion-contract { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border, var(--ui-border)); border-radius: 9px; }
 .agent-contract-note svg { vertical-align: middle; margin-right: 5px; }
 .agent-editor-footer { display: grid; gap: 12px; width: 100%; }
-.agent-editor-footer > span { color: var(--text-secondary, #61718a); font-size: .76rem; line-height: 1.5; }
+.agent-editor-footer > span { color: var(--text-secondary, var(--ui-text-muted)); font-size: .76rem; line-height: 1.5; }
 .agent-editor-footer > div { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-.agent-editor-error { padding: 12px; border: 1px solid #e4aaaa; border-radius: 7px; background: #fff3f3; color: #9d2626; }
+.agent-editor-error { padding: 12px; border: 1px solid var(--ui-red-border); border-radius: 7px; background: var(--ui-surface); color: var(--ui-red-text); }
 .agent-library-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .agent-library-controls .agent-library-search { min-width: 180px; width: 250px; }
 .agent-library-card .agent-version { font-size: .72rem; color: var(--agent-muted); margin: 0 0 12px; }
 .agent-library-card .agent-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-:root[data-theme="dark"] .agent-definition-editor { --text-primary: #e6edf3; --text-secondary: #a5b3c5; --surface-strong: #182230; --surface-secondary: #1d2b3c; --border: #35455b; }
-:root[data-theme="dark"] .agent-definition-editor nav button { color: #c7d4e5 !important; background: transparent !important; }
-:root[data-theme="dark"] .agent-definition-editor nav button[aria-pressed="true"] { color: #c9d8ff !important; background: #263a5d !important; }
-:root[data-theme="dark"] .ai-evidence-flyout:has(.agent-definition-editor) :is(.ghost-button, .dialog-close-button) { color: #e0e9f5 !important; background: #24364e !important; border-color: #425773 !important; }
-:root[data-theme="dark"] .agent-editor-error { background: #3d242b; border-color: #7b414b; color: #ffbcc3; }
+:root[data-theme="dark"] .agent-definition-editor { --text-primary: var(--ui-on-solid); --text-secondary: var(--ui-text-subtle); --surface-strong: var(--ui-inverse-surface); --surface-secondary: var(--ui-inverse-surface); --border: var(--ui-border-emphasis); }
+:root[data-theme="dark"] .agent-definition-editor nav button { color: var(--ui-text-subtle) !important; background: transparent !important; }
+:root[data-theme="dark"] .agent-definition-editor nav button[aria-pressed="true"] { color: var(--ui-blue-text) !important; background: var(--ui-inverse-surface) !important; }
+:root[data-theme="dark"] .ai-evidence-flyout:has(.agent-definition-editor) :is(.ghost-button, .dialog-close-button) { color: var(--ui-on-solid) !important; background: var(--ui-inverse-surface) !important; border-color: var(--ui-border-emphasis) !important; }
+:root[data-theme="dark"] .agent-editor-error { background: var(--ui-inverse-surface); border-color: var(--ui-red-border); color: var(--ui-red-text); }
 @media (max-width: 600px) { .agent-limit-grid, .agent-scope-grid { grid-template-columns: 1fr; } .agent-library-controls { width: 100%; } .agent-library-controls .agent-library-search { width: 100%; } .agent-definition-editor nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } .agent-definition-editor nav button { white-space: normal; padding: 9px 5px; font-size: .78rem; line-height: 1.4; } }
-.agent-editor-validation { text-align: left; font: inherit; font-size: .76rem; line-height: 1.5; padding: 0; border: 0; background: transparent; color: var(--warning, #8a6426); cursor: pointer; }
-.agent-editor-validation:focus-visible { outline: 2px solid var(--accent, #318aab); outline-offset: 4px; }
+.agent-editor-validation { text-align: left; font: inherit; font-size: .76rem; line-height: 1.5; padding: 0; border: 0; background: transparent; color: var(--warning, var(--ui-orange-text)); cursor: pointer; }
+.agent-editor-validation:focus-visible { outline: 2px solid var(--accent, var(--ui-blue-border)); outline-offset: 4px; }
 .agent-editor-footer .primary-button { min-width: 160px; justify-content: center; }
-.agent-model-contract { background: color-mix(in srgb, var(--accent, #5068dd) 4%, var(--surface-strong, #fff)); }
+.agent-model-contract { background: color-mix(in srgb, var(--accent, var(--ui-blue-solid)) 4%, var(--surface-strong, var(--ui-surface))); }
 .agent-definition-editor nav { gap: 8px; }
 .agent-definition-editor textarea { line-height: 1.7; }
 @media (max-width: 600px) { .agent-editor-footer > div { display: grid; grid-template-columns: 1fr 1fr; } .agent-editor-footer .primary-button { grid-column: 1 / -1; } }
 /* Three steps must fit the flyout itself, including on wide-screen desktops. */
-.agent-definition-editor { --studio-accent: var(--accent, #5068dd); }
+.agent-definition-editor { --studio-accent: var(--accent, var(--ui-blue-solid)); }
 .agent-definition-editor nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
 .agent-definition-editor nav button { white-space: normal; font-size: .75rem; padding: 9px 6px; line-height: 1.4; }
-.agent-model-contract svg { color: var(--accent, #5068dd); }
+.agent-model-contract svg { color: var(--accent, var(--ui-blue-text)); }

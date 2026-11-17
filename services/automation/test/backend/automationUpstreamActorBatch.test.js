@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const expressionProgram=source=>'// @hellotest-parameter-bindings expressions-v1\n'+source;
-const {buildWithUpstreamPlaywright,preActionSelectorError}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright,preActionSelectorError}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const startUrl='https://app.test/';
 const goto=`await page.goto(${JSON.stringify(startUrl)});`;
@@ -280,7 +280,7 @@ test('unrepresentable native tab and dialog actions return source-capability fee
 test('native tab listing keeps its original schema and remains available during read-only inspection',async()=>{
  const original=require('../../../platform/backend/test/fixtures/upstreamPlaywrightMcpTools.v0.0.84.json');
  const tabTool=original.find(tool=>tool.name==='browser_tabs');
- const {toolsForPolicy,validateRequest}=require('../../backend/lib/automationUpstreamEngineer');
+ const {toolsForPolicy,validateRequest}=require("../../backend/lib/upstream/automationUpstreamEngineer");
  const catalog=toolsForPolicy(original,false);assert.equal(catalog.find(tool=>tool.name==='browser_tabs'),tabTool);
  assert.deepEqual(validateRequest({name:'browser_tabs',arguments:{action:'list'}},new Map(catalog.map(tool=>[tool.name,tool])),{interactive:false,startUrl}),{action:'list'});
  for(const action of ['new','select','close'])assert.throws(()=>validateRequest({name:'browser_tabs',arguments:{action}},new Map(catalog.map(tool=>[tool.name,tool])),{interactive:false,startUrl}),{code:'AUTOMATION_UPSTREAM_TOOL_INVALID'});

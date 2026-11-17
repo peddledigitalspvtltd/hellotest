@@ -6,15 +6,15 @@ const { executeReviewNode } = proxyActivities({ startToCloseTimeout: '60 minutes
   heartbeatTimeout: '15 seconds', retry: { maximumAttempts: 3, initialInterval: '1 second', maximumInterval: '5 seconds' } });
 const { publishReview } = proxyActivities({ startToCloseTimeout: '15 seconds', retry: { maximumAttempts: 10, maximumInterval: '30 seconds' } });
 async function reviewWorkflow(plan) {
-  const receipts = [];
+  const receipts = plan.scheduler_version === 3 ? [...(plan.initial_receipts || [])] : [];
   let status = 'completed', reason = null;
   try {
     await CancellationScope.withTimeout(Math.max(1, Date.parse(plan.deadline) - Date.now()), async () => {
       // Old accepted plans retain their original activity command sequence so
       // an upgraded worker can replay and finish their existing histories.
-      if (plan.scheduler_version === 2) {
+      if (plan.scheduler_version === 2 || plan.scheduler_version === 3) {
         const bodyIds = new Set(plan.nodes.flatMap(node => node.body_ids || []));
-        const pending = new Set(plan.nodes.filter(node => !bodyIds.has(node.id)).map(node => node.id));
+        const pending = new Set(plan.nodes.filter(node => !bodyIds.has(node.id) && !receipts.some(receipt=>receipt.node_id===node.id)).map(node => node.id));
         while (pending.size) {
           const batch = scheduling.readyBatch({ nodes: plan.nodes, edges: plan.edges, results: receipts, pending, maxParallel: plan.processing?.max_parallel_nodes || 1 });
           if (!batch.length) throw new Error('Workflow dependency scheduling failed.');

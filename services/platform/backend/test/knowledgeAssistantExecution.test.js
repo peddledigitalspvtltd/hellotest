@@ -134,20 +134,21 @@ test("revoking knowledge permission invalidates project-readable text evidence",
   assert.equal(replay.assistant_message.safety.evidence_access_changed, true);
 }));
 
-test("model connection failure rejects synthesis with an actionable error and failed generation event", async (context) => fixture(async ({ input }) => {
+test("a model connection failure after retrieval keeps the evidence as a labelled extractive answer with an actionable error and a failed generation event", async (context) => fixture(async ({ input }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://answer.invalid/v1", model: "test", config: {} }));
   context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ error: "PRIVATE_ACCOUNT_DETAIL" }), { status: 401 }));
   const events = [];
-  await assert.rejects(assistant.respond({ ...input, responseMode: "answer", onProgress: event => events.push(event) }), error => {
-    assert.equal(error.code, "MODEL_AUTHENTICATION_FAILED");
-    assert.match(error.message, /connection credentials/);
-    assert.doesNotMatch(error.message, /PRIVATE_ACCOUNT_DETAIL/);
-    return true;
-  });
+  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: event => events.push(event) });
+  assert.equal(result.assistant_message.status, "provider_unavailable", "marked model-unavailable, never presented as an answer");
+  assert.equal(result.retrieval.provider_error_code, "MODEL_AUTHENTICATION_FAILED");
+  assert.match(result.retrieval.provider_error_message, /connection credentials/);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_ACCOUNT_DETAIL/, "provider detail never reaches the caller");
+  assert.ok(result.citations.length >= 1, "the retrieved evidence is not thrown away");
+  assert.equal(result.provenance.generation_mode, "deterministic_grounded_extractive");
   assert.ok(events.some(event => event.stage === "GENERATION" && event.status === "FAILED" && event.error_code === "MODEL_AUTHENTICATION_FAILED"));
 }));
 
-test("intent planning runs once before scoped project reads and grounded synthesis", async (context) => fixture(async ({ input, state }) => {
+test("intent planning runs once, beside the first read, and a read that missed the planned kinds is repeated with the plan before grounded synthesis", async (context) => fixture(async ({ input, state }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://intent.invalid/v1", model: "test", config: {} }));
   context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
   const modelPrompts = [];
@@ -172,19 +173,26 @@ test("intent planning runs once before scoped project reads and grounded synthes
   assert.match(modelPrompts[1], /ONE coherent answer/);
   assert.ok(modelInputs[1].retrieval_outcome.information_needs.includes("Story readiness"));
   assert.ok(modelCallTimes[1] - modelCallTimes[0] >= 280, `model calls must retain the 300ms pacing window (${modelCallTimes[1] - modelCallTimes[0]}ms observed)`);
-  assert.ok(state.liveRequests.length >= 1);
-  assert.deepEqual(state.liveRequests[0].route.live_scopes.slice(0, 3), ["stories", "runs", "bugs"]);
-  assert.ok(state.liveRequests[0].sourceKinds.includes("requirement"));
-  assert.ok(state.liveRequests[0].sourceKinds.includes("execution"));
-  assert.ok(state.liveRequests[0].sourceKinds.includes("bug"));
+  // Planning no longer delays the first read, so the first read is plan-less. The plan named Stories, Runs and
+  // Defects, which that read did not cover, so the evidence was read again WITH the plan.
+  assert.ok(state.liveRequests.length >= 2, "a plan-less first read and a plan-informed second read");
+  const planned = state.liveRequests.at(-1);
+  assert.deepEqual(planned.route.live_scopes.slice(0, 3), ["stories", "runs", "bugs"]);
+  assert.ok(planned.sourceKinds.includes("requirement"));
+  assert.ok(planned.sourceKinds.includes("execution"));
+  assert.ok(planned.sourceKinds.includes("bug"));
+  assert.equal(result.retrieval.parallel_planning.refined_with_plan, true);
+  assert.ok(result.retrieval.parallel_planning.source_kind_gaps.length > 0, "the gap that justified the second read is recorded");
   const intentIndex = events.findIndex((event) => event.stage === "INTENT_ANALYSIS" && event.status === "COMPLETE");
   const retrievalIndex = events.findIndex((event) => event.stage === "KNOWLEDGE_REPO_SEARCH" && event.status === "IN_PROGRESS");
   const generationIndex = events.findIndex((event) => event.stage === "GENERATION" && event.status === "IN_PROGRESS");
-  assert.ok(intentIndex >= 0 && retrievalIndex > intentIndex && generationIndex > retrievalIndex);
+  // Both stages run, planning no longer gates the first read, and generation waits for both.
+  assert.ok(intentIndex >= 0 && retrievalIndex >= 0);
+  assert.ok(generationIndex > intentIndex && generationIndex > retrievalIndex, "synthesis starts only after planning and reading");
   assert.match(events[intentIndex].message, /Stories.*Test Runs.*Defects/);
 }));
 
-test('a retrieval outage still reaches bounded synthesis and saves an evidence-gap answer without claims',async context=>fixture(async({input})=>{
+test('a retrieval outage saves an evidence-gap answer without dispatching unsupported synthesis',async context=>fixture(async({input})=>{
  context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'gap-model',type:'llm',is_active:true,api_key:'fixture',base_url:'https://gap-model.invalid/v1',model:'test',config:{}}));
  context.mock.method(llmSelection,'recordSuccessfulLlmIntegration',async()=>{});
  context.mock.method(gateway,'retrieveContext',async()=>{throw Object.assign(new Error('PRIVATE_CONTEXT_STORE_DETAIL'),{code:'MCP_CONTEXT_TIMEOUT'});});
@@ -194,10 +202,10 @@ test('a retrieval outage still reaches bounded synthesis and saves an evidence-g
   return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({status:'insufficient_context',supported_claims:[],citation_ids:[],executive_summary:'The selected release evidence is unavailable.',evidence_gaps:['The approved release criteria could not be retrieved.']})}}]});
  });
  const result=await assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:2}});
- assert.equal(calls,1);assert.equal(result.assistant_message.status,'insufficient_context');assert.equal(result.citations.length,0);assert.equal(result.answer_contract.claims.length,0);assert.equal(result.assistant_message.retrieval.retrieval_failed,true);assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_used,null);assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_reserved,1);assert.doesNotMatch(JSON.stringify(result),/PRIVATE_CONTEXT_STORE_DETAIL/);
+ assert.equal(calls,0,'An empty authorized packet has no grounded synthesis work.');assert.equal(result.assistant_message.status,'insufficient_context');assert.equal(result.citations.length,0);assert.equal(result.answer_contract.claims.length,0);assert.equal(result.assistant_message.retrieval.retrieval_failed,true);assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_used,null);assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_reserved,1);assert.doesNotMatch(JSON.stringify(result),/PRIVATE_CONTEXT_STORE_DETAIL/);
 }));
 
-test('unknown failed-retrieval usage keeps its reservation and cannot fund an extra synthesis correction',async context=>fixture(async({input})=>{
+test('unknown failed-retrieval usage keeps its reservation and an empty packet cannot fund synthesis or correction',async context=>fixture(async({input})=>{
  context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'gap-budget-model',type:'llm',is_active:true,api_key:'fixture',base_url:'https://gap-budget.invalid/v1',model:'test',config:{}}));
  context.mock.method(llmSelection,'recordSuccessfulLlmIntegration',async()=>{});
  context.mock.method(gateway,'retrieveContext',async()=>{throw Object.assign(new Error('Retrieval reply was lost.'),{code:'MCP_CONTEXT_TIMEOUT'});});
@@ -205,7 +213,12 @@ test('unknown failed-retrieval usage keeps its reservation and cannot fund an ex
   calls++;const planning=JSON.parse(init.body).messages[0].content.includes('You plan evidence retrieval');
   return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(planning?{search_queries:['release approval']}:{status:'answered',supported_claims:[{statement:'Unsupported approval.',citation_ids:['invented-proof']}]})}}]});
  });
- await assert.rejects(assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:3}}),{code:'MODEL_INVALID_RESPONSE'});assert.equal(calls,2,'one planner and its reserved answer may run; unknown retrieval usage cannot pay for another correction');
+ const result=await assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:3}});
+ assert.equal(calls,1,'Only the planner ran; no evidence supports synthesis or correction.');
+ assert.equal(result.assistant_message.status,'insufficient_context');assert.equal(result.answer_contract.claims.length,0);
+ assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_used,null);
+ assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_reserved,1);
+ assert.equal(result.assistant_message.retrieval.model_budget.calls_used,1);
 }));
 
 test('a context authorization failure cannot fall through to synthesis',async context=>fixture(async({input})=>{
@@ -244,10 +257,11 @@ test("provider-unavailable answers can retry and replace the same persisted turn
       : { status: "answered", supported_claims: [{ statement: "Release approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] };
     return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(candidate) }, finish_reason: "stop" }] }));
   });
-  await assert.rejects(assistant.respond({ ...input, responseMode: "answer" }), { code: "MODEL_AUTHENTICATION_FAILED" });
+  const failed = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(failed.assistant_message.status, "provider_unavailable");
+  assert.equal(failed.retrieval.provider_error_code, "MODEL_AUTHENTICATION_FAILED");
   const originalUserId = messages[0].id;
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].status, "error");
+  assert.equal(messages.length, 2, "the user turn and the model-unavailable result are both saved");
   available = true;
   const retried = await assistant.respond({ ...input, responseMode: "answer", retryProvider: true });
   assert.equal(retried.assistant_message.status, "answered");
@@ -276,11 +290,15 @@ test("claim-only text-block LLM output is saved, rendered, and replayed as one g
   assert.equal(messages.length, 2);
 }));
 
-test("rejected model citation contracts fail without publishing invented claims", async (context) => fixture(async ({ input }) => {
+test("rejected model citation contracts fall back to the retrieved evidence without publishing invented claims", async (context) => fixture(async ({ input }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://invalid-citation.invalid/v1", model: "test", config: {} }));
   context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
   context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ status: "answered", supported_claims: [{ statement: "Invented response", citation_ids: ["K-invented"] }] }) }, finish_reason: "stop" }] })));
-  await assert.rejects(assistant.respond({ ...input, responseMode: "answer" }), { code: "MODEL_INVALID_RESPONSE" });
+  const result = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(result.assistant_message.status, "provider_unavailable");
+  assert.equal(result.retrieval.provider_error_code, "MODEL_INVALID_RESPONSE");
+  assert.doesNotMatch(JSON.stringify([result.assistant_message.content, result.citations, result.answer_contract.claims]), /Invented response|K-invented/,
+    "the invented claim and its fabricated citation are never published");
 }));
 
 test("a transient synthesis failure recovers into one saved answer and same-turn replay performs no new model calls", async (context) => fixture(async ({ input, messages }) => {
@@ -309,7 +327,7 @@ test("a transient synthesis failure recovers into one saved answer and same-turn
   assert.equal(messages.length, 2);
 }));
 
-test("exhausted synthesis retries fail the turn without an AI fallback", async (context) => fixture(async ({ input, messages }) => {
+test("exhausted synthesis retries end in a model-unavailable extractive answer, with no further model call", async (context) => fixture(async ({ input, messages }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://turn-exhausted.invalid/v1", model: "test", config: {} }));
   let synthesisCalls = 0;
   context.mock.method(global, "fetch", async (_, init) => {
@@ -317,17 +335,15 @@ test("exhausted synthesis retries fail the turn without an AI fallback", async (
     synthesisCalls++;
     return new Response("PRIVATE_PROVIDER_BODY", { status: 503, headers: { "retry-after": "0" } });
   });
-  await assert.rejects(assistant.respond({ ...input, responseMode: "answer" }), error => {
-    assert.equal(error.code, "MODEL_UNAVAILABLE");
-    assert.doesNotMatch(error.message, /PRIVATE_PROVIDER_BODY/);
-    return true;
-  });
-  assert.equal(synthesisCalls, 3);
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].status, "error");
+  const result = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(result.assistant_message.status, "provider_unavailable");
+  assert.equal(result.retrieval.provider_error_code, "MODEL_UNAVAILABLE");
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_BODY/);
+  assert.equal(synthesisCalls, 3, "the fallback is deterministic and makes no further model call");
+  assert.equal(messages.length, 2);
 }));
 
-test("a late retrieval fails without starting a model beyond the turn budget", async (context) => fixture(async ({ input, messages }) => {
+test("a late retrieval never starts a model beyond the turn budget and still returns its evidence", async (context) => fixture(async ({ input, messages }) => {
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true,
     api_key: "test-credential", base_url: "https://turn-budget.invalid/v1", model: "test", config: {} }));
@@ -336,12 +352,13 @@ test("a late retrieval fails without starting a model beyond the turn budget", a
     if (!JSON.parse(init.body).messages[0].content.includes("You plan evidence retrieval")) synthesisCalls++;
     return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }));
   });
-  await assert.rejects(assistant.respond({ ...input, responseMode: "answer", onProgress: event => {
+  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: event => {
     if (event.stage === "GENERATION" && event.status === "IN_PROGRESS") context.mock.timers.tick(109_000);
-  } }), { code: "MODEL_TIMEOUT" });
-  assert.equal(synthesisCalls, 0);
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].status, "error");
+  } });
+  assert.equal(result.retrieval.provider_error_code, "MODEL_TIMEOUT");
+  assert.equal(result.assistant_message.status, "provider_unavailable");
+  assert.equal(synthesisCalls, 0, "no model call starts once the turn budget is spent");
+  assert.equal(messages.length, 2);
 }));
 
 test("the whole turn deadline bounds a stalled idempotency read and prevents late message writes", async (context) => fixture(async ({ input, messages }) => {

@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createAutomationCaseJourney}=require('../../backend/lib/automationCaseJourney');
-const {reviewAutomationPrerequisite,approvedAutomationPrerequisite}=require('../../backend/lib/automationPrerequisiteRecovery');
-const {projectModelSnapshot}=require('../../backend/lib/automationBrowserModelTargets');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+const {createAutomationCaseJourney}=require("../../backend/lib/build/automationCaseJourney");
+const {reviewAutomationPrerequisite,approvedAutomationPrerequisite}=require("../../backend/lib/browser/automationPrerequisiteRecovery");
+const {projectModelSnapshot}=require("../../backend/lib/browser/automationBrowserModelTargets");
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
 const pageUrl='https://app.test/home',loginUrl='https://app.test/login';
 const receipt=(value,isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',url:pageUrl,...value})}]});
 const element={tag:'a',accessible_role:'link',accessible_name:'Sign in',displayed:true,disabled:false,attributes:{href:'/login'},locators_validated:true,locator_candidates:['getByRole("link", { name: "Sign in", exact: true })']};

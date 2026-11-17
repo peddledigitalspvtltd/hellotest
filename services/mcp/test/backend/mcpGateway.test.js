@@ -25,7 +25,7 @@ test('gateway avoids recursive enrichment and identity guessing, and reports ret
  const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(init));assert.equal(calls,1);assert.match(JSON.parse(result.body).messages[1].content,/missing evidence as a gap/);assert.ok(!result.body.includes('private database details'));
 });
 test('chatbot and Smart Context retain their existing packet shapes through the MCP gateway',async()=>{
- const instance=gateway(async actor=>actor.retrievalInput?{result:{packet:{project_id:actor.projectId,evidence:[]},hits:[],retrieval:{route:'hybrid'}}}:{packet:{project_id:actor.projectId,evidence:[],context_id:'packet'}});
+ const instance=gateway(async actor=>({packet:{project_id:actor.projectId,evidence:[],context_id:'packet',budget:{used:{tool_calls:1}},retrieval:{route:'hybrid'}}}));
  const result=await instance.retrieveContext({user:{id:'a'},request:{project_id:'p',query:'help'}});assert.deepEqual(result.hits,[]);assert.equal(result.retrieval.context_transport,'mcp');assert.equal(result.retrieval.route,'hybrid');assert.equal((await instance.retrievePacket({user:{id:'a'},projectId:'p',query:'help'})).context_id,'packet');
 });
 
@@ -171,7 +171,7 @@ test('filtered automatic enrichment sends the configured retrieval budget throug
   mcpContextPolicy:{token_budget:512,max_items:2,mode:'mcp'},mcpContextTimeoutMs:1000}));
  assert.equal(call.args.token_budget,512);assert.equal(call.args.budgets.max_context_tokens,512);
  assert.equal(call.args.budgets.max_evidence_items,2);assert.ok(call.args.budgets.deadline_ms<=1000);
- assert.equal(call.actor.packetInput.budgets.max_context_tokens,512);
+ assert.equal(call.actor.packetInput,undefined,'the audited arguments are the whole request');
  assert.deepEqual(call.args.filters.evidence_scope,{story_id:'story'});
 });
 
@@ -198,11 +198,13 @@ test('remote chatbot retrieval uses only public selectors and reconstructs citat
  try{
   const result=await instance.retrieveContext(input);
   assert.equal(called.actor.retrievalInput,undefined);assert.equal(called.actor.packetInput,undefined);
-  assert.equal(called.args.app_type_id,'app');assert.equal(called.args.integration_id,'model');assert.deepEqual(called.args.intent_plan,input.intentPlan);
+  assert.equal(called.args.app_type_id,'app');assert.equal(called.args.integration_id,undefined,'deterministic retrieval invokes no model, so no integration is named');assert.deepEqual(called.args.intent_plan,input.intentPlan);
+  assert.deepEqual(called.args.conversation.messages,[{role:'user',content:'private history'}],'follow-up history is a public argument now, so remote retrieval resolves references like the in-process path');
+  assert.equal(called.args.planning_mode,'deterministic');assert.equal(called.args.follow_up_rounds,true);
   assert.equal(called.args.budgets.max_context_tokens,1000);assert.equal(called.args.token_budget,1000);
   assert.equal(result.hits[0].citation.id,'evidence');assert.equal(result.hits[0].citation.source_version,'v3');assert.equal(result.hits[0].citation.chunk_hash,'immutable');
   assert.equal(result.budget.tool_calls_used,2);assert.equal(result.projectScope.app_type_id,'app');assert.equal(result.route.route,'structured');
-  assert.ok(!JSON.stringify(called.args).includes('MUST_NOT_CROSS_MCP'));assert.ok(!JSON.stringify(called.args).includes('private history'));
+  assert.ok(!JSON.stringify(called.args).includes('MUST_NOT_CROSS_MCP'),'no credential crosses the boundary');
  }finally{if(previous===undefined)delete process.env.HELLOTEST_MCP_INTERNAL_URL;else process.env.HELLOTEST_MCP_INTERNAL_URL=previous;}
 });
 
@@ -241,4 +243,45 @@ test('context packet authorization and nested scopes fail closed while optional 
  const instance=gateway(async()=>({packet:{project_id:'project',evidence:[]}})),options={mcpContextPolicy:{mode:'mcp',required:false}};
  const result=await traces.run({actor_id:'actor',project_id:'project'},()=>instance.enrichChatRequest(request('Inspect checkout'),options));
  assert.equal(options.mcpContextStatus,'empty');assert.match(result.body,/NO_AUTHORIZED_EVIDENCE/);
+});
+
+test('the in-process and remote transports send identical arguments, so they cannot diverge',async()=>{
+ const previous=process.env.HELLOTEST_MCP_INTERNAL_URL;
+ const packet={contract_type:'ContextPacket',project_id:'project',packet_id:'packet',created_at:'2026-10-31T12:00:00Z',authorization:{project_scope_enforced:true,source_acl_enforced:true},
+  evidence:[{evidence_id:'evidence',source_id:'source',source_kind:'text',title:'Checkout',content:'Authorized text'}],budget:{used:{tool_calls:1}},retrieval:{status:'COMPLETE'}};
+ const input=()=>({user:{id:'actor'},request:{project_id:'project',query:'And its failed cases?',conversation:{session_id:'session-1'},
+   filters:{app_type_id:'app',source_ids:['source'],source_kinds:['text']},budgets:{max_tool_calls:4,max_context_tokens:1000,deadline_ms:20000}},
+  integration:{id:'model',api_key:'MUST_NOT_CROSS_MCP'},intentPlan:{queries:['checkout failed cases'],source_kinds:['text'],information_needs:['Failure causes']},
+  history:[{role:'user',content:'Summarize checkout release readiness'},{role:'assistant',content:'Readiness is amber.'}],
+  smartContext:{query:'checkout release',source_ids:['source'],reviewed_context:'Focus on the gate'}});
+ const run=async remote=>{
+  if(remote)process.env.HELLOTEST_MCP_INTERNAL_URL='http://configured.example/mcp';else delete process.env.HELLOTEST_MCP_INTERNAL_URL;
+  let seen;const instance=gateway(async(actor,name,args)=>{seen={actor,name,args};return {packet};});
+  const context=await instance.retrieveContext(input());
+  return {seen,context};
+ };
+ try{
+  const local=await run(false),remote=await run(true);
+  assert.deepEqual(local.seen.args,remote.seen.args,'identical audited arguments');
+  assert.equal(local.seen.name,remote.seen.name);
+  for(const key of ['packetInput','retrievalInput'])assert.equal(local.seen.actor[key],undefined);
+  assert.deepEqual(local.context.hits,remote.context.hits,'identical delivered evidence');
+  assert.deepEqual(local.context.packet,remote.context.packet);
+  assert.equal(local.seen.args.conversation.messages.length,2);assert.equal(local.seen.args.smart_context.query,'checkout release');
+  assert.ok(!JSON.stringify(local.seen.args).includes('MUST_NOT_CROSS_MCP'));
+ }finally{if(previous===undefined)delete process.env.HELLOTEST_MCP_INTERNAL_URL;else process.env.HELLOTEST_MCP_INTERNAL_URL=previous;}
+});
+
+test('sources cited in recent turns travel as a bounded public argument and nothing else about the conversation is trusted',async()=>{
+ let seen;
+ const packet={contract_type:'ContextPacket',project_id:'project',packet_id:'packet',created_at:'2026-10-31T12:00:00Z',authorization:{project_scope_enforced:true,source_acl_enforced:true},evidence:[],budget:{used:{tool_calls:1}},retrieval:{}};
+ const instance=gateway(async(actor,name,args)=>{seen=args;return {packet};});
+ await instance.retrieveContext({user:{id:'a'},request:{project_id:'project',query:'And its tests?',conversation:{session_id:'s1'}},
+  history:[{role:'user',content:'Summarize STORY-12'}],focusSourceIds:['source-1',' ','source-2',7,...Array(10).fill('x')]});
+ assert.equal(seen.conversation.session_id,'s1');
+ assert.ok(seen.conversation.focus_source_ids.length<=6,'bounded');
+ assert.deepEqual(seen.conversation.focus_source_ids.slice(0,2),['source-1','source-2'],'only non-empty strings');
+ const {contextSchema}=require('../../backend/contextRequest');
+ assert.equal(contextSchema.safeParse({question:'q',...seen}).success,true,'accepted by the public schema');
+ assert.equal(contextSchema.safeParse({question:'q',conversation:{messages:[],focus_source_ids:Array(7).fill('s')}}).success,false);
 });

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 
 test('Agent Studio repair receives the bounded retained-contract strategy without requiring engineer actor mode', async () => {
   const events = [];

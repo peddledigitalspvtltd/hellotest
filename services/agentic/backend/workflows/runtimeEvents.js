@@ -121,6 +121,8 @@ function failureInfo(input) {
  };
 }
 function log(result, event) {
+  if(['node_completed','node_failed','node_cancelled'].includes(event.event)) require('@hellotest/platform/agent-metrics').event('workflow',{phase:event.event,level:event.event==='node_failed'?'error':'info',details:{duration_ms:event.duration_ms??result.duration_ms,code:event.code||result.failure?.code||result.error?.code}});
+  if(event.event==='node_completed'&&['mcpTool','apiTool','apiAgent','webAgent'].includes(result.kind))require('@hellotest/platform/agent-metrics').event('workflow',{phase:'tool.completed',details:{duration_ms:event.duration_ms??result.duration_ms}});
   const entries = result.logs || (result.logs = []);
   entries.push({ at: new Date().toISOString(), level: "info", ...event, message: safeMessage(event.message, "Execution event") });
   if (entries.length > 150) entries.splice(0, entries.length - 150);

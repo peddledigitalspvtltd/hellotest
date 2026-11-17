@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { deriveProgramTools, explainProgramToolsUnsupported, hasLinearProgramAssertion } = require('../../backend/lib/automationProgramTools');
+const { deriveProgramTools, explainProgramToolsUnsupported, hasLinearProgramAssertion } = require("../../backend/lib/build/automationProgramTools");
 
 const execution = { required: true, step_id: 'current' };
 const payload = source => ({ steps: [{ step_id: 'current', step_type: 'web', automation_code: source }] });

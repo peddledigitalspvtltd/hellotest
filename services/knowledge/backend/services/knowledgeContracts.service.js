@@ -110,7 +110,7 @@ const buildRetrievalRequest = ({ projectId, tenantId, query, filters, smartConte
       app_type_id: compactText(input.app_type_id, 255) || null,
       ...(Array.isArray(input.requested_scopes) ? { requested_scopes: uniqueStrings(input.requested_scopes, 6, 30) } : {}),
       ...(input.agent_id ? { agent_id: compactText(input.agent_id, 255) } : {}),
-      ...(input.evidence_scope ? { evidence_scope: Object.fromEntries(require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key).filter(key => compactText(input.evidence_scope[key], 255)).map(key => [key, compactText(input.evidence_scope[key], 255)])) } : {}),
+      ...(input.evidence_scope ? { evidence_scope: Object.fromEntries(require('@hellotest/contracts/agents/evidenceScopeFields.json').map(field => field.key).filter(key => compactText(input.evidence_scope[key], 255)).map(key => [key, compactText(input.evidence_scope[key], 255)])) } : {}),
       ...(input.as_of ? {
         as_of: iso(input.as_of)
       } : {})
@@ -400,6 +400,7 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
     return source && target && source !== target && ['SOURCE_EXPLICIT','DETERMINISTIC','HUMAN_VERIFIED'].includes(provenance) && groundedSpan && refs.length && refs.every(id => allowed.has(id)) ? [{
         source,
         target,
+      ...(compactText(edge.id, 255) ? { knowledge_edge_id: compactText(edge.id, 255) } : {}),
         type: compactText(edge.type || edge.relationship_type, 80),
         evidence_ids: refs,
         provenance_type: provenance,
@@ -486,7 +487,24 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
   };
   return validateContract(result, "ContextPacket");
 };
-const buildAnswerContract = ({ outcome, contextPacket, terminationReason, claimVerifier, trustDeterministic = false } = {}) => {
+// Summarises how the claims of an answer were checked, in words a reader can rely
+// on. "Cited, not verified" means every claim points at real retrieved evidence
+// but no check established that the evidence entails the claim.
+const summarizeVerification = (claims, { verificationMethod, trustDeterministic } = {}) => {
+  const list = Array.isArray(claims) ? claims : [];
+  const count = status => list.filter(claim => claim.verification?.status === status).length;
+  const verified = count("verified"), extractive = count("extractive"), unverified = list.length - verified - extractive;
+  const method = trustDeterministic ? "server_deterministic" : verificationMethod || "citation_binding";
+  let status, label;
+  if (!list.length) { status = "none"; label = "No claims to check"; }
+  else if (trustDeterministic && !unverified) { status = "deterministic"; label = "Computed from authorized project data"; }
+  else if (!unverified && verified) { status = "verified"; label = "Claims verified against their cited evidence"; }
+  else if (!unverified) { status = "extractive"; label = "Claims are verbatim quotes of their cited evidence"; }
+  else if (verified || extractive) { status = "partially_verified"; label = `${verified + extractive} of ${list.length} claims verified or quoted; ${unverified} cited, not verified`; }
+  else { status = "cited_not_verified"; label = "Cited, not verified: each claim points at retrieved evidence, but no check confirmed the evidence supports it"; }
+  return { status, label: label.slice(0, 200), method: method.slice(0, 80), verified_claim_count: verified, extractive_claim_count: extractive, unverified_claim_count: unverified };
+};
+const buildAnswerContract = ({ outcome, contextPacket, terminationReason, claimVerifier, verificationMethod, trustDeterministic = false } = {}) => {
   const result = asObject(outcome), packet = asObject(contextPacket), structure = asObject(result.answer_structure);
   const validated = validateGroundedClaims(structure.supported_claims || result.claims || structure.claims, packet.evidence, {
     claimVerifier,
@@ -540,8 +558,8 @@ const buildAnswerContract = ({ outcome, contextPacket, terminationReason, claimV
     gaps.push(`${limitation.unavailable_sources} source${limitation.unavailable_sources === 1 ? " is" : "s are"} unavailable.`);
   if (validated.rejected)
     gaps.push(`${validated.rejected} claim${validated.rejected === 1 ? " was" : "s were"} removed during grounding validation.`);
-  if (claims.some(claim => claim.classification === "INTERPRETATION"))
-    gaps.push("Interpretations have valid source references but have not passed an independent entailment check.");
+  if (claims.some(claim => claim.verification?.status === "unverified"))
+    gaps.push("Some claims are cited but not independently verified: their sources exist, but no check confirmed the sources support them.");
   const presentation = validatePresentation(structure.presentation || result.presentation, packet, claims);
   const answer = {
     ...contractFields("AnswerContract"),
@@ -569,8 +587,10 @@ const buildAnswerContract = ({ outcome, contextPacket, terminationReason, claimV
       unsupported_section_count: rejectedSections,
       claim_citation_coverage: claims.length ? 1 : 0,
       model_confidence_accepted: false,
-      validation_method: trustDeterministic ? "server_deterministic" : claimVerifier ? "entailment_adapter_and_citation_binding" : "extractive_or_labeled_citation_binding",
-      presentation_rejected: presentation.rejected
+      // Name only what actually ran. A claim verifier is not "entailment" unless it says so.
+      validation_method: trustDeterministic ? "server_deterministic" : claimVerifier ? `${verificationMethod || "claim_verifier"}_and_citation_binding` : "extractive_or_labeled_citation_binding",
+      presentation_rejected: presentation.rejected,
+      verification: summarizeVerification(claims, { verificationMethod: claimVerifier ? verificationMethod || "claim_verifier" : undefined, trustDeterministic })
     },
     limitations: limitation,
     evidence_quality: asObject(packet.evidence_quality),

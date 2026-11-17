@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,rm,mkdir} from 'node:fs/promises';
@@ -40,7 +41,7 @@ test('build data review keeps inherited defaults, accepts deliberate blanks, pro
   await writeFile(new URL(name+'.html',root),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE});
   page=await browser.newPage({viewport:{width:1440,height:1050}});page.setDefaultNavigationTimeout(60000);page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
-  await page.route('**/api/**',route=>{errors.push('Unexpected API: '+route.request().url());return route.abort();});
+  await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API: '+route.request().url());return route.abort();});
   const url=`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`;
   const start=async query=>{await page.goto(url+(query||''));await page.getByRole('tab',{name:/^Build tools/}).click();await page.getByRole('button',{name:'Build plan',exact:true}).click();};
   const dialog=()=>page.getByRole('dialog',{name:'Review automation test data',exact:true});

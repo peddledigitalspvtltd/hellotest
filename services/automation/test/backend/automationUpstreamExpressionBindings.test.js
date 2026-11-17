@@ -1,9 +1,9 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {parse}=require('acorn');
-const {bindUpstreamSourceParameters:bind,PARAMETER_EXPRESSIONS_MARKER:marker}=require('../../backend/lib/automationUpstreamSourceBindings');
-const {preserveNativeActions}=require('../../backend/lib/automationUpstreamEngineer');
-const {createUpstreamPrivateBindingScope}=require('../../backend/lib/automationUpstreamPrivateBindings');
+const {bindUpstreamSourceParameters:bind,PARAMETER_EXPRESSIONS_MARKER:marker}=require("../../backend/lib/upstream/automationUpstreamSourceBindings");
+const {preserveNativeActions}=require("../../backend/lib/upstream/automationUpstreamEngineer");
+const {createUpstreamPrivateBindingScope}=require("../../backend/lib/upstream/automationUpstreamPrivateBindings");
 const native=(source,options={})=>bind({source,parameterExpressions:true,...options});
 
 test('native data arguments and pre-evaluated URL joins use params expressions while legacy token mode stays unchanged',()=>{

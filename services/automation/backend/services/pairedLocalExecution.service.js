@@ -3,7 +3,7 @@ const db = require('@hellotest/platform/backend/src/db');
 const permissions = require('@hellotest/platform/backend/services/permission.service');
 const projects = require('@hellotest/platform/backend/public/projectAccess');
 const flags = require('@hellotest/platform/backend/services/featureFlag.service');
-const security = require('../lib/pairedLocalSecurity');
+const security = require("../lib/build/pairedLocalSecurity");
 const {assertExpectedRevision} = require('@hellotest/platform/backend/src/utils/revision');
 const {fail,id,origin,digest,derive,equal,seal,open,publicApiBase} = security;
 const aad = row => `${row.id}:${row.execution_id}:${row.actor_id}`;

@@ -6,7 +6,7 @@ const permissions = require('@hellotest/platform/backend/services/permission.ser
 const flags = require('@hellotest/platform/backend/services/featureFlag.service');
 const apps = require('@hellotest/platform/backend/public/applicationAccess');
 const stories = require('@hellotest/manual/backend/services/requirement.service');
-const builder = require('@hellotest/automation/backend/services/aiAutomationBuilder.service');
+const builder = require('@hellotest/automation/build');
 const journal = require('../../backend/workflows/operationJournal');
 const { failureInfo, withNode } = require('../../backend/workflows/runtimeEvents');
 
@@ -59,7 +59,7 @@ for (const path of ['case-loop', 'legacy-story-packet']) {
           assert.equal(calls.length, 1, 'The complete case is generated exactly once.');
           const interactive = mode === 'perform_steps' && variant.browser;
           assert.equal(calls[0].allow_browser_actions, interactive);
-          assert.equal(calls[0].inspect_browser, mode !== 'offline');
+          assert.equal(calls[0].inspect_browser, variant.browser && mode !== 'offline', 'Only web-containing cases request browser inspection.');
           assert.equal(effects.length, Number(interactive), 'Every permitted browser mutation is covered by the operation journal.');
           if (interactive) {
             assert.equal(effects[0].input.story_id, story.id);

@@ -1,3 +1,4 @@
+import { automationOwnerSource, automationWorkspaceSource, findAutomationBinding,findAutomationEffect } from "./helpers/automationWorkspaceSources.mjs";
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
@@ -10,8 +11,8 @@ const load = (path, resolve) => {
   const exports={};new Function('require','exports',compile(path))(resolve,exports);return exports;
 };
 const parameterLib=load('../../frontend/lib/automationBuildParameters.ts',()=>({}));
-const pairedAgentLib=load('../../../agentic/frontend/lib/pairedLocalAgent.ts',()=>({}));
-const pairedBuildLib=load('../../../testing/frontend/lib/pairedBrowserBuild.ts',id=>id.endsWith('/pairedLocalAgent')?pairedAgentLib:{});
+const pairedAgentLib=load('../../../automation/frontend/lib/localAgentPairing.ts',()=>({}));
+const pairedBuildLib=load('../../../testing/frontend/lib/pairedBrowserBuild.ts',id=>id.endsWith('/localAgentPairing')?pairedAgentLib:{});
 function apiFixture() {
   const requests=[];
   let respond=async(url,input)=>({test_case_id:url.split('/')[2],test_suite_id:input.test_suite_id || (url.includes('/two/')?'suite-two':null),parameter_plan_key:'pin:'+url,parameter_values:{},parameter_references:[],private_parameter_references:[],missing_parameter_references:[],deferred_parameter_references:[]});
@@ -90,10 +91,8 @@ test('a per-case no-suite selection overrides a scalar without serializing the b
 });
 
 test('the actual case suite effect selects a sole suite and requires a choice for multiple suites',()=>{
-  const source=readFileSync(new URL('../../frontend/pages/AutomationPage.tsx',import.meta.url),'utf8');
-  const start=source.lastIndexOf('  useEffect(() => {',source.indexOf('if (!activeCaseSuiteIds.length)'));
-  const end=source.indexOf('  }, [activeCaseSuiteIds, selectedParameterSuiteId]);',start);
-  const effect=new Function('activeCaseSuiteIds','selectedParameterSuiteId','setSelectedParameterSuiteId','setSuiteParameterValues',source.slice(start+'  useEffect(() => {'.length,end));
+  const {node,ast}=findAutomationEffect(['activeCaseSuiteIds','selectedParameterSuiteId'],'workspaces/case/useAutomationCaseDetailController.tsx');
+  const effect=new Function('activeCaseSuiteIds','selectedParameterSuiteId','setSelectedParameterSuiteId','setSuiteParameterValues',`return (${node.getText(ast)})();`);
   const run=(ids,selected)=>{let result=selected;effect(ids,selected,value=>{result=value;},()=>{});return result;};
   assert.equal(run(['only'],''),'only');
   assert.equal(run(['first','second'],''),'');

@@ -255,12 +255,14 @@ ops ps' 'local status includes monitoring'
 
 reset_case
 HELLOTEST_OPS_ENABLED=false HELLOTEST_MCP_PUBLIC_URL=https://qa.example.test/api/mcp \
+  HELLOTEST_MCP_OAUTH_ENABLED=true \
   HELLOTEST_MCP_ALLOWED_HOSTS=qa.example.test,api \
   WORKFLOW_CREDENTIAL_KEY=fixture-credential-encryption-key-32-characters \
   "$ROOT_DIR/hellotest.sh" up --stack local redis > "$TEST_DIR/output" 2>&1
 "$ROOT_DIR/hellotest.sh" status --stack local > "$TEST_DIR/output" 2>&1
 grep -Fx 'WORKFLOW_CREDENTIAL_KEY=fixture-credential-encryption-key-32-characters' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'credential key must survive subsequent launcher commands'
 grep -Fx 'HELLOTEST_MCP_PUBLIC_URL=https://qa.example.test/api/mcp' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'public MCP endpoint must survive subsequent launcher commands'
+grep -Fx 'HELLOTEST_MCP_OAUTH_ENABLED=true' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'MCP OAuth setting must survive subsequent launcher commands'
 grep -Fx 'HELLOTEST_MCP_ALLOWED_HOSTS=qa.example.test,api' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'MCP allowed hosts must survive subsequent launcher commands'
 printf 'PASS: credential encryption key and MCP deployment settings persist across launcher commands\n'
 
@@ -271,7 +273,7 @@ grep -Fx 'HELLOTEST_MCP_PUBLIC_URL=https://app.hellotest.ai/api/mcp' "$TEST_DIR/
 printf 'PASS: HTTPS cloud gateway supplies the default external MCP authority\n'
 
 reset_case
-HELLOTEST_ENV_DIR="$TEST_DIR/cloud-local" HELLOTEST_OPS_ENABLED=false \
+HELLOTEST_ENV_DIR="$TEST_DIR/cloud-local" HELLOTEST_OPS_ENABLED=false HELLOTEST_MCP_OAUTH_ENABLED=true \
   HELLOTEST_PUBLIC_URL=https://app.hellotest.ai \
   CORS_ORIGIN=https://app.hellotest.ai,https://client.example.test \
   HELLOTEST_LOCAL_RUN_ENGINE_URL=https://runner.example.test \
@@ -285,6 +287,7 @@ for expected_setting in \
   'HELLOTEST_PUBLIC_URL=https://app.hellotest.ai' \
   'HELLOTEST_API_PUBLIC_URL=https://app.hellotest.ai/api' \
   'HELLOTEST_MCP_PUBLIC_URL=https://app.hellotest.ai/api/mcp' \
+  'HELLOTEST_MCP_OAUTH_ENABLED=true' \
   'CORS_ORIGIN=https://app.hellotest.ai,https://client.example.test' \
   'HELLOTEST_LOCAL_RUN_ENGINE_URL=https://runner.example.test' \
   'HELLOTEST_LOCAL_CALLBACK_BASE_URL=https://app.hellotest.ai/api'; do

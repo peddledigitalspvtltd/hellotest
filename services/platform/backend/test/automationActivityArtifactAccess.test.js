@@ -69,7 +69,7 @@ test('quarantined browser images are forbidden through both readers while other 
   app.decorate('validate',()=>{});
   await app.register(require('../routes/workspaceTransactions.routes'));
   await app.register(require('../../../testing/backend/routes/testCases.routes'));
-  const activity=require('@hellotest/automation/backend/services/automationAgentActivity.service');
+  const activity=require('@hellotest/automation/activity');
   for(const id of ['blocked','unaffected']){
     artifact={...artifact,id};
     const response=await app.inject({method:'GET',url:`/workspace-transactions/activity/artifacts/${id}/download`});

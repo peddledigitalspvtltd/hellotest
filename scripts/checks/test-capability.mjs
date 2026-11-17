@@ -17,7 +17,7 @@ for(const [directory,extension] of [['services/platform/backend','test.js'],['se
  const ownTests = existsSync(own) ? readdirSync(own).filter(name => name.endsWith(extension)).map(name => resolve(own, name)) : [];
  ran+=tests.length+ownTests.length;
  if(!tests.length && !ownTests.length) continue;
- const result=spawnSync(process.execPath,['--test',...tests.map(name=>`test/${name}`), ...ownTests],{cwd:resolve(root,directory),stdio:'inherit'});
+ const result=spawnSync(process.execPath,['--test',...tests.map(name=>`test/${name}`), ...ownTests],{cwd:resolve(root,directory),stdio:'inherit',env:{...process.env,NODE_ENV:process.env.NODE_ENV||'test'}});
  if(result.status!==0)process.exit(result.status||1);
 }
 if(!ran)throw new Error(`No capability contract tests found for ${owner}`);

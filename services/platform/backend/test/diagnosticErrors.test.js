@@ -72,3 +72,19 @@ test("Fastify emits safe errors with the same request reference in logs and resp
   assert.doesNotMatch(JSON.stringify(providerLog), /private log secret|config-secret/);
   assert.doesNotMatch(response.body, /private log secret|config-secret/);
 });
+
+test('authoring conflicts disclose only a validated ownership receipt and arbitrary error details remain private', async t => {
+  const app = Fastify();t.after(() => app.close());
+  await app.register(require('../src/plugins/errorHandler'));
+  for (const [path, code, activityId] of [['busy', 'AUTOMATION_AUTHORING_BUSY', 'activity-1'], ['unknown', 'AUTOMATION_RECORDER_START_UNKNOWN', 'activity-2'], ['other', 'OTHER_CONFLICT', 'activity-3'], ['invalid', 'AUTOMATION_AUTHORING_BUSY', 'unsafe?token=private-fixture']]) {
+    app.get(`/${path}`, async () => { throw Object.assign(new Error('Review the current authoring activity.'), { code, statusCode: 409,
+      details: { activity_id: activityId, operation: 'recording', status: 'running', phase: 'recorder.start_unknown', source: 'private-source-fixture', token: 'private-token-fixture' } }); });
+  }
+  for (const path of ['busy', 'unknown']) {
+    const response = await app.inject(`/${path}`), value = response.json();
+    assert.equal(response.statusCode, 409);assert.equal(value.retryable, false);
+    assert.deepEqual(Object.keys(value.details).sort(), ['activity_id', 'operation', 'phase', 'status']);
+    assert.doesNotMatch(response.body, /private-source-fixture|private-token-fixture/);
+  }
+  for (const path of ['other', 'invalid']) assert.equal((await app.inject(`/${path}`)).json().details, undefined);
+});

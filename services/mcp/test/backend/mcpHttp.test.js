@@ -9,11 +9,12 @@ const original=createRequire(filename);
 function plugin(authenticate,options={}){
  const module={exports:{}};
  const mocks={
-  '@hellotest/platform/backend/src/db':{},
-  './registry':{register:()=>{}},
-  './auth':{authenticate},
+  '@hellotest/platform/backend/src/db':options.db||{},
+  './registry':{register:()=>{},revision:()=>'revision',all:()=>[]},
+  // The plugin verifies the credential's signature (decode) before it takes a capacity slot, then authenticates it.
+  './auth':{authenticate,decode:options.decode||(token=>({jti:'credential-'+(token||'none'),project_id:'project',int:false})),fail,...options.auth},
   './backplane':{configure:()=>{}},
-  './mcpServer':{tools:{},handler:{fetch:async()=>new Response('{}',{headers:{'Content-Type':'application/json'}}),close:async()=>{}}},
+  './mcpServer':options.server||{tools:{},handler:{fetch:async()=>new Response('{}',{headers:{'Content-Type':'application/json'}}),close:async()=>{}}},
   './readDatabase':{close:async()=>{}}
  };
  if(options.timeoutMs)mocks['./contextRequest']={requestTimeoutMs:()=>options.timeoutMs};
@@ -21,7 +22,9 @@ function plugin(authenticate,options={}){
  return module.exports;
 }
 const payload={jsonrpc:'2.0',id:1,method:'tools/list'};
-const actor={user:{id:'user'},projectId:'project',clientId:'host'};
+const fail=(message,statusCode=403,code='MCP_ACCESS_DENIED')=>Object.assign(new Error(message),{statusCode,code,publicMessage:message});
+// An authenticated caller always carries the tool sets of its credential.
+const actor={user:{id:'user'},projectId:'project',clientId:'host',scopes:['knowledge','records']};
 
 test('MCP Host and Origin checks reject requests before credential validation',async t=>{
  let checks=0;const app=Fastify();app.register(plugin(async()=>{checks++;return actor;}));await app.ready();t.after(()=>app.close());
@@ -89,4 +92,160 @@ test('configured public application/API URLs supply an exact external MCP author
    const origin=await app.inject({method:'POST',url:'/mcp',headers:{host:authority,origin:'https://invented.example.test'},payload});assert.equal(origin.statusCode,403);assert.equal(origin.json().code,'MCP_ORIGIN_DENIED');assert.match(origin.json().message,/CORS_ORIGIN/);
   }finally{await app.close();}
  }
+});
+
+// --- admission, tool sets and credential issuance -------------------------------------------------------------
+
+const withEnv=(t,values)=>{
+ const previous=Object.fromEntries(Object.keys(values).map(key=>[key,process.env[key]]));
+ Object.assign(process.env,values);
+ t.after(()=>{for(const [key,value] of Object.entries(previous))if(value===undefined)delete process.env[key];else process.env[key]=value;});
+};
+const post=(app,token)=>app.inject({method:'POST',url:'/mcp',headers:{host:'localhost',...(token?{authorization:'Bearer '+token}:{})},payload});
+const until=async condition=>{for(let index=0;index<400&&!condition();index++)await new Promise(resolve=>setTimeout(resolve,5));assert.ok(condition(),'condition was not reached');};
+const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};};
+const byToken=token=>({jti:token,project_id:'project-'+token,int:token.startsWith('internal')});
+
+test('a request without a valid credential signature never takes capacity or reaches authentication',async t=>{
+ withEnv(t,{HELLOTEST_MCP_MAX_CONCURRENT:'1'});
+ let authenticated=0;
+ const decode=token=>{if(token!=='valid')throw fail('Invalid MCP credential.',401,'MCP_UNAUTHORIZED');return {jti:'credential',project_id:'project'};};
+ const app=Fastify();app.register(plugin(async()=>{authenticated++;return actor;},{decode}));await app.ready();t.after(()=>app.close());
+ for(let index=0;index<5;index++){
+  const result=await post(app,'forged');
+  assert.equal(result.statusCode,401);assert.equal(result.json().code,'MCP_UNAUTHORIZED');assert.match(result.headers['www-authenticate'],/Bearer/);
+ }
+ assert.equal((await post(app)).statusCode,401,'no credential at all');
+ assert.equal(authenticated,0,'nothing unauthenticated reaches the database');
+ // Capacity is one, and the forged requests left it free.
+ assert.equal((await post(app,'valid')).statusCode,200);
+ assert.equal(authenticated,1);
+});
+
+test('capacity is reserved for the platform\'s own calls so an external burst cannot starve a chat turn',async t=>{
+ withEnv(t,{HELLOTEST_MCP_MAX_CONCURRENT:'4',HELLOTEST_MCP_INTERNAL_RESERVE:'1',HELLOTEST_MCP_PROJECT_SHARE:'1',HELLOTEST_MCP_RATE_BURST:'100'});
+ const gate=deferred();let entered=0;
+ const app=Fastify();app.register(plugin(async()=>{entered++;await gate.promise;return actor;},{decode:byToken}));await app.ready();t.after(()=>app.close());
+ const external=['ext-1','ext-2','ext-3'].map(token=>post(app,token));
+ await until(()=>entered===3);
+ const refused=await post(app,'ext-4');
+ assert.equal(refused.statusCode,429);assert.equal(refused.json().code,'MCP_CAPACITY');assert.ok(Number(refused.headers['retry-after'])>=1);
+ const internal=post(app,'internal-1');
+ await until(()=>entered===4);
+ const full=await post(app,'internal-2');
+ assert.equal(full.statusCode,429,'the reserve is a share of the total, not extra capacity');
+ gate.resolve();
+ for(const response of await Promise.all([...external,internal]))assert.equal(response.statusCode,200);
+ assert.equal((await post(app,'ext-4')).statusCode,200,'slots are free again once the burst finishes');
+});
+
+test('one project cannot take more than its share of the external capacity',async t=>{
+ withEnv(t,{HELLOTEST_MCP_MAX_CONCURRENT:'8',HELLOTEST_MCP_INTERNAL_RESERVE:'0',HELLOTEST_MCP_PROJECT_SHARE:'0.5',HELLOTEST_MCP_RATE_BURST:'100'});
+ const gate=deferred();let entered=0;
+ const decode=token=>({jti:token,project_id:token.startsWith('other')?'other-project':'shared-project',int:false});
+ const app=Fastify();app.register(plugin(async()=>{entered++;await gate.promise;return actor;},{decode}));await app.ready();t.after(()=>app.close());
+ const held=['a','b','c','d'].map(token=>post(app,token));
+ await until(()=>entered===4);
+ const crowded=await post(app,'e');
+ assert.equal(crowded.statusCode,429);assert.equal(crowded.json().code,'MCP_PROJECT_BUSY');
+ const neighbour=post(app,'other-1');
+ await until(()=>entered===5);
+ gate.resolve();
+ for(const response of await Promise.all([...held,neighbour]))assert.equal(response.statusCode,200);
+});
+
+test('each credential has its own request rate, and the platform\'s own calls are not rate limited',async t=>{
+ // One token every ten seconds: slow enough that the test cannot be saved by the clock.
+ withEnv(t,{HELLOTEST_MCP_RATE_PER_SECOND:'0.1',HELLOTEST_MCP_RATE_BURST:'2',HELLOTEST_MCP_MAX_CONCURRENT:'32'});
+ const app=Fastify();app.register(plugin(async()=>actor,{decode:byToken}));await app.ready();t.after(()=>app.close());
+ assert.equal((await post(app,'hot')).statusCode,200);
+ assert.equal((await post(app,'hot')).statusCode,200);
+ const limited=await post(app,'hot');
+ assert.equal(limited.statusCode,429);assert.equal(limited.json().code,'MCP_RATE_LIMITED');
+ assert.ok(Number(limited.headers['retry-after'])>=1);assert.equal(limited.json().retry_after_seconds,Number(limited.headers['retry-after']));
+ assert.equal((await post(app,'cool')).statusCode,200,'another credential is unaffected');
+ for(let index=0;index<6;index++)assert.equal((await post(app,'internal-chat')).statusCode,200);
+});
+
+test('an authenticated caller without tool sets is refused instead of being served every tool',async t=>{
+ let served=0;
+ const server={tools:{},handler:{fetch:async()=>{served++;return new Response('{}');},close:async()=>{}}};
+ const app=Fastify();app.register(plugin(async()=>({user:{id:'user'},projectId:'project',clientId:'host'}),{server}));await app.ready();t.after(()=>app.close());
+ const result=await post(app,'token');
+ assert.equal(result.statusCode,500);assert.equal(result.json().code,'MCP_SCOPE_UNAVAILABLE');assert.equal(served,0);
+});
+
+test('the SDK receives the authenticated actor and its tool sets',async t=>{
+ let seen;
+ const server={tools:{},handler:{fetch:async(_request,context)=>{seen=context;return new Response('{}',{headers:{'Content-Type':'application/json'}});},close:async()=>{}}};
+ const scoped={...actor,scopes:['knowledge']};
+ const app=Fastify();app.register(plugin(async()=>scoped,{server}));await app.ready();t.after(()=>app.close());
+ assert.equal((await post(app,'token')).statusCode,200);
+ assert.equal(seen.authInfo.extra.actor,scoped);assert.deepEqual(seen.authInfo.scopes,['knowledge']);
+});
+
+test('host credentials are issued with the requested tool sets and can never be marked internal',async t=>{
+ withEnv(t,{NODE_ENV:'test'});
+ const issued=[];
+ const auth={
+  principal:async(id,project)=>({user:{id},projectId:project,clientId:'hellotest-internal'}),permit:async()=>{},clientKeyFor:()=> 'a'.repeat(64),
+  issue:async(user,project,client,options)=>{issued.push({user,project,client,options});return {id:'credential',token:'secret',expires_at:'2030-01-01T00:00:00.000Z',scopes:options.scopes||['knowledge','records']};}
+ };
+ const app=Fastify();app.decorate('authenticate',async req=>{req.user={id:'user'};});app.register(plugin(async()=>actor,{auth}));await app.ready();t.after(()=>app.close());
+ const create=body=>app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers:{host:'localhost'},payload:{project_id:'project',client_id:'my-host',...body}});
+ assert.equal((await create({scopes:['actions']})).statusCode,200);
+ assert.deepEqual(issued[0].options,{scopes:['actions'],clientKey:'a'.repeat(64)});assert.match(issued[0].client,/^my-host-[0-9a-f-]{36}$/);
+ // A caller that asks for the platform's marker gets an ordinary credential: the option cannot be reached from HTTP.
+ assert.equal((await create({internal:true,ttlSeconds:99999})).statusCode,200);
+ assert.deepEqual(Object.keys(issued[1].options),['scopes','clientKey']);assert.equal(issued[1].options.scopes,undefined,'no scopes asked for means the read-only default is applied by issue()');
+});
+
+test('discovery publishes the tool sets, each tool\'s set, and the credential contract without claiming OAuth',async t=>{
+ withEnv(t,{NODE_ENV:'test'});
+ const definition=(name,readOnly)=>({name,title:name,description:name,inputSchema:{},outputSchema:{},annotations:{readOnlyHint:readOnly}});
+ const server={
+  tools:{hellotest_context_build:{},hellotest_capabilities:{},hellotest_operation_prepare:{write:true},hellotest_automation_engineer_prepare:{write:true}},
+  toolDefinitions:()=>[definition('hellotest_context_build',true),definition('hellotest_capabilities',true),definition('hellotest_operation_prepare',false),definition('hellotest_automation_engineer_prepare',false)],
+  handler:{fetch:async()=>new Response('{}'),close:async()=>{}}
+ };
+ const auth={principal:async(id,project)=>({user:{id},projectId:project,clientId:'hellotest-internal'}),permit:async()=>{}};
+ const app=Fastify();app.decorate('authenticate',async req=>{req.user={id:'user'};});app.register(plugin(async()=>actor,{server,auth}));await app.ready();t.after(()=>app.close());
+ const body=(await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=project',headers:{host:'localhost'}})).json();
+ assert.deepEqual(body.tool_sets.map(set=>set.id),['knowledge','records','actions','automation']);
+ assert.deepEqual(body.tool_sets.map(set=>set.read_only),[true,true,false,false]);
+ assert.deepEqual(body.tool_sets.map(set=>set.tool_count),[1,1,1,1]);
+ assert.ok(body.tool_sets.every(set=>!('tools' in set)),'the listing names counts; the tools carry their own set');
+ assert.deepEqual(Object.fromEntries(body.tools.map(tool=>[tool.name,tool.tool_set])),{hellotest_context_build:'knowledge',hellotest_capabilities:'records',hellotest_operation_prepare:'actions',hellotest_automation_engineer_prepare:'automation'});
+ assert.deepEqual(body.client_contract.default_scopes,['knowledge','records']);assert.deepEqual(body.client_contract.scopes_supported,['knowledge','records','actions','automation']);
+ assert.equal(body.client_contract.oauth_supported,false);
+ assert.equal(body.client_contract.credential_issuance_enabled,true);
+});
+
+test('production refuses manual external credentials while preserving internal platform calls',async t=>{
+ withEnv(t,{NODE_ENV:'production'});
+ let authenticated=0;
+ const server={tools:{},toolDefinitions:()=>[],handler:{fetch:async()=>new Response('{}',{headers:{'Content-Type':'application/json'}}),close:async()=>{}}};
+ const auth={principal:async(id,project)=>({user:{id},projectId:project,clientId:'hellotest-internal'}),permit:async()=>{},issue:async()=>{assert.fail('manual credentials must not be issued')}};
+ const app=Fastify();app.decorate('authenticate',async req=>{req.user={id:'user'};});
+ app.register(plugin(async()=>{authenticated++;return actor;},{server,auth,decode:token=>({jti:token,project_id:'project',int:token==='internal'})}));
+ await app.ready();t.after(()=>app.close());
+ const create=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers:{host:'localhost'},payload:{project_id:'project',client_id:'host'}});
+ assert.equal(create.statusCode,503);assert.equal(create.json().code,'MCP_OAUTH_REQUIRED');
+ const metadata=(await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=project',headers:{host:'localhost'}})).json();
+ assert.equal(metadata.external_credentials_enabled,false);assert.equal(metadata.client_contract.credential_issuance_enabled,false);
+ const external=await post(app,'external');assert.equal(external.statusCode,503);assert.equal(external.json().code,'MCP_OAUTH_REQUIRED');
+ assert.equal(authenticated,0,'blocked external credentials never reach authentication or tools');
+ assert.equal((await post(app,'internal')).statusCode,200,'platform credentials remain available');
+ assert.equal(authenticated,1);
+});
+
+test('the credential list shows a person\'s own host credentials with their access, not the platform\'s internal ones',async t=>{
+ const statements=[];
+ const db={prepare:sql=>{statements.push(sql);return {all:async()=>[{id:'credential',client_id:'host',scopes:['knowledge','records']}],run:async()=>{}};}};
+ const auth={principal:async(id,project)=>({user:{id},projectId:project,clientId:'hellotest-internal'}),permit:async()=>{}};
+ const app=Fastify();app.decorate('authenticate',async req=>{req.user={id:'user'};});app.register(plugin(async()=>actor,{db,auth}));await app.ready();t.after(()=>app.close());
+ const rows=(await app.inject({method:'GET',url:'/agentic-workflows/mcp/credentials?project_id=project',headers:{host:'localhost'}})).json();
+ assert.deepEqual(rows[0].scopes,['knowledge','records']);
+ const listing=statements.find(sql=>sql.includes('FROM mcp_credentials'));
+ assert.match(listing,/\bscopes\b/);assert.match(listing,/internal=FALSE/);
 });

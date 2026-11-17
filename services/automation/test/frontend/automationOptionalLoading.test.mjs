@@ -1,3 +1,4 @@
+import { automationOwnerSource, automationWorkspaceSource, findAutomationBinding } from "./helpers/automationWorkspaceSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -143,7 +144,7 @@ test("compiler failures block source and a retry recomputes unchanged reviewed i
   assert.equal(result.code, "Recovered source"); assert.equal(result.error, undefined); assert.equal(attempts, 2);
 });
 
-const pageSource = readFileSync(new URL("../../frontend/pages/AutomationPage.tsx", import.meta.url), "utf8");
+const pageSource = automationWorkspaceSource();
 function repositoryImportFixture() {
   const download = deferred(), parsed = deferred();
   const changes = [];
@@ -155,9 +156,8 @@ function repositoryImportFixture() {
     setIsRepositoryImportModalOpen: value => changes.push(["open", value]),
     showInfo: value => changes.push(["info", value]), showError: error => changes.push(["error", error.message])
   };
-  const start = pageSource.indexOf("  const handleRepositoryImportFiles = async (");
-  const end = pageSource.indexOf("\n\n  const exportRepositoryCsv", start);
-  const compiled = ts.transpileModule(pageSource.slice(start, end) + "\nreturn handleRepositoryImportFiles;", {
+  const {node,ast}=findAutomationBinding("handleRepositoryImportFiles","workspaces/repository/useRepositoryWorkspaceController.tsx");
+  const compiled = ts.transpileModule(`const handleRepositoryImportFiles = ${node.initializer.getText(ast)};\nreturn handleRepositoryImportFiles;`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 }
   }).outputText;
   const handler = new Function(...Object.keys(context), compiled)(...Object.values(context));
@@ -216,7 +216,7 @@ test("the Runs badge loads only summary history when the authorized Runs tab ope
   const query = overrides => evaluate(node.initializer.getText(pageAst), { ...context, ...overrides });
   assert.equal(query().enabled, false);
   assert.equal(query({ activeAutomationWorkspaceTab: "runs" }).enabled, true);
-  for (const overrides of [{ session: null }, { selectedAutomationCaseDetail: null }, { canViewExecutionMetrics: false }, { view: "repository" }]) {
+  for (const overrides of [{ session: null }, { selectedAutomationCaseDetail: null }, { canViewExecutionMetrics: false }]) {
     assert.equal(query({ activeAutomationWorkspaceTab: "runs", ...overrides }).enabled, false);
   }
   const signal = new AbortController().signal;

@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createAutomationSemanticReviewer}=require('../../backend/lib/automationSemanticReview');
-const {recordBrowserOperation,recordedSectionRequests}=require('../../backend/lib/automationBrowserRecording');
+const {createAutomationSemanticReviewer}=require("../../backend/lib/browser/automationSemanticReview");
+const {recordBrowserOperation,recordedSectionRequests}=require("../../backend/lib/browser/automationBrowserRecording");
 
 const longId='manual:7e5ecfe7-d915-4e02-9f67-3bcbca420605:938582c7-9eba-4c48-9f8b-c6579af4af6a';
 const goal=id=>({id,source:id==='current'?'section':'manual',action:'Enter @r.username in the Username field.',expected_result:'The Username field contains the entered username.'});

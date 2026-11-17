@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
@@ -28,7 +29,7 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
   let browser,page;
   try{
     await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
-    browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});page=await browser.newPage({viewport:{width:1600,height:1050}});page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(30000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',route=>{errors.push(`Unexpected API ${route.request().url()}`);return route.abort();});
+    browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});page=await browser.newPage({viewport:{width:1600,height:1050}});page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(30000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push(`Unexpected API ${route.request().url()}`);return route.abort();});
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);
     await page.locator('.repository-agent-status').waitFor();
     await page.getByLabel('Object configuration',{exact:true}).getByText('Element Configuration: Email',{exact:true}).waitFor();
@@ -37,7 +38,7 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
     assert.equal(await page.getByRole('button',{name:/AI Suggestions/}).count(),0);
     assert.equal(await page.getByRole('button',{name:'Inspect evidence',exact:true}).count(),0);
     const screen = name => page.locator('.pom-page-select').filter({hasText:name});
-    const field = name => page.locator('.pom-member-row').filter({hasText:name});
+    const field = name => page.locator('.repository-members-table tbody > tr').filter({hasText:name});
     for(let cycle=0;cycle<3;cycle++){
       await screen('Login').click();await page.getByRole('tab',{name:/^Fields/}).click();
       await field('Email').click();await page.getByRole('tab',{name:/AI Meaning/}).click();await page.getByRole('tab',{name:/Evidence/}).click();
@@ -49,11 +50,11 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
       await page.getByRole('button',{name:'Apply reviewed change',exact:true}).click();
       await page.getByRole('button',{name:'Suggest improvement',exact:true}).waitFor();
       await page.getByRole('tab',{name:/^Locators/}).click();
-      assert.equal(await page.getByLabel(/Primary locator/).inputValue(),'#reviewed-email');
+      assert.equal(await page.getByRole('textbox',{name:/Primary locator/}).inputValue(),'#reviewed-email');
       await page.getByRole('button',{name:'Close object configuration',exact:true}).click();
       assert.equal(await page.getByLabel('Object configuration',{exact:true}).count(),0);
-      await screen('Checkout').click();await field('Address').click();await page.getByLabel(/Primary locator/).waitFor();
-      assert.equal(await page.getByLabel(/Primary locator/).inputValue(),'#address');
+      await screen('Checkout').click();await field('Address').click();await page.getByRole('textbox',{name:/Primary locator/}).waitFor();
+      assert.equal(await page.getByRole('textbox',{name:/Primary locator/}).inputValue(),'#address');
     }
     assert.equal(await page.evaluate(()=>window.applies.length),3);
     await screen('Login').click();
@@ -62,6 +63,18 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
     const check=page.getByRole('checkbox',{name:'Select email',exact:true});await check.check();await check.uncheck();await check.check();
     await page.getByRole('tab',{name:/^Selected/}).click();
     const builder=page.locator('.repository-locator-builder');await builder.waitFor();
+    await builder.getByLabel('Locator strategy',{exact:true}).selectOption('role');
+    await builder.getByLabel('Accessible role',{exact:true}).fill('textbox');
+    await builder.getByLabel('Accessible name',{exact:true}).fill('Email');
+    await builder.getByRole('button',{name:'Use this combination'}).click();
+    assert.equal(await builder.getByLabel('Locator',{exact:true}).inputValue(),'getByRole("textbox", {name:"Email", exact:true})');
+    await mkdir('/tmp/hellotest-automation-screenshots',{recursive:true});
+    await builder.screenshot({path:'/tmp/hellotest-automation-screenshots/semantic-locator-desktop.png'});
+    await page.setViewportSize({width:390,height:844});
+    assert.ok(await builder.evaluate(element=>element.scrollWidth<=element.clientWidth+1),'The semantic builder has no horizontal overflow on a phone.');
+    await builder.screenshot({path:'/tmp/hellotest-automation-screenshots/semantic-locator-mobile.png'});
+    await page.setViewportSize({width:1600,height:1050});
+    await builder.getByLabel('Locator strategy',{exact:true}).selectOption('css');
     await builder.getByLabel('Parent CSS selector (optional)').fill('form[data-testid="login"]');
     await builder.getByLabel('Match index (optional, starts at 0)').fill('-1');
     assert.equal(await builder.getByRole('button',{name:'Use this combination'}).isDisabled(),true,'invalid indexing cannot silently broaden the selector');

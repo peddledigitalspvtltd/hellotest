@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { projectBrowserCapabilities } = require('../../backend/lib/automationBrowserCapabilities');
+const { projectBrowserCapabilities } = require("../../backend/lib/browser/automationBrowserCapabilities");
 
 const names = [
   'browser_navigate', 'browser_snapshot', 'browser_screenshot', 'browser_hover',

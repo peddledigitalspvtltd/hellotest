@@ -23,6 +23,9 @@ function validateGroundedClaims(rawClaims, evidence, { claimVerifier, trustDeter
       continue;
     }
     const sources = evidenceIds.map(id => byId.get(id));
+    // A verifier may answer true (verified), false (reject), or an object
+    // { status: "supported" | "unsupported" | "unverified", method, notes }.
+    // "unverified" keeps the claim but says it was not independently checked.
     let verdict;
     if (claimVerifier) {
       try {
@@ -39,11 +42,19 @@ function validateGroundedClaims(rawClaims, evidence, { claimVerifier, trustDeter
       if (verdict && typeof verdict.then === "function")
         verdict = false;
     }
-    if (verdict === false) {
+    const detail = verdict && typeof verdict === "object" ? verdict : null;
+    if (verdict === false || detail?.status === "unsupported") {
       rejected += 1;
       continue;
     }
-    const method = trustDeterministic ? "DETERMINISTIC" : verdict === true ? "VERIFIED_ENTAILMENT" : supportedText(statement, sources) ? "EXTRACTIVE" : "CITATION_BOUND";
+    const verified = verdict === true || detail?.status === "supported";
+    const method = trustDeterministic ? "DETERMINISTIC" : verified ? "VERIFIED_ENTAILMENT" : supportedText(statement, sources) ? "EXTRACTIVE" : "CITATION_BOUND";
+    const verification = method === "DETERMINISTIC" ? { status: "verified", method: "server_deterministic" }
+      : method === "VERIFIED_ENTAILMENT" ? { status: "verified", method: text(detail?.method, 80) || "claim_verifier" }
+      : method === "EXTRACTIVE" ? { status: "extractive", method: "verbatim_quote_of_cited_evidence" }
+      : { status: "unverified", method: text(detail?.method, 80) || "citation_binding_only" };
+    const notes = ids(detail?.notes).map(note => note.slice(0, 300)).slice(0, 5);
+    if (notes.length) verification.notes = notes;
     const cleanStatement = statement.replace(/\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g, "").replace(/\s+/g, " ").trim();
     if (!cleanStatement || accepted.some(item => normalize(item.statement) === normalize(cleanStatement)))
       continue;
@@ -53,7 +64,8 @@ function validateGroundedClaims(rawClaims, evidence, { claimVerifier, trustDeter
       text: cleanStatement,
       evidence_ids: evidenceIds,
       classification: method === "CITATION_BOUND" ? "INTERPRETATION" : "SUPPORTED",
-      support_method: method
+      support_method: method,
+      verification
     });
   }
   return {

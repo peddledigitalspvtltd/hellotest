@@ -1,8 +1,8 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {browserPromptContext,browserCurrentSnapshotObservation}=require('../../backend/lib/automationBrowserContext');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {recordedSectionRequests}=require('../../backend/lib/automationBrowserRecording');
+const {browserPromptContext,browserCurrentSnapshotObservation}=require("../../backend/lib/browser/automationBrowserContext");
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {recordedSectionRequests}=require("../../backend/lib/browser/automationBrowserRecording");
 const receipt=(value,error=false)=>({isError:error,content:[{type:'text',text:JSON.stringify({source:'playwright',url:'https://app.test/dashboard',...value})}]});
 const snapshot=(scope='body',step='current')=>({tool:'browser_snapshot',execution_step_id:step,result:receipt({observation_id:scope,scope,elements:[
  {tag:'a',accessible_role:'link',accessible_name:scope==='body'?'Employee Management':'Log Out',text:scope==='body'?'Employee Management':'Log Out',displayed:true,locators_validated:true,locator_candidates:[scope==='body'?'#employees':'#logout']}

@@ -11,7 +11,9 @@ const {
   isMobileRecorderTarget
 } = require("../src/utils/mobileFeature");
 
-const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+const readSource = (relativePath) => /\/(testEngineDispatch|aiAutomationBuilder)\.service\.js$/.test(relativePath)
+  ? require("./helpers/sourceFile").readOwnedAutomationSource(path.basename(relativePath, ".js"))
+  : readFile(path.join(__dirname, relativePath), "utf8");
 
 test("pure mobile detectors recognize nested authoring payloads without matching prose", () => {
   assert.equal(MOBILE_FEATURE_KEY, "hellotest.mobile.appium");
@@ -72,7 +74,7 @@ test("execution routes and background services enforce the retained mobile featu
 
 test("iOS authoring is dispatched through the shared Appium mobile engine", async () => {
   const dispatchService = await readSource("../../../automation/backend/services/testEngineDispatch.service.js");
-  const mobileConfiguration = await readSource("../../../automation/backend/lib/automationMobileConfiguration.js");
+  const mobileConfiguration = await readSource("../../../automation/backend/lib/build/automationMobileConfiguration.js");
 
   assert.match(dispatchService, /SUPPORTED_ENGINE_STEP_TYPES = new Set\(\["api", "web", "android", "ios"\]\)/);
   assert.doesNotMatch(dispatchService, /if \(normalized === "ios"\) \{\s*return "android";/);

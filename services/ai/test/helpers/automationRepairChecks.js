@@ -4,7 +4,7 @@ const {createServer}=require('node:http');
 const {pathToFileURL}=require('node:url');
 const path=require('node:path');
 exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructionRepair=false})=>{
-  const service=require('../../backend/services/automationRepair.service');
+  const service=require('../../../automation/backend/services/automationRepair.service');
   const executions=require('@hellotest/testing/backend/services/execution.service');
   const dispatch=require('../../../automation/backend/services/testEngineDispatch.service');
   const server=createServer((req,res)=>{res.setHeader('content-type','text/html');res.end('<input id="value"><button id="new" onclick="document.querySelector(\'#result\').textContent=document.querySelector(\'#value\').value===\'good\'?\'Accepted\':\'Rejected\'">Submit</button><p id="result">Waiting</p>');});

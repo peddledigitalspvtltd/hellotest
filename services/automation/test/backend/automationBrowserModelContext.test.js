@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { compactBrowserModelContext } = require('../../backend/lib/automationBrowserModelContext');
+const { compactBrowserModelContext } = require("../../backend/lib/browser/automationBrowserModelContext");
 
 const target = index => ({ ref: `ref:abc123abc123:${index + 1}`, role: 'textbox', tag: 'input', name: `Field ${index}`,
   visible: true, disabled: false, in_viewport: true,

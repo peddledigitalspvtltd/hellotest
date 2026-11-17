@@ -125,7 +125,7 @@ test("retry attempts respect call and cost budgets, including conservative faile
   assert.equal(calls, 3);
 });
 
-test("a failed buffered response body retries without leaking partial provider output into SSE", async (t) => {
+test("an accepted generation with a failed buffered body is not replayed or exposed as a successful SSE prefix", async (t) => {
   resetServiceResilienceState();
   let calls = 0;
   t.mock.method(global, "fetch", async () => {
@@ -140,11 +140,29 @@ test("a failed buffered response body retries without leaking partial provider o
   Object.assign(raw, { writableLength: 0, writeHead() {}, write: (value) => writes.push(value), end: () => { raw.writableEnded = true; } });
   await streamKnowledge({}, { raw, hijack() {}, getHeaders: () => ({}) }, ({ signal, onProgress }) => execution.run({ signal, onProgress }, () => assistant._internals.requestJsonCompletion(input("buffered-retry"))));
   const output = writes.join("");
-  assert.equal(calls, 2);
-  assert.equal((output.match(/event: result/g) || []).length, 1);
-  assert.equal((output.match(/event: error/g) || []).length, 0);
-  assert.doesNotMatch(output, /PRIVATE_PARTIAL_PROVIDER_TEXT/);
-  assert.match(output, /"model_attempt":2/);
+  assert.equal(calls, 1, "An accepted generation has an uncertain outcome and must not be paid for again.");
+  assert.equal((output.match(/event: result/g) || []).length, 0);
+  assert.equal((output.match(/event: error/g) || []).length, 1);
+  assert.doesNotMatch(output, /PRIVATE_PARTIAL_PROVIDER_TEXT|connection reset/);
+  assert.doesNotMatch(output, /"model_attempt":2/);
+
+});
+
+test("a connection failure before provider acceptance retries and publishes one complete SSE result", async t => {
+  resetServiceResilienceState();
+  const payloads=[];
+  t.mock.method(global,"fetch",async(_url,init)=>{
+    payloads.push(init.body);
+    if(payloads.length===1)throw Object.assign(new Error("connection reset before response"),{code:"ECONNRESET"});
+    return completion();
+  });
+  const raw=new EventEmitter(),writes=[];
+  Object.assign(raw,{writableLength:0,writeHead(){},write:value=>writes.push(value),end:()=>{raw.writableEnded=true;}});
+  await streamKnowledge({}, {raw,hijack(){},getHeaders:()=>({})},({signal,onProgress})=>execution.run({signal,onProgress},()=>assistant._internals.requestJsonCompletion(input("pre-response-retry"))));
+  const output=writes.join("");
+  assert.equal(payloads.length,2);assert.equal(payloads[0],payloads[1],"Retry preserves the exact request.");
+  assert.equal((output.match(/event: result/g)||[]).length,1);assert.equal((output.match(/event: error/g)||[]).length,0);
+  assert.match(output,/"model_attempt":2/);assert.doesNotMatch(output,/connection reset before response/);
 });
 
 test("embedding retries recover before indexing switches to local fallback", async (t) => {

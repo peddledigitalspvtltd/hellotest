@@ -1,4 +1,4 @@
-import type { KnowledgeAssistantMessageResponse, KnowledgeRetrievalEvent } from "@hellotest/platform/frontend/src/types";
+import type { KnowledgeAssistantMessageResponse, KnowledgeCitation, KnowledgeRetrievalEvent } from "@hellotest/platform/frontend/src/types";
 
 export class KnowledgeStreamError extends Error {
   code: string;
@@ -26,7 +26,17 @@ export type KnowledgeAnswerDelta = {
   verification: "complete";
   answer_id: string;
   sequence: number;
+  section_index?: number;
+  section_count?: number;
   text: string;
+};
+
+export type KnowledgeAnswerSources = {
+  contract_type: "AnswerSources";
+  contract_version: "1.0";
+  verification: "complete";
+  answer_id: string;
+  citations: KnowledgeCitation[];
 };
 
 export function isKnowledgeAnswerDelta(value: unknown): value is KnowledgeAnswerDelta {
@@ -35,7 +45,23 @@ export function isKnowledgeAnswerDelta(value: unknown): value is KnowledgeAnswer
   return delta.contract_type === "AnswerDelta" && delta.contract_version === "1.0" && delta.verification === "complete"
     && typeof delta.answer_id === "string" && delta.answer_id.length > 0 && delta.answer_id.length <= 255
     && typeof delta.sequence === "number" && Number.isSafeInteger(delta.sequence) && delta.sequence >= 0
+    && (delta.section_index === undefined || (typeof delta.section_index === "number" && Number.isSafeInteger(delta.section_index) && delta.section_index >= 0))
+    && (delta.section_count === undefined || (typeof delta.section_count === "number" && Number.isSafeInteger(delta.section_count) && delta.section_count > 0 && delta.section_count <= 1000))
+    && (delta.section_index === undefined || delta.section_count === undefined || Number(delta.section_index) < Number(delta.section_count))
     && typeof delta.text === "string" && delta.text.length > 0 && delta.text.length <= 4_096;
+}
+
+export function isKnowledgeAnswerSources(value: unknown): value is KnowledgeAnswerSources {
+  if (!value || typeof value !== "object") return false;
+  const sources = value as Record<string, unknown>;
+  return sources.contract_type === "AnswerSources" && sources.contract_version === "1.0" && sources.verification === "complete"
+    && typeof sources.answer_id === "string" && sources.answer_id.length > 0 && sources.answer_id.length <= 255
+    && Array.isArray(sources.citations) && sources.citations.length <= 30
+    && sources.citations.every(item => item && typeof item === "object" && !Array.isArray(item)
+      && typeof (item as Record<string, unknown>).id === "string" && String((item as Record<string, unknown>).id).length <= 255
+      && ((item as Record<string, unknown>).title === undefined || (typeof (item as Record<string, unknown>).title === "string" && String((item as Record<string, unknown>).title).length <= 500))
+      && ((item as Record<string, unknown>).source_id === undefined || (item as Record<string, unknown>).source_id === null || (typeof (item as Record<string, unknown>).source_id === "string" && String((item as Record<string, unknown>).source_id).length <= 255))
+      && ((item as Record<string, unknown>).source_kind === undefined || (item as Record<string, unknown>).source_kind === null || (typeof (item as Record<string, unknown>).source_kind === "string" && String((item as Record<string, unknown>).source_kind).length <= 80)));
 }
 
 /** Parse authenticated fetch SSE, including split UTF-8 characters and CRLF boundaries. */
@@ -43,6 +69,7 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
   signal?: AbortSignal;
   onProgress?: (event: KnowledgeRetrievalEvent) => void;
   onAnswerDelta?: (delta: KnowledgeAnswerDelta) => void;
+  onAnswerSources?: (sources: KnowledgeAnswerSources) => void;
 } = {}): Promise<KnowledgeAssistantMessageResponse> {
   if (!response.body) throw new KnowledgeStreamError("The answer stream is unavailable. Retry this turn.");
   const reader = response.body.getReader();
@@ -61,7 +88,7 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
   const dispatch = () => {
     if (!data.length) { eventName = "message"; return; }
     // SSE permits new event types. Ignore them without interpreting their data.
-    if (!["error", "progress", "retrieval_progress", "answer_delta", "result"].includes(eventName)) {
+    if (!["error", "progress", "retrieval_progress", "answer_sources", "answer_delta", "result"].includes(eventName)) {
       eventName = "message"; data = []; eventSize = 0; return;
     }
     let value: unknown;
@@ -75,6 +102,11 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
     if (["progress", "retrieval_progress"].includes(eventName)) {
       if (!isKnowledgeRetrievalEvent(value)) throw new KnowledgeStreamError("This answer stream uses an unsupported progress contract.", "UNSUPPORTED_CONTRACT", false);
       options.onProgress?.(value);
+    } else if (eventName === "answer_sources") {
+      if (!isKnowledgeAnswerSources(value)) throw new KnowledgeStreamError("The assistant sent an unsupported evidence card contract.", "UNSUPPORTED_ANSWER_SOURCES", false);
+      if (answerId && value.answer_id !== answerId) throw new KnowledgeStreamError("The answer evidence belongs to a different turn.", "INVALID_ANSWER_SEQUENCE");
+      answerId = value.answer_id;
+      options.onAnswerSources?.(value);
     } else if (eventName === "answer_delta") {
       if (!isKnowledgeAnswerDelta(value)) throw new KnowledgeStreamError("The assistant sent an unsupported answer delivery contract.", "UNSUPPORTED_ANSWER_DELTA", false);
       if (value.sequence !== answerSequence || (answerId && value.answer_id !== answerId)) throw new KnowledgeStreamError("The answer delivery sequence was interrupted. Resume this turn.", "INVALID_ANSWER_SEQUENCE");
@@ -167,6 +199,7 @@ export function knowledgeModelFailureMessage(code?: string) {
   if (code === "MODEL_CONFIGURATION_ERROR") return "The selected model's provider URL is invalid. Check its connection in Integrations, or choose another answer model. Your retrieved sources are still available.";
   if (code === "MODEL_QUOTA_EXCEEDED") return "The selected model has reached its provider quota. Check the provider account or choose another answer model. Your retrieved sources are still available.";
   if (code === "MODEL_RATE_LIMITED") return "The answer model is handling too many requests. Try again shortly or choose another model. Your retrieved sources are still available.";
+  if (code === "MODEL_PROVIDER_LIMITED") return "The answer provider is limiting requests or its available quota is exhausted. Review the selected connection's rate limits, usage and billing, or choose another model. Your retrieved sources are still available.";
   if (code === "MODEL_TIMEOUT") return "The answer model did not finish in time. Your retrieved sources are available below; you can also try another model.";
   if (["MODEL_EMPTY_RESPONSE", "MODEL_OUTPUT_TRUNCATED", "MODEL_INVALID_RESPONSE"].includes(code || "")) return "The model did not return a complete, usable answer. Review the available evidence below, then retry or choose another model.";
   if (code === "MODEL_REQUEST_REJECTED") return "The selected model rejected this request. Check its configuration or choose another model. Your retrieved sources are still available.";

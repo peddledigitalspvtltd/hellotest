@@ -28,7 +28,8 @@ test("governed preference authorization uses persistence's canonical keys", asyn
   for (const key of settings.GOVERNED_WORKSPACE_PREFERENCE_KEYS) {
     for (const submittedKey of [key, ` ${key} `, `\t${key}\n`]) {
       const response = await app.inject({ method: "PUT", url: "/settings/workspace-preferences", payload: { preferences: { [submittedKey]: {} } } });
-      assert.equal(response.statusCode, 403, submittedKey);
+      assert.equal(response.statusCode, 409, submittedKey);
+      assert.equal(response.json().code,key.startsWith("ai_metric_")?"METRIC_GOVERNANCE_MOVED":"AI_CONFIGURATION_MOVED");
     }
   }
   assert.equal(writes.mock.callCount(), 0);

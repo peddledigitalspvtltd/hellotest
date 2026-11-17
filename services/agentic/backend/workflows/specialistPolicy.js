@@ -1,5 +1,5 @@
-const profiles = require("../../shared/workflowSpecialists.json");
-const tools = new Set(["project_evidence", "knowledge_search"]);
+const profiles = require("@hellotest/contracts/agents/workflowSpecialists.json");
+const tools = new Set(["project_evidence", "knowledge_search", "record_read", "graph_read"]);
 const scopes = new Set(["stories", "test-cases", "runs", "bugs", "automation", "knowledge"]);
 const fail = message => Object.assign(new Error(message), { statusCode: 422, publicMessage: message });
 function policy(data = {}) {
@@ -9,7 +9,7 @@ function policy(data = {}) {
   if (new Set(configuredSkills.map(skill => skill.id)).size !== configuredSkills.length) throw fail("Each selected skill must be unique.");
   const skills = configuredSkills.filter(skill => skill.enabled !== false);
   const allowedTools = data.allowedTools === undefined ? profile.allowedTools : data.allowedTools;
-  if (!Array.isArray(allowedTools) || allowedTools.some(tool => !tools.has(tool))) throw fail("Choose supported specialist tools: Project evidence or Knowledge search.");
+  if (!Array.isArray(allowedTools) || allowedTools.some(tool => !tools.has(tool))) throw fail("Choose supported read-only specialist tools: Project evidence, Knowledge search, observed record read or witnessed graph read.");
   const aliases = { requirements: "stories", "test-runs": "runs", "object-repository": "automation" };
   const selectedScopes = data.knowledgeScope === undefined ? profile.scopes : String(data.knowledgeScope).split(",").map(scope => aliases[scope.trim()] || scope.trim()).filter(Boolean);
   if (selectedScopes.some(scope => !scopes.has(scope))) throw fail("Choose supported evidence scopes: stories, test-cases, runs, bugs, automation, knowledge.");

@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { browserBootstrapFailure } = require('../../backend/lib/automationBrowserBootstrapFailure');
-const { buildFailureProgress } = require('../../backend/lib/automationBuildFailureProgress');
-const { retainBrowserDiagnostic, DIAGNOSTIC_MIME } = require('../../backend/lib/automationBrowserDiagnosticArtifact');
+const { browserBootstrapFailure } = require("../../backend/lib/browser/automationBrowserBootstrapFailure");
+const { buildFailureProgress } = require("../../backend/lib/build/automationBuildFailureProgress");
+const { retainBrowserDiagnostic, DIAGNOSTIC_MIME } = require("../../backend/lib/browser/automationBrowserDiagnosticArtifact");
 
 const launchFailure = message => browserBootstrapFailure({isError:true,content:[{type:'text',text:JSON.stringify({
   code:'BROWSER_LAUNCH_FAILED',launch_phase:'startup',startup_stage:'browser',action_outcome:'not_attempted',retry_safe:true,message

@@ -237,6 +237,14 @@ const archiveSourceAndCancelWork = (source, { skipBusyJobs = false } = {}) => db
   await require("./knowledgeGraph.service").archiveSource({ projectId: source.project_id, sourceId: source.id });
 })();
 
+const archiveNativeSource = async ({ projectId, sourceKind, sourceRefId } = {}) => {
+  const source = await db.prepare(`SELECT * FROM ai_knowledge_sources WHERE project_id=? AND source_kind=? AND source_ref_id=?
+    AND extraction_status<>'archived' ORDER BY updated_at DESC LIMIT 1`).get(projectId, sourceKind, sourceRefId);
+  if (!source) return { archived: false, source_id: null };
+  await archiveSourceAndCancelWork(source);
+  return { archived: true, source_id: source.id };
+};
+
 const remove = async ({ source, user }) => {
   // permissionCode: "knowledge.manage" governs tombstoning and historical audit.
   await authorization.assertHistoricalAccess(user, source.project_id);
@@ -270,6 +278,19 @@ const archiveMissingApplicationSources = ({ limit = 20 } = {}) => db.transaction
         SELECT 1 FROM feedback records WHERE records.id = sources.source_ref_id AND records.project_id = sources.project_id))
       OR (sources.source_kind = 'execution' AND NOT EXISTS (
         SELECT 1 FROM executions records WHERE records.id = sources.source_ref_id AND records.project_id = sources.project_id))
+      OR (sources.source_kind = 'execution_result' AND NOT EXISTS (
+        SELECT 1 FROM execution_results results JOIN executions runs ON runs.id=results.execution_id
+        WHERE results.id=sources.source_ref_id AND runs.project_id=sources.project_id))
+      OR (sources.source_kind = 'test_suite' AND NOT EXISTS (
+        SELECT 1 FROM test_suites records JOIN app_types apps ON apps.id=records.app_type_id
+        WHERE records.id=sources.source_ref_id AND apps.project_id=sources.project_id))
+      OR (sources.source_kind = 'test_module' AND NOT EXISTS (
+        SELECT 1 FROM test_case_modules records JOIN app_types apps ON apps.id=records.app_type_id
+        WHERE records.id=sources.source_ref_id AND apps.project_id=sources.project_id))
+      OR (sources.source_kind = 'release' AND NOT EXISTS (
+        SELECT 1 FROM requirement_releases records WHERE records.id=sources.source_ref_id AND records.project_id=sources.project_id))
+      OR (sources.source_kind = 'sprint' AND NOT EXISTS (
+        SELECT 1 FROM requirement_iterations records WHERE records.id=sources.source_ref_id AND records.project_id=sources.project_id))
       OR (sources.source_kind = 'knowledge_item' AND NOT EXISTS (
         SELECT 1 FROM ai_knowledge_repo records WHERE records.id = sources.source_ref_id
           AND records.project_id = sources.project_id AND records.is_active = TRUE))
@@ -290,5 +311,6 @@ module.exports = {
   listRevisions,
   list,
   remove,
+  archiveNativeSource,
   archiveMissingApplicationSources
 };

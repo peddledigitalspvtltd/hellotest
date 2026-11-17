@@ -1,3 +1,12 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+.page-content--automation .editor-accordion-section,
+.page-content--automation .editor-accordion .editor-accordion-section.is-expanded { background: var(--ui-surface); border-color: var(--ui-border); box-shadow: none; }
+.page-content--automation .editor-accordion-body { border-color: var(--ui-border); }
+.automation-recording-continuity { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 12px 20px; padding: 12px 16px; border: 1px solid var(--ui-teal-border); border-radius: var(--ui-radius); background: var(--ui-teal-surface); color: var(--ui-teal-text); }
+.automation-recording-continuity > span { min-width: 0; overflow-wrap: anywhere; }
+.automation-mapping-review { margin: 0.5rem 1rem; padding: 0.75rem; border: 1px solid var(--ui-amber-border); border-radius: var(--ui-radius); color: var(--ui-amber-text); background: var(--ui-amber-surface); }
+.automation-mapping-review p { margin: 0 0 0.5rem; }
+
 .page-content--automation { --automation-muted: var(--app-text-muted); color: var(--app-text); }
 .page-content--automation .automation-case-detail { min-width: 0; }
 .automation-selection-hint { color: var(--app-text-muted); font-size: 12px; align-self: center; }
@@ -43,7 +52,7 @@
 .page-content--automation .automation-quality-launch { float: right; margin-top: -48px; }
 .page-content--automation .automation-build-methods { background: var(--app-surface-muted); padding: 5px; border: 1px solid var(--app-border); border-radius: 10px; display: flex; gap: 4px; margin-bottom: 20px; }
 .page-content--automation .automation-build-methods > button { flex: 1; padding: 10px 12px; color: var(--app-text-muted); border: 0; border-radius: 7px; box-shadow: none; background: transparent; justify-content: center; font-size: 13px; }
-.page-content--automation .automation-build-methods > button[aria-pressed="true"] { color: var(--app-accent); background: var(--app-surface); box-shadow: 0 1px 3px #00000010; }
+.page-content--automation .automation-build-methods > button[aria-pressed="true"] { color: var(--app-accent); background: var(--app-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--ui-shadow) 6.275%, transparent); }
 .automation-unsaved-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--app-border); border-radius: var(--app-radius); padding: 10px 14px; margin: 0 0 16px; font-size: 12px; background: var(--app-surface-muted); color: var(--app-text-muted); }
 .automation-build-evidence { padding: 18px 20px; border: 1px solid var(--app-border); border-left: 3px solid var(--app-accent); border-radius: var(--app-radius); background: var(--app-surface); margin: 0 0 20px; }
 .automation-build-evidence > header, .automation-build-evidence > footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
@@ -89,8 +98,8 @@
 .automation-run-profile { margin-top: 20px; border-top: 1px solid var(--app-border); padding-top: 16px; }
 .automation-run-profile summary { font-size: 13px; cursor: pointer; }
 .automation-run-profile[open] > div { margin-top: 16px; }
-.automation-validation-error { font-size: 12px; line-height: 1.6; color: #b7433c; overflow-wrap: anywhere; }
-[data-theme="dark"] .automation-validation-error { color: #ff9c90; }
+.automation-validation-error { font-size: 12px; line-height: 1.6; color: var(--ui-red-text); overflow-wrap: anywhere; }
+[data-theme="dark"] .automation-validation-error { color: var(--ui-red-text); }
 .automation-recovery { display: grid; gap: 12px; padding: 18px; background: var(--app-surface-muted); border: 1px solid var(--app-border); border-radius: 12px; }
 .automation-recovery p { font-size: 13px; line-height: 1.6; margin: 0; }
 .automation-recovery > span { font-size: 12px; color: var(--app-text-muted); }
@@ -221,7 +230,7 @@
 .automation-linked-data-heading > button { margin-left: auto; }
 .automation-case-test-params,
 .automation-linked-parameter-values {
-  border: 1px solid var(--border-color, #dce2ea);
+  border: 1px solid var(--border-color, var(--ui-border));
   border-radius: 10px;
   padding: 14px;
   margin-bottom: 16px;
@@ -244,7 +253,7 @@
   grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr);
   gap: 12px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--border-color, #dce2ea);
+  border-bottom: 1px solid var(--border-color, var(--ui-border));
 }
 
 .automation-case-parameter-values dt small {

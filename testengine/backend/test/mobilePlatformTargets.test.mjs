@@ -45,3 +45,23 @@ test('Unified iOS and Android blocks select separate frozen devices/apps and kee
   await assert.rejects(executeMobileSteps({...envelope,mobile_engine:{active:'local-appium',platform_name:'android',app:'android.apk'}},[{id:'wrong',step_type:'ios'}]),/does not match its frozen mobile target/);
   assert.equal(bodies.length,3,'missing or incompatible target fails before any native request');
 });
+
+test('native receipts reject successful subsets, reordered outcomes and contradictory aggregate statuses', async t => {
+  const previous=Object.fromEntries(['MOBILE_ENGINE_URL','MOBILE_ENGINE_SHARED_SECRET','NODE_ENV'].map(key=>[key,process.env[key]]));
+  Object.assign(process.env,{MOBILE_ENGINE_URL:'http://native.fixture',MOBILE_ENGINE_SHARED_SECRET:'hellotest-mobile-engine-dev-secret',NODE_ENV:'development'});
+  t.after(()=>{for(const[key,value]of Object.entries(previous))if(value===undefined)delete process.env[key];else process.env[key]=value;});
+  let receipt;
+  t.mock.method(globalThis,'fetch',async()=>Response.json(receipt));
+  const steps=[{id:'one',step_type:'android'},{id:'two',step_type:'android'}];
+  for (const result of [
+    {status:'passed',results:[]},
+    {status:'passed',results:[{step_id:'one',status:'passed'}]},
+    {status:'passed',results:[{step_id:'two',status:'passed'},{step_id:'one',status:'passed'}]},
+    {status:'passed',results:[{step_id:'one',status:'failed'}]},
+    {status:'failed',results:[{step_id:'one',status:'failed'},{step_id:'two',status:'passed'}]}
+  ]) { receipt=result; await assert.rejects(executeMobileSteps({},steps), /incomplete|out-of-order|inconsistent/); }
+  receipt={status:'failed',results:[{step_id:'one',status:'failed',note:'Assertion failed',evidence_warning:'Screenshot unavailable; result preserved.'}]};
+  const failed=await executeMobileSteps({},steps);
+  assert.equal(failed.results.length,1,'A failure can stop the remaining native block without claiming it ran.');
+  assert.match(failed.results[0].note,/Screenshot unavailable/);
+});

@@ -53,10 +53,11 @@ const loadBuilderTestFunctions = (records) => {
   const file = path.join(__dirname, "../../../automation/backend/services/aiAutomationBuilder.service.js");
   const dbStub = { transaction: callback => callback, prepare: () => ({ get: async () => null, all: async () => Array.from(records.values()), run: async () => ({ changes: 1 }) }) };
   const sandbox = { module: { exports: {} }, exports: {}, process, URL, Buffer, setTimeout, clearTimeout, console, require: (id) => {
+    if(id.startsWith("./builder/"))return require("node:module").createRequire(require.resolve("@hellotest/automation/build"))(id);
     if (dependencyName(id) === "db" || dependencyName(id) === "obsDb") return dbStub;
     if (id === "crypto") return require("crypto");
     if (dependencyName(id) === "testStepAutomation") return automationUtils;
-    if (dependencyName(id) === "automationGeneratedProgram") return require("../../../automation/backend/lib/automationGeneratedProgram");
+    if (dependencyName(id) === "automationGeneratedProgram") return require("../../../automation/backend/lib/build/automationGeneratedProgram");
     if (dependencyName(id) === "automationReadiness.service") return require("../../../automation/backend/services/automationReadiness.service");
     if (dependencyName(id) === "testStep.service") return { updateTestStep: async (id, update, options) => { assert.equal(options.syncSharedGroup, false); return Object.assign(records.get(id), update); } };
     return {};
@@ -121,14 +122,16 @@ test('the final persistence boundary cannot publish ready source with a missing 
 const loadService = (relativeFile, overrides) => {
   const file = path.join(__dirname, relativeFile);
   const exported = {};
-  const buildParameterPlan = require('../../../automation/backend/lib/automationBuildParameterPlan');
+  const buildParameterPlan = require("../../../automation/backend/lib/build/automationBuildParameterPlan");
   const helpers = {
     crypto: require('crypto'),
+    queueLease: require('@hellotest/contracts/runtime/lease'),
+    'automationAuthoringAdmission.service': {assertNoRecorder:async()=>({state:'idle'})},
     automationSchedule: { normalizeScheduledAt },
     automationStartUrl: require('../src/utils/automationStartUrl'),
     automationCaseType: require('../src/utils/automationCaseType'),
     'automationQueuedStartUrl.service': require('../../../automation/backend/services/automationQueuedStartUrl.service'),
-    automationBuildPipelineOptions: require('../../../automation/backend/lib/automationBuildPipelineOptions'),
+    automationBuildPipelineOptions: require("../../../automation/backend/lib/build/automationBuildPipelineOptions"),
     automationBuildParameterPlan: buildParameterPlan,
     'automationBuildParameterPlan.service': { buildParameterValues: buildParameterPlan.buildParameterValues,
       load: async () => assert.fail('This scheduling fixture does not select a parameter plan') },
@@ -150,7 +153,7 @@ test("both automation queues persist the future due time at their scheduling bou
     getTransaction: async () => ({ id: "transaction", title: "Automation build" }),
     appendTransactionEvent: async () => {}, createTransactionNotification: async () => {}
   };
-  const overrides = { "./aiAutomationFeaturePolicy": require('../../../automation/backend/services/aiAutomationFeaturePolicy'), "@hellotest/automation/backend/services/aiAutomationBuilder.service": {buildFeature:require('../../../automation/backend/services/aiAutomationFeaturePolicy').buildFeature}, "../lib/automationAgentContext":require('../../../automation/backend/lib/automationAgentContext'), "@hellotest/platform/backend/src/db": database, "@hellotest/platform/backend/src/obsDb": database, "@hellotest/platform/backend/services/workspaceTransaction.service": workspace };
+  const overrides = { "./aiAutomationFeaturePolicy": require('../../../automation/backend/services/aiAutomationFeaturePolicy'), "@hellotest/automation/build": {buildFeature:require('../../../automation/backend/services/aiAutomationFeaturePolicy').buildFeature}, "../lib/build/automationAgentContext":require("../../../automation/backend/lib/build/automationAgentContext"), "@hellotest/platform/backend/src/db": database, "@hellotest/platform/backend/src/obsDb": database, "@hellotest/platform/backend/services/workspaceTransaction.service": workspace };
   const batch = loadService("../../../testing/backend/services/batchProcess.service.js", overrides);
   const generator = loadService("../../../automation/backend/services/automationGenerator.service.js", overrides);
   const batchResult = await batch.queueAutomationBuild({ app_type_id: "app", test_case_ids: ["manual"], start_url: 'https://app.example.test/', scheduled_at: future, created_by: "author" });
@@ -231,7 +234,7 @@ test("automation status endpoint authorizes the transaction project and reports 
   const checks = [];
   const register = loadService("../../../testing/backend/routes/testCases.routes.js", {
     "@hellotest/platform/backend/services/workspaceTransaction.service": { getTransaction: async () => transaction },
-    "@hellotest/automation/backend/services/automationAgentActivity.service": {activity:async row=>({...row,events:[{id:"section-event",message:"Validated section instructions"}],events_has_more:false})},
+    "@hellotest/automation/activity": {activity:async row=>({...row,events:[{id:"section-event",message:"Validated section instructions"}],events_has_more:false})},
     "@hellotest/platform/backend/public/projectAccess": { getProject: async (projectId, userId) => { checks.push(["project", projectId, userId]); } }
   });
   const routes = new Map();

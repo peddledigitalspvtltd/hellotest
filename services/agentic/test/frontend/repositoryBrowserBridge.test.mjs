@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 import ts from "typescript";
-import * as bridge from "../../frontend/lib/repositoryBrowserBridge.ts";
+import * as bridge from "../../../automation/frontend/lib/repositoryBrowserBridge.ts";
 
 const require = createRequire(new URL('../../../platform/frontend/package.json', import.meta.url));
 const { renderToStaticMarkup } = require("react-dom/server");
@@ -133,7 +133,7 @@ function mountBrowser(overrides = {}) {
     }
   };
   const componentExports = {};
-  const code = ts.transpileModule(readFileSync(new URL("../../frontend/components/RepositoryInspectBrowser.tsx", import.meta.url), "utf8"), {
+  const code = ts.transpileModule(readFileSync(new URL("../../../automation/frontend/components/RepositoryInspectBrowser.tsx", import.meta.url), "utf8"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX }
   }).outputText;
   new Function("require", "exports", "window", "Node", code)((path) => {

@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { createRequire } = require('node:module');
-const dispatch = require('@hellotest/automation/backend/services/testEngineDispatch.service');
+const dispatch = require('@hellotest/automation/dispatch');
 const workspace = require('@hellotest/platform/backend/services/workspaceTransaction.service');
 const db = require('@hellotest/platform/backend/src/db');
 const obs = require('@hellotest/platform/backend/src/obsDb');
@@ -36,7 +36,7 @@ function fixture(t, integration) {
   const exports = { getExecution: async id => { assert.equal(id, execution.id); return execution; } };
   const executionCache = new Map([['run', 'stale']]);
   new Function('exports', 'require', 'integrationService', 'loadExecutionRuntimeContext', 'testEngineDispatchService', 'assertExecutableDispatchPlan', 'executionCache', prepare)(
-    exports, id => id === '@hellotest/automation/backend/services/pairedLocalExecution.service' ? paired : localRequire(id),
+    exports, id => id === '@hellotest/automation/paired-execution' ? paired : localRequire(id),
     { getActiveIntegrationByTypeForProject: async (...args) => { calls.push(args); return integration; } }, async value => value,
     dispatch, value => assert.equal(value.unsupported_automated_case_count, 0), executionCache
   );

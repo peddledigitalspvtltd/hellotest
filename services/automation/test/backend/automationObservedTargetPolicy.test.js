@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {projectModelSnapshot,resolveModelToolRequest,browserObservedTargetFeedback}=require('../../backend/lib/automationBrowserModelTargets');
+const {projectModelSnapshot,resolveModelToolRequest,browserObservedTargetFeedback}=require("../../backend/lib/browser/automationBrowserModelTargets");
 const candidate='getByLabel("Password", { exact: true })';
 const fixture=(extra={})=>({tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify({source:'playwright',observation_id:'actual-current-page',url:'https://fixture.test/login',scope:'body',
  elements:[{tag:'input',attributes:{id:'password',type:'password'},accessible_name:'Password',displayed:true,disabled:false,locators_validated:true,locator_candidates:[candidate,'#password']}],...extra})}]}});
@@ -96,7 +96,7 @@ test('canonical collisions across distinct validated targets refuse formatting-o
 });
 
 test('the actual compact actor dispatches a formatting-only alias once using its original captured locator',async()=>{
- const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+ const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
  const captured='getByRole("textbox", { name: "Email", exact: true })',calls=[];let models=0,saves=0;
  const snapshot=fixture({elements:[{tag:'input',attributes:{type:'email'},accessible_role:'textbox',accessible_name:'Email',displayed:true,locators_validated:true,locator_candidates:[captured]}]});
  await runAutomationBrowserAgent({actorMode:true,prompt:'Inspect only the email input.',execution:{required:true,step_id:'current',action:'Inspect the email input',expected_result:'The email input is visible'},parse:JSON.parse,initialObservations:[snapshot],
@@ -133,7 +133,7 @@ test('read-only discovery and native page, absence and count predicates keep the
 });
 
 test('the actual compact actor rejects a guessed positive locator with zero MCP calls before correction',async()=>{
- const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+ const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
  const snapshot=fixture(),stop=new Error('Stop after inspecting host correction');let models=0,calls=0;
  await assert.rejects(runAutomationBrowserAgent({actorMode:true,prompt:'Inspect only the password input.',execution:{required:true,step_id:'current',action:'Inspect the password input',expected_result:'The password input is visible'},parse:JSON.parse,
   initialObservations:[snapshot],browser:{tools:[{name:'browser_assert',inputSchema:{type:'object'}}],call:async()=>{calls++;return {isError:true,content:[{type:'text',text:JSON.stringify({source:'playwright',code:'BROWSER_ASSERTION_NOT_SATISFIED',assertion_outcome:'not_satisfied'})}]};}},
@@ -146,7 +146,7 @@ test('the actual compact actor rejects a guessed positive locator with zero MCP 
 });
 
 test('the actual actor can correct a guessed target to a current opaque reference and dispatch exactly once',async()=>{
- const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+ const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
  const stop=new Error('Stop after confirmed correction'),calls=[],observations=[];let models=0;
  await assert.rejects(runAutomationBrowserAgent({actorMode:true,prompt:'Inspect only the password input.',execution:{required:true,step_id:'current',action:'Inspect the password input',expected_result:'The password input is visible'},parse:JSON.parse,
   initialObservations:[fixture()],onObservation:row=>observations.push(row),browser:{tools:[{name:'browser_assert',inputSchema:{type:'object'}}],call:async(name,args)=>{
@@ -171,7 +171,7 @@ test('the actual actor can correct a guessed target to a current opaque referenc
 });
 
 test('repeating an identical guessed target stops after one correction without any MCP call or save',async()=>{
- const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+ const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
  let calls=0,models=0,saves=0;const observations=[];
  await assert.rejects(runAutomationBrowserAgent({actorMode:true,prompt:'Inspect only the password input.',execution:{required:true,step_id:'current',action:'Inspect the password input',expected_result:'The password input is visible'},parse:JSON.parse,
   initialObservations:[fixture()],onObservation:row=>observations.push(row),onPartialBuild:async()=>{saves++;},browser:{tools:[{name:'browser_assert',inputSchema:{type:'object'}}],call:async()=>{calls++;throw new Error('The guessed target cannot reach MCP');}},

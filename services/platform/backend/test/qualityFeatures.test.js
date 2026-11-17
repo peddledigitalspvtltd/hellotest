@@ -66,14 +66,31 @@ test("QA dashboard designer provides review-only widgets with explicit design pr
   assert.match(preview.provenance.confidence_basis, /no design accuracy score/);
   assert.equal(typeof preview.confidence, "number", "Retains the existing wire contract for older clients");
 
+  // Run the real managed model boundary with no published overrides. This
+  // product-contract fixture must not depend on a developer's live settings DB
+  // or observability pool being available during the complete workspace suite.
+  const db=require("../src/db"),nativePrepare=db.prepare.bind(db);
+  t.mock.method(db,"prepare",sql=>sql.includes("app_settings") ? {get:async()=>undefined,all:async()=>[]} : nativePrepare(sql));
+  const traces=require("../src/utils/llmTraceCapture");
+  t.mock.method(traces,"begin",async()=>({id:"dashboard-fixture",started:Date.now()}));
+  t.mock.method(traces,"dispatch",()=>{});t.mock.method(traces,"finish",async()=>{});
   const selection = require("../../../integration/backend/services/aiLlmSelection.service");
   let integration = null;
   t.mock.method(selection, "resolveLlmIntegrationForUsage", async () => integration);
   await assert.rejects(dashboards.designPreviewWithAi({ projectId: "project-1" }), { code: "AI_MODEL_REQUIRED" });
 
   integration = { id: "model-fixture", name: "Fixture provider", type: "llm", model: "fixture-model" };
-  t.mock.method(global, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ name: "Review dashboard", gadgets: [{ title: "Cases", metric: "testCases", type: "metric" }] }) } }] }), { status: 200 }));
+  const providerRequests=[];
+  t.mock.method(global, "fetch", async (_url,init) => {
+    providerRequests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ choices: [{finish_reason:"stop", message: { content: JSON.stringify({ name: "Review dashboard", gadgets: [{ title: "Cases", metric: "testCases", type: "metric" }] }) } }] }), { status: 200 });
+  });
   const generated = await dashboards.designPreviewWithAi({ projectId: "project-1" });
+  assert.equal(providerRequests.length,1);
+  assert.match(providerRequests[0].messages[0].content,/dashboard/i,"The actual managed system instructions reach the provider.");
+  const task=JSON.parse(providerRequests[0].messages.at(-1).content);
+  assert.equal(task.project_id,"project-1");assert.ok(task.allowed_metrics.includes("testCases"));
+  assert.equal(generated.dashboard.name,"Review dashboard");assert.equal(generated.dashboard.gadgets[0].metric,"testCases");
   assert.equal(generated.generation_mode, "llm");
   assert.equal(generated.provenance.design_method, "model_draft");
   assert.match(generated.provenance.design_basis, /normalized to supported widgets/);

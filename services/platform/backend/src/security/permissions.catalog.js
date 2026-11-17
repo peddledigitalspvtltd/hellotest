@@ -521,6 +521,8 @@ const ROUTE_PERMISSION_RULES = [
   ["POST", "/test-cases/automation/jobs/:transactionId/cancel", "automation.build"],
   ["POST", "/test-cases/automation/jobs/:transactionId/source-proposal", "automation.build"],
   ["GET", "/test-cases/automation/agent-activity", "automation.build"],
+  ["GET", "/test-cases/automation/jobs/:transactionId/events", "automation.build"],
+  ["GET", "/test-cases/:id/automation/authoring-state", "automation.view"],
   ["GET", "/test-cases/automation/agent-activities", "automation.build"],
   ["GET", "/test-cases/automation/jobs/:transactionId/screenshots/:artifactId", "automation.build"],
   ["GET", "/test-cases/automation/jobs/:transactionId/previews/:artifactId", "automation.build"],

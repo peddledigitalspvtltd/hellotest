@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 test('agent requests tools, receives observations and returns a single final structured build', async () => {
   const events=[];const prompts=[];const calls=[];
   const final={steps:[{step_id:'step',automation_code:'await page.getByRole("button", {name:"Save"}).click();'}]};
@@ -71,7 +71,7 @@ test('bounded model calls retain an existing browser session and its initial obs
  assert.equal(calls,1);assert.equal(result.automation_repair,null);
 });
 test('browser observation compression preserves recent evidence without malformed JSON or unbounded history',()=>{
- const {compactBrowserObservations}=require('../../backend/lib/automationBrowserAgent');
+ const {compactBrowserObservations}=require("../../backend/lib/browser/automationBrowserAgent");
  const history=Array.from({length:12},(_,index)=>({tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify({url:`https://app.test/${index}`,accessibility:'A'.repeat(40000),elements:[{label:'B'.repeat(50000)}]})}]}}));
  const packed=compactBrowserObservations(history);assert.ok(JSON.stringify(packed).length<33000);assert.match(JSON.stringify(packed.at(-1)),/app.test\/11/);assert.ok(packed.some(entry=>entry.result.omitted_older_observation||entry.result.content?.some(part=>part.text.includes("excerpt_truncated"))));for(const entry of packed)for(const item of entry.result.content || [])assert.doesNotThrow(()=>JSON.parse(item.text));
 });
@@ -123,6 +123,17 @@ test('a genuine transport timeout retains its safe cause while the native action
   assert.doesNotMatch(JSON.stringify(events),/PRIVATE/);
 });
 
+test('typed mutation transport timeouts stop before every dependent tool and model turn',async()=>{
+  for(const tool of ['browser_click','browser_fill','browser_press_key','browser_navigate']){
+    const calls=[],events=[];let turns=0;
+    const browser={tools:[{name:tool},{name:'browser_snapshot'}],call:async name=>{calls.push(name);throw Object.assign(new Error('PRIVATE lost acknowledgement'),{name:'TimeoutError',code:'BROWSER_TRANSPORT_TIMEOUT'});}};
+    await assert.rejects(runAutomationBrowserAgent({browser,prompt:'Perform the action once',parse:JSON.parse,onProgress:async event=>events.push(event),complete:async()=>{turns++;return JSON.stringify({tool_calls:[{name:tool,arguments:tool==='browser_navigate'?{url:'https://fixture.test'}:tool==='browser_fill'?{locator:'#name',value:'configured'}:tool==='browser_press_key'?{key:'Enter'}:{locator:'#save'}},{name:'browser_snapshot',arguments:{}}]});}}),
+      error=>error.code==='AUTOMATION_BROWSER_OUTCOME_UNKNOWN'&&error.browser_code==='BROWSER_TRANSPORT_TIMEOUT'&&error.nonRetryable&&error.retry_safe===false&&!/PRIVATE/.test(error.message));
+    assert.deepEqual(calls,[tool]);assert.equal(turns,1);assert.equal(events.filter(event=>event.phase==='automation.agent.action.unknown').length,1);
+    assert.doesNotMatch(JSON.stringify(events),/PRIVATE/);
+  }
+});
+
 test('optional screenshot timeout or tool error never blocks text-grounded generation or replays interactions',async()=>{
  for(const failure of ['timeout','tool']){
   const calls=[],events=[];
@@ -151,7 +162,7 @@ test('incremental section drafts validate before successive browser calls and th
  assert.deepEqual(order,['draft','browser']);assert.equal(result.steps[0].step_id,'two');assert.ok(observations.some(item=>item.tool==='automation_generation_feedback'));
 });
 test('incremental feedback and rejected browser requests do not consume remaining MCP calls across completion attempts',async()=>{
- const {remainingBrowserCalls}=require('../../backend/lib/automationBrowserAgent');
+ const {remainingBrowserCalls}=require("../../backend/lib/browser/automationBrowserAgent");
  const observations=[{tool:'browser_navigate'},{tool:'browser_snapshot'}],calls=[];let turns=0;
  const browser={tools:[{name:'browser_snapshot',inputSchema:{type:'object',properties:{},additionalProperties:false}}],call:async name=>{calls.push(name);return {content:[{type:'text',text:'Actual page evidence'}]};}};
  await runAutomationBrowserAgent({browser,prompt:'Progressive sections',parse:JSON.parse,maxCalls:1,initialObservations:observations,onObservation:item=>observations.push(item),onPartialBuild:async()=>({completed_step_ids:['one'],validation_errors:[]}),complete:async()=>{

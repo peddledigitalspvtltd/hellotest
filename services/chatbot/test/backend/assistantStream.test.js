@@ -60,6 +60,23 @@ test("a failing provider sends a public error, never provider text or a success 
   assert.equal(run.raw.writableEnded, true);
 });
 
+test("only a saved answer contract streams evidence cards before checked answer sections", async () => {
+  const run = fixture();
+  const content = "First checked section.\n\nSecond checked section.";
+  const complete = { assistant_message: { ...saved.assistant_message, content, citations: [{ id: "e1", title: "Checkout policy", source_id: "source-1", source_kind: "text" }] },
+    answer_contract: { contract_type: "AnswerContract", contract_version: "1.0", status: "answered", claims: [{ evidence_ids: ["e1"] }], citation_ids: ["e1"] } };
+  await streamAssistant(run.req, run.reply, async () => complete);
+  assert.deepEqual(run.frames.map(frame => frame.match(/^event: ([^\n]+)/)?.[1]), ["answer_sources", "answer_delta", "answer_delta", "result"]);
+  const sources = JSON.parse(run.frames[0].split("data: ")[1]);
+  assert.equal(sources.answer_id, "answer-1");
+  assert.equal(sources.citations[0].title, "Checkout policy");
+  const deltas = run.frames.slice(1, 3).map(frame => JSON.parse(frame.split("data: ")[1]));
+  assert.equal(deltas.map(delta => delta.text).join(""), content);
+  assert.deepEqual(deltas.map(delta => [delta.section_index, delta.section_count]), [[0, 2], [1, 2]]);
+  assert.ok(deltas.every(delta => delta.verification === "complete"));
+  assert.deepEqual(JSON.parse(run.frames[3].split("data: ")[1]), complete);
+});
+
 test("a slow reader is awaited before closing the complete answer", async () => {
   const run = fixture();
   let writes = 0;

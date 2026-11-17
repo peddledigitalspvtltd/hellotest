@@ -17,8 +17,10 @@ function selectedEdge(edge, result, targetKind, loopOwner) {
 function exclusive(node) {
   if (!Object.hasOwn(node, 'data') && node.exclusive != null) return node.exclusive;
   const data = node.data || node, kind = data.kind || node.type;
-  return ['loop', 'stop', 'artifactTask', 'repositoryAgent', 'mcpTool'].includes(kind)
-    || (['apiTool', 'apiAgent'].includes(kind) && !['GET', 'HEAD'].includes(String(data.apiMethod || 'GET').toUpperCase()));
+  // Accepted Temporal plans carry a pinned `exclusive` value above. Registry
+  // changes therefore affect only newly accepted plans and the local runner.
+  const rule = require('../../shared/workflowNodeKinds.json').kinds[kind]?.exclusive;
+  return rule === 'always' || rule === 'http_write' && !['GET', 'HEAD'].includes(String(data.apiMethod || 'GET').toUpperCase());
 }
 function readyBatch({ nodes, edges, results, pending, maxParallel = 1, loopOwner }) {
   const ready = nodes.filter(node => pending.has(node.id) && edges.filter(edge => edge.target === node.id && !isReturn(edge)).every(edge => edge.source === loopOwner || terminal(results.find(result => result.node_id === edge.source))));

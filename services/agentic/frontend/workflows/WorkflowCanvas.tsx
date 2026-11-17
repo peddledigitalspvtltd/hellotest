@@ -15,20 +15,22 @@ import {
   useUpdateNodeInternals,
   type ReactFlowProps,
 } from "@xyflow/react";
-import { createContext, useContext, useEffect, useRef, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useMemo, type RefObject } from "react";
 import { IconCheck, IconPlus, IconFocusCentered } from "@tabler/icons-react";
+import { loopPresentationBodies } from "./workflowPresentation";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import type {
   AgenticWorkflowNode,
   AgenticWorkflowEdge,
   AgenticWorkflowNodeData,
 } from "@hellotest/platform/frontend/src/types";
-import { isLoopReturnEdge, isWorkflowLoop, nodeKindLabels, workflowSourceHandles, type WorkflowNodeKind, type NodeInsertion } from "./workflowGraph";
+import { isLoopReturnEdge, isWorkflowLoop, nodeKindLabels, executableNodeKinds, workflowSourceHandles, type WorkflowNodeKind, type NodeInsertion } from "./workflowGraph";
 
 const InsertionContext = createContext<((insertion: NodeInsertion) => void) | undefined>(undefined);
 const ConnectedPortsContext = createContext(new Set<string>());
 
-export const EXECUTABLE_NODE_KINDS = new Set(Object.keys(nodeKindLabels));
+export const EXECUTABLE_NODE_KINDS = executableNodeKinds;
+const LoopPresentation = createContext<{ collapsed: Set<string>; bodies: Record<string,Set<string>>; toggle: (id:string)=>void }>({collapsed:new Set(),bodies:{},toggle:()=>{}});
 function WorkflowNode({
   id,
   data,
@@ -41,6 +43,7 @@ function WorkflowNode({
   const kind = String(data.kind || "agent") as WorkflowNodeKind;
   const status = String(data.runStatus || "");
   const onInsert = useContext(InsertionContext);
+  const loops = useContext(LoopPresentation);
   const connectedPorts = useContext(ConnectedPortsContext);
   const ports = workflowSourceHandles({ id, data } as AgenticWorkflowNode);
   const connectedLoop = isWorkflowLoop({ id, data } as AgenticWorkflowNode);
@@ -77,13 +80,14 @@ function WorkflowNode({
             ? status.replace(/_/g, " ")
             : EXECUTABLE_NODE_KINDS.has(kind)
               ? kind === "trigger"
-                ? "On manual execution"
+                ? "On configured trigger"
                 : kind === "output"
                   ? "Review the results"
                   : "Open to configure"
-              : "Preview only"}
+              : "Unsupported node"}
         </span>
       </div>
+      {connectedLoop && loops.bodies[id]?.size > 0 && <button type="button" className="studio-loop-collapse nodrag nopan" aria-expanded={!loops.collapsed.has(id)} aria-label={`${loops.collapsed.has(id) ? "Expand" : "Collapse"} loop body for ${data.label || id}`} onClick={event=>{event.stopPropagation();loops.toggle(id);}}>{loops.collapsed.has(id) ? "Expand" : "Collapse"} {loops.bodies[id].size} steps</button>}
       {status === "completed" && (
         <IconCheck className="studio-node-check" size={15} />
       )}
@@ -143,7 +147,7 @@ function FocusSelectedStep({ id }: { id: string }) {
   const { fitView } = useReactFlow();
   return <ControlButton title="Focus selected step" aria-label="Focus selected step" onClick={() => void fitView({ nodes: [{ id }], padding: 0.35, minZoom: 0.6, maxZoom: 1, duration: 200 })}><IconFocusCentered size={16} /></ControlButton>;
 }
-function FollowExecution({ id }: { id?: string }) {
+function FollowExecution({ id, request }: { id?: string; request?: number }) {
   const initialized = useNodesInitialized();
   const { fitView, getNode } = useReactFlow();
   useEffect(() => {
@@ -151,15 +155,19 @@ function FollowExecution({ id }: { id?: string }) {
     // The camera follows a new running step, never every polling update. Users
     // can still pan/zoom while the same step runs or disable following entirely.
     void fitView({ nodes: [{ id }], padding: 0.45, minZoom: 0.8, maxZoom: 1.05, duration: 350 });
-  }, [id, initialized, fitView, getNode]);
+  }, [id, request, initialized, fitView, getNode]);
   return null;
 }
 export function WorkflowCanvas(
-  { onInsert, focusNodeId, followNodeId, autoFitOnResize = true, ...props }: ReactFlowProps<AgenticWorkflowNode, AgenticWorkflowEdge> & { onInsert?: (insertion: NodeInsertion) => void; focusNodeId?: string; followNodeId?: string; autoFitOnResize?: boolean },
+  { onInsert, focusNodeId, followNodeId, focusRequest, autoFitOnResize = true, ...props }: ReactFlowProps<AgenticWorkflowNode, AgenticWorkflowEdge> & { onInsert?: (insertion: NodeInsertion) => void; focusNodeId?: string; followNodeId?: string; focusRequest?: number; autoFitOnResize?: boolean },
 ) {
   const container = useRef<HTMLDivElement>(null);
+  const [collapsed,setCollapsed] = useState(new Set<string>());
+  const bodies = useMemo(()=>loopPresentationBodies(props.nodes || [],props.edges || []),[props.nodes,props.edges]);
+  useEffect(()=>{ if (focusNodeId) setCollapsed(current=>new Set([...current].filter(owner=>!bodies[owner]?.has(focusNodeId)))); },[focusNodeId,focusRequest,bodies]);
+  const hidden = new Set([...collapsed].flatMap(owner=>[...(bodies[owner] || [])]));
   return (
-    <InsertionContext.Provider value={onInsert}><ConnectedPortsContext.Provider value={new Set(props.edges?.filter(edge => props.nodes?.find(node => node.id === edge.target)?.data.kind !== "errorHandler").map(edge => `${edge.source}:${edge.sourceHandle || ""}`))}><div ref={container} className="studio-canvas">
+    <LoopPresentation.Provider value={{collapsed,bodies,toggle:id=>setCollapsed(current=>{const next=new Set(current); if(next.has(id))next.delete(id);else next.add(id);return next;})}}><InsertionContext.Provider value={onInsert}><ConnectedPortsContext.Provider value={new Set(props.edges?.filter(edge => props.nodes?.find(node => node.id === edge.target)?.data.kind !== "errorHandler").map(edge => `${edge.source}:${edge.sourceHandle || ""}`))}><div ref={container} className="studio-canvas">
       <ReactFlow<AgenticWorkflowNode, AgenticWorkflowEdge>
         nodeTypes={nodeTypes}
         fitView
@@ -168,10 +176,11 @@ export function WorkflowCanvas(
         maxZoom={1.8}
         deleteKeyCode={null}
         {...props}
+        nodes={props.nodes?.map(node=>({...node,hidden:hidden.has(node.id)}))}
         edgeTypes={edgeTypes}
         edges={props.edges?.map(edge => {
           const returning = isLoopReturnEdge(edge, props.nodes || []);
-          return { ...edge,
+          return { ...edge, hidden: hidden.has(edge.source) || hidden.has(edge.target),
             data: { ...(edge.data && typeof edge.data === "object" ? edge.data : {}), loopReturn: returning },
             label: edge.label || (returning ? "continue" : edge.sourceHandle === "loop" ? "batch" : edge.sourceHandle === "done" ? "done" : undefined),
             style: { ...(edge.style && typeof edge.style === "object" ? edge.style : {}), ...(returning ? { strokeDasharray: "5 4" } : {}) },
@@ -180,11 +189,11 @@ export function WorkflowCanvas(
         })}
       >
         <FitCanvas container={container} enabled={autoFitOnResize} />
-        <FollowExecution id={followNodeId} />
+        <FollowExecution id={followNodeId} /><FollowExecution id={focusRequest ? focusNodeId : undefined} request={focusRequest} />
         <Background gap={22} size={1} />
         <Controls showInteractive={false}>{focusNodeId && <FocusSelectedStep id={focusNodeId} />}</Controls>
         <MiniMap pannable zoomable nodeColor="var(--studio-accent)" />
       </ReactFlow>
-    </div></ConnectedPortsContext.Provider></InsertionContext.Provider>
+    </div></ConnectedPortsContext.Provider></InsertionContext.Provider></LoopPresentation.Provider>
   );
 }

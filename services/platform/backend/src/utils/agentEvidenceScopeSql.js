@@ -1,5 +1,5 @@
 const { releaseStoryMembershipSql, releaseExecutionMembershipSql } = require('./deliveryScopeSql');
-const FIELDS = require('../../../shared/agentEvidenceScopeFields.json');
+const FIELDS = require('@hellotest/contracts/agents/evidenceScopeFields.json');
 const KEYS = FIELDS.map(field => field.key);
 const normalize = (input = {}, scopes) => Object.fromEntries(KEYS.filter(key => (
   (!Array.isArray(scopes) || FIELDS.find(field => field.key === key).scopes.some(scope => scopes.includes(scope)))

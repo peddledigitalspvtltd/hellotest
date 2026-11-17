@@ -69,6 +69,7 @@ COPY services/chatbot/package.json ./services/chatbot/package.json
 COPY services/ai/package.json ./services/ai/package.json
 COPY services/trace/package.json ./services/trace/package.json
 COPY services/integration/package.json ./services/integration/package.json
+COPY services/contracts/package.json ./services/contracts/package.json
 RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 COPY --chown=node:node services/capabilities.json ./services/capabilities.json
@@ -89,6 +90,7 @@ COPY --chown=node:node services/ai/backend ./services/ai/backend
 COPY --chown=node:node services/ai/shared ./services/ai/shared
 COPY --chown=node:node services/trace/backend ./services/trace/backend
 COPY --chown=node:node services/integration/backend ./services/integration/backend
+COPY --chown=node:node services/contracts ./services/contracts
 COPY --from=inspection-agent-runtime --chown=node:node /source/services/platform/backend/src/assets/inspection-agent-runtime.json ./services/platform/backend/src/assets/inspection-agent-runtime.json
 
 ARG HELLOTEST_CAPABILITY=all

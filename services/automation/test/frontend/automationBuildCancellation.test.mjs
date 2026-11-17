@@ -1,3 +1,4 @@
+import {automationOwnerAst,findAutomationBinding} from "./helpers/automationWorkspaceSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -17,7 +18,7 @@ const load = (file, dependencies = {}) => {
   return exports;
 };
 const monitoring = load("../../frontend/lib/automationActivityMonitoring.ts");
-const page = ts.createSourceFile("AutomationPage.tsx", source("../../frontend/pages/AutomationPage.tsx"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const page = automationOwnerAst("workspaces/case/useAutomationCaseBuildActions.tsx");
 const find = (node, predicate) => predicate(node) ? node : ts.forEachChild(node, child => find(child, predicate));
 const cancelMutation = find(page, node => ts.isVariableDeclaration(node) && node.name.getText(page) === "cancelAutomationBuild");
 assert.ok(cancelMutation && ts.isCallExpression(cancelMutation.initializer));
@@ -29,7 +30,7 @@ const mutationFixture = (overrides = {}) => {
     agentBuildTracking: { transactionId: "build", projectId: "project" },
     api: { testCases: { cancelAutomationBuild: async id => { calls.push(id); return { transaction_id: id, status: "cancelled", cancelled: true }; } } },
     queryClient: { invalidateQueries: async options => { invalidated.push(options.queryKey); } },
-    setAgentBuildStatus: value => statuses.push(value), setAgentBuildRetryIds: () => {}, setAgentBuildReceipt: value => receipts.push(value),
+    authoring:{buildUpdated:(id,status)=>{assert.equal(id,"build");statuses.push(status);}},reviewBuildCancelled:id=>assert.equal(id,"build"),reviewBuildNotice:value=>receipts.push(value),
     showSuccess: value => successes.push(value), showError: () => {}, ...overrides
   };
   const options = new Function(...Object.keys(context), transpile(`return (${mutationSource});`))(...Object.values(context));
@@ -42,8 +43,11 @@ function activityFixture({ current = activity(), previous, selectedId = "", deni
   const stops = [], refetches = [], workspaces = [];
   const Workspace = props => { workspaces.push(props); return React.createElement("div", { "data-workspace-stopped": props.stopped || undefined }, "Saved source and evidence"); };
   const dependencies = {
+    "@hellotest/ai/agent-activity": { AgentActivityDisclosure: () => null },
+    "../hooks/useAutomationActivityStream": { useAutomationActivityStream: () => ({ state: "polling", connected: false, error: null }) },
+    "../lib/automationQueryKeys": load("../../frontend/lib/automationQueryKeys.ts"),
     react: { ...React, useEffect: () => {}, useRef: value => ({ current: value }), useState: value => [stateIndex++ === 0 ? selectedId : value, () => {}] },
-    "@tanstack/react-query": { useQuery: options => ({
+    "@tanstack/react-query": { useQueryClient: () => ({ setQueryData() {} }), useQuery: options => ({
       data: options.queryKey[0] === "automation-agent-history" ? { items: history, next_cursor: null }
         : options.queryKey[0] === "automation-agent-record" ? previous : current,
       isPending: false, isFetching: false, isError: false,
@@ -174,19 +178,18 @@ test("a successful scoped stop refreshes activity, history and detail without ch
 });
 
 test("a refreshed completed cancellation receipt remains Stopped and loads its retained saved Plan", async () => {
-  const handler = find(page, node => ts.isVariableDeclaration(node) && node.name.getText(page) === "handleAutomationAgentActivity");
+  const {node:handler,ast:handlerAst}=findAutomationBinding("handleAutomationAgentActivity","workspaces/case/useAutomationCaseServices.tsx");
   const { automationSavedPlanReceipt } = load("../../frontend/lib/automationBuildTracking.ts");
   const statuses = [], retries = [], plans = [];
   const context = {
     projectId: "project", appTypeId: "app", selectedCaseId: "case", agentBuildStatus: "running",
     agentBuildTracking: { transactionId: "build", projectId: "project", caseIds: ["case"] }, latestAgentActivityRef: { current: null },
-    setAgentBuildTracking: () => {}, setAgentBuildStatus: value => statuses.push(value), setAgentBuildReceipt: () => {},
-    setAgentBuildOutputIds: () => {}, setAgentBuildRetryIds: value => retries.push(value), automationSavedPlanReceipt,
+    authoring:{buildUpdated:()=>{}},reviewBuildActivity:value=>{statuses.push(value.status);retries.push(value.retryIds);},reviewBuildSource:()=>{},automationSavedPlanReceipt,
     handledAgentActivityRef: { current: new Set() }, refreshingAgentActivityRef: { current: new Set() },
     openGeneratedAutomationPlan: async (...args) => { plans.push(args); }, setAgentPlanRefreshError: () => {}, invalidateAutomationData: () => {},
     currentAutomationSelectionRef: { current: { projectId: "project", selectedCaseId: "case" } }
   };
-  const onUpdate = new Function(...Object.keys(context), transpile(`return (${handler.initializer.getText(page)});`))(...Object.values(context));
+  const onUpdate = new Function(...Object.keys(context), transpile(`return (${handler.initializer.getText(handlerAst)});`))(...Object.values(context));
   const receipt = activity({ status: "completed", metadata: {
     cancelled: true, outcome_status: "cancelled", input_test_case_ids: ["case"], output_test_case_ids: ["case"],
     retry_test_case_ids: ["case"], step_progress: [{ test_case_id: "case", step_id: "saved", instruction_status: "saved", preview_artifact_id: "retained-preview" }]

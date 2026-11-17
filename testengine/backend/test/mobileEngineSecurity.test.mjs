@@ -54,7 +54,7 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
     assert.equal(payload.parameter_values["r.first name"], "row default");
     assert.equal(payload.parameter_values["r.amount"], "12");
     assert.equal(payload.parameter_values["r.token"], "resumed token");
-    return new Response(JSON.stringify({ status: "passed", results: [] }), {
+    return new Response(JSON.stringify({ status: "passed", results: payload.steps.map(step => ({step_id:step.id,status:"passed"})) }), {
       status: 200,
       headers: { "content-type": "application/json" }
     });
@@ -67,7 +67,7 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
       data_set: { source: "test_case", mode: "table", rows: [{ "First Name": "row default", amount: 12 }] },
       environment: { variables: [{ key: "token", value: "environment token" }] }
     }, [{ id: "mobile", step_type: "android" }], { "r.token": "resumed token" });
-    assert.deepEqual(result, { status: "passed", results: [] });
+    assert.deepEqual(result, { status: "passed", results: [{step_id:"mobile",status:"passed"}] });
   } finally {
     globalThis.fetch = previous.fetch;
     for (const name of ["MOBILE_ENGINE_URL", "MOBILE_ENGINE_SHARED_SECRET", "NODE_ENV"]) {

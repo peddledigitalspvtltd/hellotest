@@ -32,6 +32,7 @@ const queryClient = createAppQueryClient();
 // needed. Authenticated destinations keep the existing route-level splitting.
 const AppShell = lazy(() => import("./platform/components/AppShell").then((module) => ({ default: module.AppShell })));
 const AuthPage = lazy(() => import("@hellotest/platform/frontend/pages/AuthPage").then((module) => ({ default: module.AuthPage })));
+const McpOAuthAuthorizePage = lazy(() => import("./platform/pages/McpOAuthAuthorizePage").then((module) => ({ default: module.McpOAuthAuthorizePage })));
 
 const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   [WORKSPACE_ROUTES.home]: { key: "page.overview", fallback: "Overview" },
@@ -63,7 +64,8 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/test-configurations": { key: "page.testConfigurations", fallback: "Test Configurations" },
   "/knowledge-repo": { key: "page.knowledgeRepo", fallback: "Knowledge Repo" },
   "/login": { fallback: "Sign In" },
-  "/signup": { fallback: "Sign Up" }
+  "/signup": { fallback: "Sign Up" },
+  "/mcp/oauth/authorize": { fallback: "Connect MCP Host" }
 };
 
 function PersonalLocalization({ children }: { children: React.ReactNode }) {
@@ -160,6 +162,23 @@ function AuthRoute({ initialMode = "login" }: { initialMode?: "login" | "signup"
   );
 }
 
+function McpOAuthRoute() {
+  const { session, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) return <div className="splash-screen"><WorkspacePageSkeleton label="Checking your session" /></div>;
+  if (!session) {
+    rememberAuthRedirectRoute(getRouteFromLocation(location));
+    return <Navigate to="/login" replace />;
+  }
+  return (
+    <>
+      <PageTitleUpdater />
+      <McpOAuthAuthorizePage search={location.search} />
+    </>
+  );
+}
+
 function LegacyAuthRedirect() {
   const location = useLocation();
   return <Navigate to={`/login${location.search}${location.hash}`} replace />;
@@ -192,6 +211,10 @@ const router = createBrowserRouter([
   {
     path: "/signup",
     element: <AuthRoute initialMode="signup" />
+  },
+  {
+    path: "/mcp/oauth/authorize",
+    element: <McpOAuthRoute />
   },
   {
     path: "/",

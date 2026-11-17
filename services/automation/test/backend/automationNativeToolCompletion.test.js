@@ -1,16 +1,18 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {parse}=require('acorn');
 const {retryLlmCapacity}=require('@hellotest/platform/backend/src/utils/llmCapacityRetry');
-const {retryActorJsonOutput}=require('../../backend/lib/automationJsonOutputRetry');
-const {browserActorRequestPolicy}=require('../../backend/lib/automationActorModelPolicy');
+const {retryActorJsonOutput}=require("../../backend/lib/build/automationJsonOutputRetry");
+const {browserActorRequestPolicy}=require("../../backend/lib/browser/automationActorModelPolicy");
 const {createLlmProviderError}=require('@hellotest/platform/backend/src/utils/upstreamLlmError');
 const {getCompletionContent}=require('@hellotest/platform/backend/src/utils/llmResponse');
 const {aiInstructionBlock}=require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const {prepareChatRequest,validateChatResponse}=require('@hellotest/platform/backend/src/utils/llmRequestPolicy');
-const source=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8');
-const declaration=source.slice(source.indexOf('const requestChatCompletion ='),source.indexOf('const normalizeUrlKey ='));
+const source=implementationSource('builder/programGeneration');
+const modelSource = fs.readFileSync(require.resolve("../../backend/lib/build/automationModelClient"), 'utf8');
+const declaration=modelSource.slice(modelSource.indexOf('const requestChatCompletion ='),modelSource.indexOf('module.exports ='));
 const integration={id:'native-fixture',base_url:'https://api.openai.com/v1',model:'gpt-5',api_key:'fixture-api-key'};
 const nativeTools=[{name:'browser_type',description:'Type text into an observed native control.',inputSchema:{type:'object',properties:{ref:{type:'string'},text:{type:'string'},submit:{type:'boolean'},options:{type:'object',properties:{delay:{type:'number'}},additionalProperties:false}},required:['ref','text'],additionalProperties:false}}];
 const args={ref:'f1e16',text:'quoted "value"\nnext line',submit:false,options:{delay:0}};
@@ -91,7 +93,7 @@ test('actual saved-case and draft-preview completion adapters forward native too
   for(const adapter of [core,preview]){
     const requests=[],traces=[];
     const scope={assertAccess:async()=>{},knowledgeRows:{knowledge:[],context_transport:'not_required'},browserParameters:{redactUpstream:value=>value},testCase:{project_id:'project'},created_by:'author',transaction_id:null,test_case_id:'case',automationCaseType:'web',
-      integration,featureKey:'ai.agentic.automation-engineer',signal:undefined,execution_guard:undefined,buildFeature:value=>value,ai_feature:'ai.agentic.automation-engineer',appendEvent:async()=>{},
+      integration,project_id:'project',app_type_id:'app',user_id:'author',featureKey:'ai.agentic.automation-engineer',signal:undefined,execution_guard:undefined,buildFeature:value=>value,ai_feature:'ai.agentic.automation-engineer',appendEvent:async()=>{},
       requestChatCompletion:async options=>{requests.push(options);return {done:true};},require:id=>{assert.ok(id.endsWith('/llmTraceContext'));return {run:(trace,callback)=>{traces.push(trace);return callback();}};}};
     const complete=new Function(...Object.keys(scope),`return (${source.slice(adapter.start,adapter.end)});`)(...Object.values(scope));
     for(const phase of ['upstream_browser_actor','upstream_source','upstream_instruction_mapping'])await complete({phase,prompt:'Current phase contract',step:{id:'one'},nativeTools});

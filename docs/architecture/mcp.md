@@ -23,10 +23,10 @@ TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
 A running image built before this change does not contain the MCP dependency, routes, migration or UI. Changes require a new image and normal schema migration; the implementation tests use a disposable database and do not migrate your current local project data.
 
 1. Sign in, select a project, and open **Agent Studio → MCP Servers** (`/mcp-servers`). Old Admin Space MCP links redirect here. The integration category previously named Workflow connections is now Credentials and contains only HTTP endpoints; the workflow sidebar likewise lists only HTTP credentials.
-2. HelloTest is a built-in server. **Check connection status** verifies SDK tool discovery with your signed-in project identity; no host credential is needed for this check. Results appear directly beside the button, bypass cached responses, and time out explicitly after eight seconds. Open **Connect & inspect**, copy its endpoint, and create a host credential. Copy buttons show “Copied” for two seconds after clipboard success, then restore their original label. Copy the credential immediately; it is not stored in browser persistence or returned in later listings.
-3. Configure an MCP client that supports Streamable HTTP to use that URL with `Authorization: Bearer <credential>`. Clients must send `Accept: application/json, text/event-stream`.
+2. HelloTest is a built-in server. **Check connection status** verifies SDK tool discovery with your signed-in project identity; no host credential is needed for this check. Results appear directly beside the button, bypass cached responses, and time out explicitly after eight seconds. Open **Connect & inspect** and copy its endpoint. In production, MCP hosts use OAuth discovery, register a public client, sign in to HelloTest, and request the project and tool sets they need. Local development can issue a one-hour development bearer credential from this panel. Copy buttons show “Copied” for two seconds after clipboard success, then restore their original label; a development credential is shown once and is not stored in browser persistence or returned in later listings.
+3. Configure an MCP client that supports Streamable HTTP to use the endpoint. OAuth-capable clients follow `/.well-known/oauth-protected-resource` to `/.well-known/oauth-authorization-server`, register at `/agentic-workflows/mcp/oauth/register`, and complete authorization-code with PKCE. The consent screen shows the client, project and each requested tool set. Clients must send `Accept: application/json, text/event-stream` to MCP.
 4. Initialize normally with a supported legacy protocol or use the current SDK's stateless protocol. Discover `tools/list`, `resources/list` and `prompts/list`. Start with `hellotest_capabilities` and `hellotest_database_schema`.
-5. A credential is tied to its signed-in user, project and a unique server-generated host identity, expires after one hour, and can be revoked immediately. Creating a credential requires project read access. A valid Bearer token authenticates that identity; it does not grant every domain permission. User suspension, project access, permissions and feature flags are rechecked during use, and tool errors preserve the missing permission for remediation.
+5. A credential is tied to its signed-in user, project and a unique server-generated host identity, expires after one hour, and can be revoked immediately. Creating a credential requires project read access. It is also issued for **tool sets** (see below): by default it is read-only, and the host sees only the tools of its sets. A valid Bearer token authenticates that identity; it does not grant every domain permission. User suspension, project access, permissions and feature flags are rechecked during use, and tool errors preserve the missing permission for remediation.
 
 The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/mcp`. Set a public URL when connecting from another machine. `Create MCP server` registers an external provider and discovers its tools; it does not provision a remote server or infrastructure.
 
@@ -41,7 +41,6 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 | `hellotest_database_schema` | Actual fields of permitted PostgreSQL projections and relationships |
 | `hellotest_database_query` | Bounded, parameterized read projections |
 | `hellotest_knowledge_fetch` | Exact indexed fragment with fresh source ACL/version/readiness checks |
-| `hellotest_graph_expand` | Authorized one-hop relationship witnesses |
 | `hellotest_graph_resolve` | Exact canonical/native IDs, titles and curated aliases, with ambiguity and visibility checks |
 | `hellotest_graph_context` | Exact typed entity seeds, bounded graph expansion and authorized source passages |
 | `hellotest_graph_trace` | Witnessed paths between two exact entities, with provenance and evidence |
@@ -68,6 +67,37 @@ native operations and gaps, and the
 [context delivery audit](../development/mcp-context-accuracy.md) for retrieval
 contracts and their verification.
 
+### Tool sets and credential scopes
+
+A host rarely needs every tool, and most of the catalog is near-identical list/get pairs. A credential is therefore issued for **tool sets**: `tools/list` publishes only the tools of its sets and only those can be called with it. Sets narrow access and never widen it. Every tool still checks the user's own project membership, permission and feature flag.
+
+| Set | Contains | Default |
+| --- | --- | --- |
+| `knowledge` | `hellotest_context_build`, `hellotest_knowledge_fetch`, the graph resolve/context/trace/schema tools, recorded task contexts, Knowledge collections and sources | read only, on |
+| `records` | `hellotest_capabilities`, operation describe/read, database schema/query, the list/get tools for project records | read only, on |
+| `actions` | `hellotest_operation_prepare`, `_execute`, `_status` and the named create/update prepare tools | off; requires `records` |
+| `automation` | Automation Engineer and browser-mission prepare/status tools | off; requires `records` |
+
+- A credential created without choosing sets is **read-only** (`knowledge` and `records`). **Connect & inspect** lists the sets with their tool counts. Choosing `actions` or `automation` also grants `records`, because preparing a change starts from discovering the operation to call. An unknown set is refused when the credential is created.
+- The sets are a signed claim of the credential, mirrored in `mcp_credentials.scopes` for listing. A credential issued before tool sets existed carries no claim and is treated as read-only.
+- A tool that belongs to no set is published to no credential, and a tool that can write is never served from a read-only set. `services/mcp/test/backend/mcpToolSets.test.js` fails until a new tool is classified in `services/mcp/backend/toolSets.js`.
+- The platform's own in-process calls (workflows, chat) are not credentials: the user's permissions and the workflow's tool allow-list limit them, as before. In worker mode (`HELLOTEST_MCP_INTERNAL_URL`) each call uses an internal credential scoped to only the set that call needs.
+- `hellotest_graph_expand`, an older one-hop read beside `hellotest_graph_context`, was retired. Use `hellotest_graph_resolve` to find the entity, then `hellotest_graph_context` or `hellotest_graph_trace`. A call to the old name returns `MCP_TOOL_RETIRED` and names its replacement.
+
+### Capacity, rate and per-request caching
+
+The HTTP endpoint verifies the credential's signature first: an unsigned or invalid request costs one HMAC and never takes a slot or reaches the database. A verified request is then admitted by five limits, per API process:
+
+1. **Capacity**: total requests in flight, `HELLOTEST_MCP_MAX_CONCURRENT` (default 16).
+2. **Internal reserve**: a share of that capacity only the platform's own calls may use, `HELLOTEST_MCP_INTERNAL_RESERVE` (default a quarter), so a burst from external hosts cannot starve a chat turn in worker mode.
+3. **Project share**: the largest share of the external capacity one project may hold, `HELLOTEST_MCP_PROJECT_SHARE` (default 0.5).
+4. **Credential rate**: a token bucket per signed credential, `HELLOTEST_MCP_RATE_PER_SECOND` (default 10) with a burst of `HELLOTEST_MCP_RATE_BURST` (default 30).
+5. **Client rate**: a second bucket keyed by a stable user/project/host-label digest in the signed claim, `HELLOTEST_MCP_CLIENT_RATE_PER_SECOND` (default 10) and `HELLOTEST_MCP_CLIENT_RATE_BURST` (default 30). Re-issuing credentials under the same host label shares this bucket. Internal calls are not rate limited.
+
+A refused request takes no slot and spends no token; it returns 429 with `Retry-After` and one of `MCP_CAPACITY`, `MCP_PROJECT_BUSY`, `MCP_RATE_LIMITED` or `MCP_CLIENT_RATE_LIMITED`. The limits are per process, so several API processes multiply them.
+
+Each tool call also runs in one request scope: the account, project, feature flags and every permission it checks are loaded once and shared, instead of once per check. Nothing outlives the request, an entry older than five seconds (`HELLOTEST_MCP_REQUEST_CACHE_MS`, `0` disables sharing) is loaded again so a long retrieval still notices a revoked membership, a failed load is never remembered, and the next request always sees a suspended account or a withdrawn permission.
+
 Capability searches accept short phrases such as `list test cases`, `find requirements`
 and `show bugs`. Deterministic product/native aliases handle Stories/requirements,
 Defects/bugs and Sprints/iterations; every requested term must match. Search does
@@ -83,7 +113,7 @@ allows the complete HelloTest catalog to be inspected and selected. Ordinary
 workflow MCP tool results retain their separate 128 KB transport limit; oversized
 results are rejected without returning a successful prefix.
 
-The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and manual bearer connection contract. Discovery does not grant permission to call a tool.
+The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and the authentication mode enabled in this deployment. Discovery does not grant permission to call a tool.
 
 Bounded response serialization retains exact canonical UUIDs in declared identity and provenance fields, typed identifier arrays and supported source-reference forms. Numeric UUID segments must not be redacted as phone or card numbers: project scope checks and citation joins require the original identifiers. Prose and sensitive fields retain their normal redaction policy; malformed and foreign-project context packets still fail closed.
 
@@ -247,6 +277,8 @@ passages.
 
 Smart Context and the grounded chatbot use the same MCP `context_build` boundary in process through the real SDK handler. Internal use needs no saved host token or shared administrator account: the signed-in user and current project are revalidated. Invalid or mismatched context packets are rejected. Smart Context packets expose `retrieval.context_transport: "mcp"`. Existing retrieval packets, citation identities, ACL checks, historical access, hybrid search, live facts, relationships, budget accounting and progress callbacks remain owned by the knowledge engine. MCP does not replace ranking or turn knowledge text into instructions.
 
+`context_build` is the only retrieval contract; there is no private side channel. The chatbot, Smart Context, workflows and external hosts send the same audited arguments, including the optional `conversation` (recent messages, session and focus sources), `smart_context`, `planning_mode` and `follow_up_rounds` as well as the question, filters and budgets. The call recorded in `mcp_audit_events` therefore describes what ran, and worker mode (`HELLOTEST_MCP_INTERNAL_URL`) behaves like in-process mode: history, the Smart Context query and follow-up rounds travel in the arguments, not on a private actor object. `planning_mode` defaults to `deterministic`; `model` asks the server to plan with the supplied `integration_id`, which needs `integration.view`. A caller that names no planning mode reads deterministically on both transports, and a test sends one question through both and compares the packets.
+
 The shared LLM HTTP client also injects bounded MCP evidence for project-bound AI calls (including the text portions of image-based authoring requests): authoring, story assistance, reviews, automation, Agent Studio, dashboard analysis, execution analysis and reports. Request-local authenticated identity and existing background integration bindings determine scope. Requests without a verified user and project are not given guessed access. Internal retrieval sets a recursion guard; knowledge planning/answering calls avoid duplicate enrichment. Retrieval failure adds an explicit evidence gap to the generation input instead of claiming unavailable context.
 
 Native graph witnesses deliberately carry zero similarity score. Fusion admits
@@ -260,25 +292,31 @@ assertion text was omitted.
 
 MCP redaction preserves the ContextPacket `authorization` provenance and `authorization_partial` limitation fields while stripping HTTP authorization headers and credentials. The PostgreSQL integration check validates a retrieved MCP packet through `buildModelRequest`, so a packet that cannot be consumed by synthesis fails verification. Model synthesis gets one bounded regeneration for invalid JSON or missing/invented claim citations; it never publishes an uncited answer as grounded.
 
-This supplies grounded inputs; it does not guarantee an LLM's correctness. Existing feature schemas, response validation, citations and human review still apply. Live quality improvement depends on the configured LLM and indexed project knowledge. The separate Temporal worker dispatches built-in tools to the API MCP endpoint using freshly issued resource-bound credentials revoked after each call; it does not need its own API listener or route catalog. External providers remain explicit workflow connections; their tools are not automatically granted to every AI feature.
+This supplies grounded inputs; it does not guarantee an LLM's correctness. Existing feature schemas, response validation, citations and human review still apply. Live quality improvement depends on the configured LLM and indexed project knowledge. The separate Temporal worker dispatches built-in tools to the API MCP endpoint. It uses one short-lived (three-minute) internal credential, scoped to the single tool set the call needs, for the calls of a turn; the credential is bound to the user, project and the turn's trace labels, and a different user, project, tool set or turn never shares one. It expires on its own and is revoked when the process releases it. It does not need its own API listener or route catalog. This replaces a credential minted and revoked for every call, which cost several writes per call and filled the credential table. External providers remain explicit workflow connections; their tools are not automatically granted to every AI feature.
 
 ## Deployment configuration
 
 | Variable | Meaning |
 | --- | --- |
 | `HELLOTEST_MCP_PUBLIC_URL` | Public HTTPS MCP endpoint, e.g. `https://qa.example.com/api/mcp` |
+| `HELLOTEST_MCP_OAUTH_ENABLED` | Enables OAuth discovery, client registration and consent; production also requires the public HTTPS MCP URL |
 | `HELLOTEST_MCP_ALLOWED_HOSTS` | Comma-separated allowed incoming hostnames; public URL hostname is included |
 | `CORS_ORIGIN` | Allowed browser origins, shared with platform CORS |
 | `HELLOTEST_MCP_SIGNING_KEY` | Optional dedicated signing secret of at least 32 bytes; otherwise a resource-specific key is derived from the session secret |
 | `HELLOTEST_MCP_INTERNAL_URL` | Fixed API MCP endpoint for a separate durable worker; worker defaults to `http://api:3000/mcp`, or the configured public endpoint |
 | `HELLOTEST_MCP_DATABASE_URL` | Optional dedicated SELECT-only projection database connection |
 | `HELLOTEST_MCP_MAX_CONCURRENT` | MCP HTTP concurrency per API process; default 16, capped at 64 |
+| `HELLOTEST_MCP_INTERNAL_RESERVE` | Share of that concurrency only the platform's own calls may use; default a quarter, never all of it |
+| `HELLOTEST_MCP_PROJECT_SHARE` | Largest share of the external capacity one project may hold; default 0.5 |
+| `HELLOTEST_MCP_RATE_PER_SECOND`, `HELLOTEST_MCP_RATE_BURST` | Per-credential request rate and burst; defaults 10 and 30. Internal calls are exempt |
+| `HELLOTEST_MCP_CLIENT_RATE_PER_SECOND`, `HELLOTEST_MCP_CLIENT_RATE_BURST` | Per-user/project/host-label request rate and burst shared across re-issued credentials; defaults 10 and 30. Internal calls are exempt |
+| `HELLOTEST_MCP_REQUEST_CACHE_MS` | How long one request may reuse a loaded account, project, flag set or permission; default 5000, `0` disables sharing |
 
 Run normal migrations before production verification mode. Keep TLS at the trusted ingress and pass the correct allowed host. HTTP requests have a 128KiB body limit, capacity backpressure and a complete request deadline that includes authentication. Ordinary calls have 30 seconds; a context read can use its selected retrieval budget up to 60 seconds plus a 2-second assembly allowance. Graph reads also enforce their smaller native deadline. Reads return bounded sanitized JSON, at most 50 projection rows, and at most 180KB per tool result. Cancellation is cooperative: it must not be interpreted as proof that an already accepted mutation had no effect.
 
 Protocol verification uses the pinned official TypeScript server package `2.3.1`, the modern `2026-07-28` stateless request format and the three advertised legacy revisions. The current official [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28) and [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) were checked on 20 October 2026. The modern HTTP binding carries method/name metadata in matching headers and request bodies, including resource reads. Compatibility is tested through actual SDK requests rather than inferred from a version constant. See the official [Streamable HTTP binding](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports) for transport semantics.
 
-The built-in authentication flow is **manual resource-bound bearer credentials**. An OAuth authorization server, automatic client onboarding and federated SSO are not implemented or claimed. Hosts that require OAuth-only onboarding need a separate identity-provider integration. The default local endpoint is not a public production deployment. Retain MCP audit/plan records under the deployment's database backup and retention policy; no automatic audit purging is enabled.
+External MCP credentials use HelloTest's first-party OAuth authorization-code flow with S256 PKCE and public clients. Client registration accepts HTTPS redirect URIs, loopback HTTP for local native clients, and registered native-app schemes; authorization codes are short lived, single use and bound to the client, redirect URI, resource and PKCE verifier. The signed-in person chooses an accessible project and can narrow the requested tool sets. Access tokens last one hour, inherit current HelloTest permissions, and can be revoked from **Agent Studio → MCP Servers**. Production manual bearer issuance is disabled. Local development may opt in to the manual one-hour credential as a debugging path. This is not federated SSO. Set `HELLOTEST_MCP_OAUTH_ENABLED=true` and a public HTTPS `HELLOTEST_MCP_PUBLIC_URL` ending in `/mcp` in production; the API and frontend must share the advertised public origin. Apply the additive schema migration before startup. The default local endpoint is not a public production deployment. Retain MCP audit/plan records under the deployment's database backup and retention policy; no automatic audit purging is enabled.
 
 ## Cloud host/origin troubleshooting
 
@@ -343,7 +381,7 @@ The four repository agents also have separate source-review formats for objects/
 
 ## Package ownership and connection troubleshooting
 
-`services/mcp/backend/plugin.js` mounts the HTTP and management routes. `mcpServer.js` defines tools/resources/prompts; `gateway.js` connects shared AI context; `auth.js` verifies delegated credentials; `registry.js` inventories domain contracts; `backplane.js` authorizes domain reads and reviewed writes. `mcpSchema.js` is consumed by the existing platform migration lifecycle. This is an infrastructure workspace package, not another UI capability or separately deployed server. Public imports use `@hellotest/mcp/backend/{plugin,server,auth,gateway,schema}`. Docker packages the same source for API and worker use.
+`services/mcp/backend/plugin.js` mounts the HTTP and management routes. `mcpServer.js` defines tools/resources/prompts; `gateway.js` connects shared AI context; `auth.js` issues and verifies delegated credentials and their tool sets; `toolSets.js` classifies every tool into a set; `admission.js` bounds concurrency, per-project share and per-credential rate; `requestMemo.js` shares account and permission loads within one request; `remote.js` calls the API for a separate worker with a per-turn internal credential; `registry.js` inventories domain contracts; `backplane.js` authorizes domain reads and reviewed writes. `mcpSchema.js` is consumed by the existing platform migration lifecycle. This is an infrastructure workspace package, not another UI capability or separately deployed server. Public imports use `@hellotest/mcp/backend/{plugin,server,auth,gateway,remote,schema}`. Docker packages the same source for API and worker use.
 
 A separate source folder gives MCP clear ownership and test boundaries while keeping domain authorization and data access in their existing services. A separate network process would need a backend delegation contract and independent deployment lifecycle; it is not needed for external clients, which already connect to the API's HTTP endpoint.
 
@@ -353,9 +391,9 @@ Private-network policy failures return 403 before a connection is attempted. MCP
 
 Credential storage requires a persistent `WORKFLOW_CREDENTIAL_KEY` of at least 32 characters (or an allowed secret environment reference). `hellotest.sh` generates and retains this key in the stack environment. Do not rotate it during ordinary startup: saved encrypted connections depend on it. MCP public URL, hostname, signing key, projection database and capacity settings are passed into the API by the Compose files and retained by the launcher. Source changes still require image rebuilds.
 
-Remaining deliberate limits include manual bearer onboarding, no OAuth
-authorization server or automatic token refresh, no stdio/legacy SSE provider
-launching, and no arbitrary SQL, URLs, host commands or unreviewed writes.
+Remaining deliberate limits include no federated SSO or automatic token refresh,
+no stdio/legacy SSE provider launching, and no arbitrary SQL, URLs, host
+commands or unreviewed writes.
 Instance administration, credentials, binary/file transfers, live transports and
 host-local device/recording flows need the native UI or a dedicated adapter.
 Metadata/context alternatives and explicit unavailable-operation reasons are

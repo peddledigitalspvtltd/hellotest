@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { buildFailureProgress } = require('../../backend/lib/automationBuildFailureProgress');
-const { stepBuildError } = require('../../backend/lib/automationStepBuildErrors');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { buildFailureProgress } = require("../../backend/lib/build/automationBuildFailureProgress");
+const { stepBuildError } = require("../../backend/lib/build/automationStepBuildErrors");
 
 const tools = ['browser_navigate', 'browser_snapshot', 'browser_screenshot'].map(name => ({ name, inputSchema: { type: 'object' } }));
 const receipt = { content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test', action_outcome: 'completed', accessibility: 'Application form' }) }] };

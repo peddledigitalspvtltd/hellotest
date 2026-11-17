@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {prepareVerificationSections,applyLocatorRepair,runVerificationPipeline,fingerprint,validateVerificationReceipt}=require('../../backend/lib/automationVerificationPipeline');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {normalizeBuildPipelineOptions,UPSTREAM_BROWSER_DRIVER,UPSTREAM_BUILD_ENGINE}=require('../../backend/lib/automationBuildPipelineOptions');
+const {prepareVerificationSections,applyLocatorRepair,runVerificationPipeline,fingerprint,validateVerificationReceipt}=require("../../backend/lib/verification/automationVerificationPipeline");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {normalizeBuildPipelineOptions,UPSTREAM_BROWSER_DRIVER,UPSTREAM_BUILD_ENGINE}=require("../../backend/lib/build/automationBuildPipelineOptions");
 const op=(name,args)=>({name,arguments:args});
 const section=(operations=[op('browser_fill',{locator:'#old',value:'@r.name'}),op('browser_assert',{assertion:'value',locator:'#old',value:'@r.name'})])=>({step_id:'one',action:'Enter the full name',expected_result:'Name is entered',automation_code:compileRecordedProgram(operations).source,operations});
 const snapshot={elements:[{locators_validated:true,locator_candidates:['#full-name']}]};

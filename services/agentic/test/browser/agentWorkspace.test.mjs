@@ -6,7 +6,7 @@ import test from 'node:test';
 const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../../platform/frontend/', import.meta.url);
-const catalogProfiles = JSON.parse(await readFile(new URL('../../shared/workflowSpecialists.json', import.meta.url), 'utf8'));
+const catalogProfiles = JSON.parse(await readFile(new URL('../../../contracts/agents/workflowSpecialists.json', import.meta.url), 'utf8'));
 const catalogSize = 9 + Object.keys(catalogProfiles).length;
 const builtInCategories = { 'quality-orchestrator': 'planning', 'run-planner': 'planning', 'quality-evaluator': 'planning', 'story-architect': 'design', 'test-designer': 'design', 'automation-engineer': 'design', 'failure-analyst': 'investigation', 'bug-reporter': 'investigation', 'bug-triage': 'investigation', 'repository-curator': 'investigation' };
 const categorySize = category => Object.entries(catalogProfiles).filter(([id, profile]) => (builtInCategories[id] || profile.category || 'planning') === category).length;
@@ -43,6 +43,7 @@ window.savedReviews = [];
 api.workspaceTransactions.list = api.agenticWorkflows.listSessions = async query => { window.workspaceCalls.sessions.push(query); return structuredClone(window.savedReviews); };
 api.workspaceTransactions.events = async id => { window.workspaceCalls.events.push(id); return structuredClone(window.savedEvents || []); };
 api.workspaceTransactions.get = async (id, options) => { window.workspaceCalls.lookups.push(id); if (window.lookupDelay) return new Promise(resolve => { window.finishLookup = () => resolve(structuredClone(window.deepReview)); window.lookupSignal = options.signal; }); return structuredClone(window.deepReview); };
+api.repositoryAgents.catalog = async () => ({agents:[],runtime:{available:true,detail:'Python fixture available'},capabilities:{repository_analysis:true},limits:{max_archive_bytes:1048576,max_files:20}});
 api.repositoryAgents.list = async () => ({ items: [], total: 0, has_more: false });
 for (const name of ['testCases', 'issues', 'knowledgeRepo', 'agenticWorkflows']) for (const method of ['create', 'update', 'delete']) if (api[name]?.[method]) api[name][method] = async input => { window.workspaceCalls.writes.push({ name, method, input }); throw new Error('This fixture does not publish assets.'); };
 window.enablePreviewFixture = () => {
@@ -243,7 +244,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal((await page.evaluate(() => window.workspaceCalls.writes)).length,1);
     await page.getByRole('button', { name: 'Sources', exact: true }).click();
     await page.getByRole('dialog', { name: 'Outcome evidence', exact: true }).waitFor();
-    await page.getByText('Checkout retry acceptance', { exact: true }).waitFor();
+    await page.getByRole('dialog', { name: 'Outcome evidence', exact: true }).getByText('Checkout retry acceptance', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Close Outcome evidence', exact: true }).click();
     await page.getByRole('group', { name: 'Specialist review views' }).getByRole('button', { name: 'Activity', exact: true }).click();
     await page.getByText('Retrieved the permitted checkout story.', { exact: true }).waitFor();

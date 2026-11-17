@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createUpstreamTabTracker, canonicalAutomationTabUrl, TAB_IDENTITY_SCHEMA } = require('../../backend/lib/automationUpstreamTabs');
-const { buildWithUpstreamPlaywright, validateRequest, preserveNativeActions } = require('../../backend/lib/automationUpstreamEngineer');
+const { createUpstreamTabTracker, canonicalAutomationTabUrl, TAB_IDENTITY_SCHEMA } = require("../../backend/lib/upstream/automationUpstreamTabs");
+const { buildWithUpstreamPlaywright, validateRequest, preserveNativeActions } = require("../../backend/lib/upstream/automationUpstreamEngineer");
 const { inspectExecutablePlan } = require('../../backend/services/automationReadiness.service');
 const tools = require('../../../platform/backend/test/fixtures/upstreamPlaywrightMcpTools.v0.0.84.json');
 const origin = 'https://shop.test', startUrl = origin + '/search';

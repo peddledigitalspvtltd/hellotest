@@ -1,7 +1,7 @@
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const service = require("../services/issues.service");
-const aiBugDraftService = require("@hellotest/ai/backend/services/aiBugDraft.service");
-const aiBugTriageService = require("@hellotest/ai/backend/services/aiBugTriage.service");
+const aiBugDraftService = require("@hellotest/ai/services/aiBugDraft");
+const aiBugTriageService = require("@hellotest/ai/services/aiBugTriage");
 const featureFlagService = require("@hellotest/platform/backend/services/featureFlag.service");
 const { ISSUE_STATUS_VALUES } = require("@hellotest/platform/backend/src/domain/catalog");
 const projectService = require("@hellotest/platform/backend/public/projectAccess");

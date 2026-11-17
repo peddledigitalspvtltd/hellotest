@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const security = require('../../backend/lib/pairedLocalSecurity');
+const security = require("../../backend/lib/build/pairedLocalSecurity");
 
 function fixture({pause}={}) {
   const bridges = new Map(), commands = new Map(), writes = [];
@@ -45,7 +45,7 @@ function fixture({pause}={}) {
     module,Response,URL,Buffer,Date,require:name=>name.endsWith('/src/db')?db:name.endsWith('/pairedLocalSecurity')?security
       :name.endsWith('/public/projectAccess')?{getProject:async()=>({})}
       :name.endsWith('/optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async()=>({'automation.build':access.allowed,'automation.ai':access.allowed})}
-      :name.endsWith('/automationAssertionTimeout')?require('../../backend/lib/automationAssertionTimeout')
+      :name.endsWith('/automationAssertionTimeout')?require("../../backend/lib/build/automationAssertionTimeout")
       :name==='node:timers/promises'&&pause?{setTimeout:pause}:require(name)
   });
   return {...module.exports,bridges,commands,writes,access};

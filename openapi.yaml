@@ -45,6 +45,8 @@ tags:
   - name: Operations
   - name: Workspace Transactions
   - name: Test Engine
+  - name: Agent Activity
+  - name: Agentic Workflows
 paths:
   /auth/setup:
     get:
@@ -5178,6 +5180,49 @@ paths:
       summary: Update projects knowledge
       responses:
         "200": { description: Successful response }
+    get:
+      tags:
+        - Knowledge
+      summary: Read projects knowledge
+      operationId: review_get_projects_project_id_knowledge_id
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.view
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /shared-step-groups/metrics:
     get:
       tags: [Shared Step Groups]
@@ -5239,6 +5284,43 @@ paths:
       summary: Update automation learning cache
       responses:
         "200": { description: Successful response }
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation learning cache
+      operationId: review_get_test_cases_automation_learning_cache_id
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /test-cases/automation/learning-cache/screens/{screenName}:
     parameters:
       - { name: screenName, in: path, required: true, schema: { type: string } }
@@ -5278,6 +5360,43 @@ paths:
       summary: Delete workspace transactions
       responses:
         "200": { description: Successful response }
+    get:
+      tags:
+        - Workspace Transactions
+      summary: Read workspace transactions
+      operationId: review_get_workspace_transactions_id
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - transaction.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /admin:
     get:
       tags: [Admin Portal]
@@ -5745,6 +5864,43 @@ paths:
       responses:
         "200": { description: Archived agent }
         "409": { description: Agent was changed since it was loaded }
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read agentic workflows agents
+      operationId: review_get_agentic_workflows_agents_agentId
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.view
+      parameters:
+        - in: path
+          name: agentId
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /agentic-workflows/connections:
     get:
       tags: [Agentic Workflows]
@@ -6229,6 +6385,58 @@ paths:
       responses:
         "200": { description: Readiness report for the saved definition }
         "403": { description: The project permission or feature is unavailable }
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Request agentic workflows readiness
+      operationId: review_post_agentic_workflows_id_readiness
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_node_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                input_payload:
+                  type: object
+              required:
+                - input_payload
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /agentic-workflows/{id}/executions:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -7159,6 +7367,3150 @@ paths:
         '403': {description: Source evidence or action permission missing}
         '409': {description: Source, pinned evidence or prerequisite verification changed}
 
+  /admin-portal/metric-governance:
+    get:
+      tags:
+        - Admin Portal
+      summary: Read admin portal metric governance
+      operationId: review_get_admin_portal_metric_governance
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - bearerAuth: []
+  /admin-portal/metric-governance/{id}:
+    get:
+      tags:
+        - Admin Portal
+      summary: Read admin portal metric governance
+      operationId: review_get_admin_portal_metric_governance_id
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/metric-governance/{id}/draft:
+    post:
+      tags:
+        - Admin Portal
+      summary: Request admin portal metric governance draft
+      operationId: review_post_admin_portal_metric_governance_id_draft
+      description: Workspace-administrator governed mutation. expected_revision prevents lost updates; draft/publish validates the feature-specific configuration returned by the detail endpoint. Rollback requires only expected_revision. Reserved/reference or incompatible transport profiles reject edits.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedConfigurationMutation"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/metric-governance/{id}/publish:
+    post:
+      tags:
+        - Admin Portal
+      summary: Request admin portal metric governance publish
+      operationId: review_post_admin_portal_metric_governance_id_publish
+      description: Workspace-administrator governed mutation. expected_revision prevents lost updates; draft/publish validates the feature-specific configuration returned by the detail endpoint. Rollback requires only expected_revision. Reserved/reference or incompatible transport profiles reject edits.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedConfigurationMutation"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/metric-governance/{id}/rollback:
+    post:
+      tags:
+        - Admin Portal
+      summary: Request admin portal metric governance rollback
+      operationId: review_post_admin_portal_metric_governance_id_rollback
+      description: Workspace-administrator governed mutation. expected_revision prevents lost updates; draft/publish validates the feature-specific configuration returned by the detail endpoint. Rollback requires only expected_revision. Reserved/reference or incompatible transport profiles reject edits.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedConfigurationMutation"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/ai-configuration:
+    get:
+      tags:
+        - Admin Portal
+      summary: Read admin portal ai configuration
+      operationId: review_get_admin_portal_ai_configuration
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - bearerAuth: []
+  /admin-portal/ai-configuration/metrics:
+    get:
+      tags:
+        - Admin Portal
+      summary: Read admin portal ai configuration metrics
+      operationId: review_get_admin_portal_ai_configuration_metrics
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - bearerAuth: []
+  /admin-portal/ai-configuration/{id}:
+    get:
+      tags:
+        - Admin Portal
+      summary: Read admin portal ai configuration
+      operationId: review_get_admin_portal_ai_configuration_id
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/ai-configuration/{id}/preview:
+    post:
+      tags:
+        - Admin Portal
+      summary: Inspect the assembled AI request without sending a provider call
+      operationId: review_post_admin_portal_ai_configuration_id_preview
+      description: Administration-only request inspection. Uses the proposed or effective governed profile and bounded sample evidence. It performs no paid model call.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiRequestInspection"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/ai-configuration/{id}/draft:
+    post:
+      tags:
+        - Admin Portal
+      summary: Request admin portal ai configuration draft
+      operationId: review_post_admin_portal_ai_configuration_id_draft
+      description: Workspace-administrator governed mutation. expected_revision prevents lost updates; draft/publish validates the feature-specific configuration returned by the detail endpoint. Rollback requires only expected_revision. Reserved/reference or incompatible transport profiles reject edits.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedConfigurationMutation"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/ai-configuration/{id}/publish:
+    post:
+      tags:
+        - Admin Portal
+      summary: Request admin portal ai configuration publish
+      operationId: review_post_admin_portal_ai_configuration_id_publish
+      description: Workspace-administrator governed mutation. expected_revision prevents lost updates; draft/publish validates the feature-specific configuration returned by the detail endpoint. Rollback requires only expected_revision. Reserved/reference or incompatible transport profiles reject edits.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedConfigurationMutation"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/ai-configuration/{id}/rollback:
+    post:
+      tags:
+        - Admin Portal
+      summary: Request admin portal ai configuration rollback
+      operationId: review_post_admin_portal_ai_configuration_id_rollback
+      description: Workspace-administrator governed mutation. expected_revision prevents lost updates; draft/publish validates the feature-specific configuration returned by the detail endpoint. Rollback requires only expected_revision. Reserved/reference or incompatible transport profiles reject edits.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedConfigurationMutation"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /admin-portal/ai-configuration/{id}/optimize:
+    post:
+      tags:
+        - Admin Portal
+      summary: Prepare a governed AI configuration optimization proposal
+      operationId: review_post_admin_portal_ai_configuration_id_optimize
+      description: Administration-only model-backed proposal; it does not publish changes. Uses the selected managed integration and existing model budgets.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema: &a1
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config: *a1
+                integration_id:
+                  type: string
+              additionalProperties: false
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/jobs/{transactionId}/cancel:
+    post:
+      tags:
+        - Automation
+      summary: Request test cases automation jobs cancel
+      operationId: review_post_test_cases_automation_jobs_transactionId_cancel
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/agent-activity:
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation agent activity
+      operationId: review_get_test_cases_automation_agent_activity
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+      parameters:
+        - in: query
+          name: app_type_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: test_case_id
+          required: false
+          schema:
+            type: string
+  /test-cases/automation/agent-activities:
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation agent activities
+      operationId: review_get_test_cases_automation_agent_activities
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+      parameters:
+        - in: query
+          name: app_type_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: test_case_id
+          required: false
+          schema:
+            type: string
+  /test-cases/automation/jobs/{transactionId}/screenshots/{artifactId}:
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation jobs screenshots
+      operationId: review_get_test_cases_automation_jobs_transactionId_screenshots_artifactId
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: artifactId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/jobs/{transactionId}/previews/{artifactId}:
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation jobs previews
+      operationId: review_get_test_cases_automation_jobs_transactionId_previews_artifactId
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+        - data.view
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: artifactId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/jobs/{transactionId}/evidence/{artifactId}:
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation jobs evidence
+      operationId: review_get_test_cases_automation_jobs_transactionId_evidence_artifactId
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+        - data.view
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: artifactId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/jobs/{transactionId}/build-data/{artifactId}:
+    get:
+      tags:
+        - Automation
+      summary: Read test cases automation jobs build data
+      operationId: review_get_test_cases_automation_jobs_transactionId_build_data_artifactId
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+        - data.view
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: artifactId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/jobs/{transactionId}/source-proposal:
+    post:
+      tags:
+        - Automation
+      summary: Preview replacement source from retained native evidence
+      operationId: review_post_test_cases_automation_jobs_transactionId_source_proposal
+      description: Checks current section/evidence/model access and retained source authority. Produces validated, unsaved and unverified source; it performs no browser action or case write. Review, save explicitly, then execute a new Run.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetainedAutomationSourceRequest"
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/bulk-delete:
+    post:
+      tags:
+        - Automation
+      summary: Request test cases automation bulk delete
+      operationId: review_post_test_cases_automation_bulk_delete
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - testcase.delete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                app_type_id:
+                  type: string
+                test_case_ids:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 10000
+              required:
+                - project_id
+                - app_type_id
+                - test_case_ids
+  /test-cases/reproduction-preview:
+    post:
+      tags:
+        - Automation
+      summary: Request test cases reproduction preview
+      operationId: review_post_test_cases_reproduction_preview
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - testcase.view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                test_case_ids:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 10
+              required:
+                - project_id
+                - test_case_ids
+  /test-cases/{id}/automation/parameter-plan:
+    post:
+      tags:
+        - Automation
+      summary: Request test cases automation parameter plan
+      operationId: review_post_test_cases_id_automation_parameter_plan
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+        - suite.view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                test_environment_id:
+                  type: string
+                test_configuration_id:
+                  type: string
+                test_suite_id:
+                  type: string
+                test_data_set_id:
+                  type: string
+                parameter_values:
+                  type: object
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /executions/{id}/local-dispatch:
+    post:
+      tags:
+        - Executions
+      summary: Request executions local dispatch
+      operationId: review_post_executions_id_local_dispatch
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.run.local
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paired_origin:
+                  type: string
+                  maxLength: 2000
+                local_agent_id:
+                  type: string
+                  maxLength: 200
+                expected_revision:
+                  type: number
+                local_transport:
+                  type: string
+                  enum:
+                    - paired-agent
+                execution_mode:
+                  type: string
+                  enum:
+                    - local
+                request_id:
+                  type: string
+                  maxLength: 200
+              required:
+                - paired_origin
+                - local_agent_id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /executions/{id}/local-dispatch/claim:
+    post:
+      tags:
+        - Executions
+      summary: Request executions local dispatch claim
+      operationId: review_post_executions_id_local_dispatch_claim
+      description: Uses a purpose-bound paired agent grant and matching agent identity; an ordinary user JWT is not a substitute. Ownership, expiry and command/case scope are checked before accepting a receipt.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - pairedLocalGrant: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: header
+          name: X-HelloTest-Local-Agent-Id
+          required: false
+          schema:
+            type: string
+          description: The paired agent identity bound to the scoped grant.
+  /executions/{id}/local-dispatch/control:
+    get:
+      tags:
+        - Executions
+      summary: Read executions local dispatch control
+      operationId: review_get_executions_id_local_dispatch_control
+      description: Uses a purpose-bound paired agent grant and matching agent identity; an ordinary user JWT is not a substitute. Ownership, expiry and command/case scope are checked before accepting a receipt.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - pairedLocalGrant: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: header
+          name: X-HelloTest-Local-Agent-Id
+          required: true
+          schema:
+            type: string
+          description: The paired agent identity bound to the scoped grant.
+  /projects/{project_id}/knowledge/context-graph/health:
+    get:
+      tags:
+        - Knowledge
+      summary: Read projects knowledge context graph health
+      operationId: review_get_projects_project_id_knowledge_context_graph_health
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: app_type_id
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+        - in: query
+          name: days
+          required: false
+          schema:
+            type: integer
+            minimum: 7
+            maximum: 90
+  /projects/{project_id}/knowledge/context-graph:
+    get:
+      tags:
+        - Knowledge
+      summary: Read projects knowledge context graph
+      operationId: review_get_projects_project_id_knowledge_context_graph
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.view
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: app_type_id
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+        - in: query
+          name: feature_id
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+        - in: query
+          name: from
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - in: query
+          name: to
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 2048
+  /projects/{project_id}/knowledge/context-graph/explore:
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge context graph explore
+      operationId: review_post_projects_project_id_knowledge_context_graph_explore
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                trace_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                app_type_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+              required:
+                - trace_id
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph:
+    get:
+      tags:
+        - Knowledge
+      summary: Read projects knowledge graph
+      operationId: review_get_projects_project_id_knowledge_graph
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.view
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/resolve:
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge graph resolve
+      operationId: review_post_projects_project_id_knowledge_graph_resolve
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                identifiers:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                query:
+                  type: string
+                  maxLength: 255
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 30
+                app_type_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/expand:
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge graph expand
+      operationId: review_post_projects_project_id_knowledge_graph_expand
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                seeds:
+                  type: array
+                  minItems: 1
+                  maxItems: 6
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                app_type_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                hops:
+                  type: integer
+                  minimum: 0
+                  maximum: 3
+                fanout:
+                  type: integer
+                  minimum: 1
+                  maximum: 12
+                max_nodes:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                max_edges:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                max_evidence:
+                  type: integer
+                  minimum: 0
+                  maximum: 30
+                token_budget:
+                  type: integer
+                  minimum: 256
+                  maximum: 8000
+                direction:
+                  type: string
+                  enum:
+                    - both
+                    - outbound
+                    - inbound
+                relation_types:
+                  type: array
+                  maxItems: 8
+                  items:
+                    type: string
+                    enum:
+                      - TESTS
+                      - EXECUTED_IN
+                      - HAS_DEFECT
+                      - RELATED_TO
+                      - DEPENDS_ON
+                      - DERIVED_FROM
+                      - USES
+                      - PART_OF
+              required:
+                - seeds
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/reconcile:
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge graph reconcile
+      operationId: review_post_projects_project_id_knowledge_graph_reconcile
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                cursor:
+                  type: string
+                  maxLength: 255
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/nodes/{node_id}/aliases:
+    put:
+      tags:
+        - Knowledge
+      summary: Update projects knowledge graph nodes aliases
+      operationId: review_put_projects_project_id_knowledge_graph_nodes_node_id_aliases
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                aliases:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 120
+                expected_revision:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+              required:
+                - aliases
+                - expected_revision
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: node_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/candidates:
+    get:
+      tags:
+        - Knowledge
+      summary: Read projects knowledge graph candidates
+      operationId: review_get_projects_project_id_knowledge_graph_candidates
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.manage
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge graph candidates
+      operationId: review_post_projects_project_id_knowledge_graph_candidates
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                source_node_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                target_node_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                relation_type:
+                  type: string
+                  enum:
+                    - TESTS
+                    - EXECUTED_IN
+                    - HAS_DEFECT
+                    - RELATED_TO
+                    - DEPENDS_ON
+                    - DERIVED_FROM
+                    - USES
+                    - PART_OF
+                chunk_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                excerpt:
+                  type: string
+                  minLength: 3
+                  maxLength: 1500
+              required:
+                - source_node_id
+                - target_node_id
+                - relation_type
+                - chunk_id
+                - excerpt
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/candidates/{edge_id}/review:
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge graph candidates review
+      operationId: review_post_projects_project_id_knowledge_graph_candidates_edge_id_review
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                decision:
+                  type: string
+                  enum:
+                    - approve
+                    - reject
+                expected_revision:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+              required:
+                - decision
+                - expected_revision
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: edge_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /projects/{project_id}/knowledge/graph/extract:
+    post:
+      tags:
+        - Knowledge
+      summary: Request projects knowledge graph extract
+      operationId: review_post_projects_project_id_knowledge_graph_extract
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - knowledge.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                node_ids:
+                  type: array
+                  minItems: 2
+                  maxItems: 12
+                  uniqueItems: true
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+              required:
+                - node_ids
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/{id}/automation/authoring-state:
+    get:
+      tags:
+        - Automation
+      summary: Read authoritative build and recording admission state
+      operationId: review_get_test_cases_id_automation_authoring_state
+      description: Code-free ownership state includes linked manual and automation cases. Active recording blocks a build; queued/running build blocks recording. Durable saved-plan receipts release stale optional activity status.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationAuthoringState"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /test-cases/automation/jobs/{transactionId}/events:
+    get:
+      tags:
+        - Automation
+      summary: Stream resumable Automation build activity
+      operationId: review_get_test_cases_automation_jobs_transactionId_events
+      description: SSE with durable event-offset IDs, activity/complete/unavailable events and heartbeats. Current project/build/code/AI access is checked before and during streaming. Reconnect with a matching after query and Last-Event-ID; disconnect stops observation without cancelling generation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE frames with event type, optional durable ID and JSON data.
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+      parameters:
+        - in: path
+          name: transactionId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: after
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+        - in: header
+          name: Last-Event-ID
+          required: false
+          schema:
+            type: string
+            pattern: ^[0-9]{1,7}$
+          description: Last durable event offset; must match after when both are supplied.
+  /testengine/callbacks/runs:
+    post:
+      tags:
+        - Test Engine
+      summary: Receive signed Test Engine execution callbacks
+      operationId: review_post_testengine_callbacks_runs
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Callback accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestEngineCallbackAcceptedResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestEngineCallbackRequest"
+      security:
+        - testEngineCallbackSignature: []
+      parameters:
+        - $ref: "#/components/parameters/TestEngineSignatureHeader"
+  /testengine/internal/runs/{engineRunId}/artifacts:
+    post:
+      tags:
+        - Test Engine
+      summary: Request testengine internal runs artifacts
+      operationId: review_post_testengine_internal_runs_engineRunId_artifacts
+      description: Upload one bounded evidence file using the engine shared secret or a signed context restricted to this run, filename, media type and outcome. Stream size and checksum are validated before a reference is retained.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - testEngineSecret: []
+        - testEngineArtifactContext: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                kind: &a1
+                  type: string
+                outcome: *a1
+                checksum: *a1
+              required:
+                - file
+              additionalProperties: false
+      parameters:
+        - in: path
+          name: engineRunId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /testengine/internal/jobs/{id}/heartbeat:
+    post:
+      tags:
+        - Test Engine
+      summary: Request testengine internal jobs heartbeat
+      operationId: review_post_testengine_internal_jobs_id_heartbeat
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                worker_id:
+                  type: string
+              required:
+                - worker_id
+      security:
+        - testEngineSecret: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /automation/browser-bridges:
+    post:
+      tags:
+        - Automation
+      summary: Bind a paired browser agent to selected cases
+      operationId: review_post_automation_browser_bridges
+      description: Current browser Origin must equal paired_origin. Select one case or1–2,000 unique cases in one accessible application; current automation build and AI permissions are required. The bridge token is scoped and must not be treated as an ordinary session JWT.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserBridgeReceipt"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - automation.build
+        - automation.ai
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrowserBridgeCreate"
+  /local-browser-bridges/{id}/poll:
+    get:
+      tags:
+        - Automation
+      summary: Read local browser bridges poll
+      operationId: review_get_local_browser_bridges_id_poll
+      description: Uses a purpose-bound paired agent grant and matching agent identity; an ordinary user JWT is not a substitute. Ownership, expiry and command/case scope are checked before accepting a receipt.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      security:
+        - pairedLocalGrant: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: header
+          name: X-HelloTest-Local-Agent-Id
+          required: true
+          schema:
+            type: string
+          description: The paired agent identity bound to the scoped grant.
+  /local-browser-bridges/{id}/result:
+    post:
+      tags:
+        - Automation
+      summary: Request local browser bridges result
+      operationId: review_post_local_browser_bridges_id_result
+      description: Uses a purpose-bound paired agent grant and matching agent identity; an ordinary user JWT is not a substitute. Ownership, expiry and command/case scope are checked before accepting a receipt.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema: &a1
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a1
+      security:
+        - pairedLocalGrant: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: header
+          name: X-HelloTest-Local-Agent-Id
+          required: true
+          schema:
+            type: string
+          description: The paired agent identity bound to the scoped grant.
+  /agent-runs:
+    get:
+      tags:
+        - Agent Activity
+      summary: List permission-filtered activity across agent systems
+      operationId: review_get_agent_runs
+      description: Cursor-paged canonical lifecycle history. Current project, application, feature and native-system permissions are rechecked. Pending synchronization is reported; lifecycle success is not a passing-test or apply receipt.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentActivityHistory"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: app_type_id
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: system
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+  /agent-runs/descriptors:
+    get:
+      tags:
+        - Agent Activity
+      summary: List accessible versioned agent descriptors
+      operationId: review_get_agent_runs_descriptors
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          schema: &a1
+            type: string
+        - in: query
+          name: app_type_id
+          required: false
+          schema: *a1
+  /agent-runs/{id}:
+    get:
+      tags:
+        - Agent Activity
+      summary: Read agent lifecycle events and native-run correlation
+      operationId: review_get_agent_runs_id
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentActivityDetail"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflows/evidence-scope/options:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read agentic workflows evidence scope options
+      operationId: review_get_agentic_workflows_evidence_scope_options
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+        - in: query
+          name: app_type_id
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - in: query
+          name: field
+          required: true
+          schema:
+            enum:
+              - story_id
+              - test_case_id
+              - execution_id
+              - release_id
+              - sprint_id
+        - in: query
+          name: search
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+        - in: query
+          name: story_id
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - in: query
+          name: test_case_id
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - in: query
+          name: execution_id
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - in: query
+          name: release_id
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - in: query
+          name: sprint_id
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+  /agentic-assistant/sessions/{id}/proposals:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read agentic assistant sessions proposals
+      operationId: review_get_agentic_assistant_sessions_id_proposals
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-assistant/sessions/{id}/proposals/accept:
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Request agentic assistant sessions proposals accept
+      operationId: review_post_agentic_assistant_sessions_id_proposals_accept
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflow-runs/{id}/drafts/accept:
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Request agentic workflow runs drafts accept
+      operationId: review_post_agentic_workflow_runs_id_drafts_accept
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                node_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                story_index:
+                  type: number
+                case_index:
+                  type: number
+                iteration_path:
+                  type: array
+                kind:
+                  type: string
+                  enum:
+                    - manual
+                    - automation
+              required:
+                - node_id
+                - story_index
+                - case_index
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflow-runs/{id}/cancellation:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read agentic workflow runs cancellation
+      operationId: review_get_agentic_workflow_runs_id_cancellation
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflows/{id}/trigger:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read durable trigger readiness and recent deliveries
+      operationId: review_get_agentic_workflows_id_trigger
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowTriggerStatus"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflows/{id}/trigger/rotate-secret:
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Rotate the workflow webhook signing secret
+      operationId: review_post_agentic_workflows_id_trigger_rotate_secret
+      description: Signed-in session with workflow manage and run permissions. Returns a new secret once. The active saved workflow must use the webhook trigger; clients must protect the returned secret.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret: &a1
+                    type: string
+                  endpoint: *a1
+                  algorithm:
+                    type: string
+                    enum:
+                      - HMAC-SHA256
+                  max_clock_skew_seconds:
+                    type: integer
+                    enum:
+                      - 300
+                  signing_input: *a1
+                required:
+                  - secret
+                  - endpoint
+                  - algorithm
+                  - signing_input
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.run
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflow-runs/{id}/resume-plan:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Inspect verified reusable receipts and required effect reconciliation
+      operationId: review_get_agentic_workflow_runs_id_resume_plan
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowResumePlan"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: node_id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+  /agentic-workflow-runs/{id}/resume:
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Resume a frozen workflow from verified receipts
+      operationId: review_post_agentic_workflow_runs_id_resume
+      description: Requires a signed-in session, current native run access, Temporal and an unchanged source hash. Reuses verified dependency receipts in a new run. Every uncertain or repeated effect needs an explicit not-applied-or-reverted disposition and a 20–2,000 character note. No uncertain mutation is automatically replayed.
+      responses:
+        "202":
+          description: Accepted for the existing durable processing lifecycle.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowResumeRequest"
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflow-hooks/{id}:
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Accept an idempotent signed workflow webhook
+      operationId: review_post_agentic_workflow_hooks_id
+      description: Requires an active webhook workflow, configured signing secret, current actor permissions and durable runtime. HMAC-SHA256 input is timestamp + newline + event ID + newline + canonical JSON body with sorted object keys. Timestamp skew is bounded to 300 seconds. Reusing an event ID with different body or definition returns409.
+      responses:
+        "202":
+          description: Accepted for the existing durable processing lifecycle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowWebhookReceipt"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      security:
+        - workflowWebhookSignature: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: header
+          name: X-HelloTest-Timestamp
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]{10}$
+        - in: header
+          name: X-HelloTest-Event-Id
+          required: true
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9_-]{8,128}$
+  /agentic-workflow-runs/{id}/nodes/{nodeId}/model-calls:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read agentic workflow runs nodes model calls
+      operationId: review_get_agentic_workflow_runs_id_nodes_nodeId_model_calls
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - ops.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: nodeId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-workflow-runs/{id}/nodes/{nodeId}/model-calls/{callId}:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read agentic workflow runs nodes model calls
+      operationId: review_get_agentic_workflow_runs_id_nodes_nodeId_model_calls_callId
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - ops.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: nodeId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: callId
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /repository-agents/runs/{id}/publication-status:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Read repository agents runs publication status
+      operationId: review_get_repository_agents_runs_id_publication_status
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.view
+        - knowledge.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /repository-agents/runs/{id}/process-knowledge:
+    post:
+      tags:
+        - Agentic Workflows
+      summary: Request repository agents runs process knowledge
+      operationId: review_post_repository_agents_runs_id_process_knowledge
+      description: Returns the current native resource under its existing project/application and feature authorization. Domain validation and revision checks apply before mutation.
+      responses:
+        "202":
+          description: Accepted for the existing durable processing lifecycle.
+          content:
+            application/json:
+              schema: &a1
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.run
+        - knowledge.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a1
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /agentic-quality/runs/{id}/events:
+    get:
+      tags:
+        - Agentic Workflows
+      summary: Stream quality-agent progress
+      operationId: review_get_agentic_quality_runs_id_events
+      description: Authorized quality-agent SSE progress. Disconnect closes the observer; retained native results remain the authoritative review record.
+      responses:
+        "200":
+          description: Successful native response.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE frames with event type, optional durable ID and JSON data.
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+      x-required-permissions:
+        - agentic_workflow.view
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
 components:
   securitySchemes:
     traceConsoleSession:
@@ -7204,6 +10556,20 @@ components:
       in: header
       name: x-testengine-signature
       description: HMAC SHA-256 signature of the raw Test Engine callback payload.
+    workflowWebhookSignature:
+      type: apiKey
+      in: header
+      name: X-HelloTest-Signature
+      description: Workflow-specific HMAC-SHA256 signature; timestamp and event ID headers are also required. This is not browser-session authentication.
+    pairedLocalGrant:
+      type: http
+      scheme: bearer
+      description: Purpose-bound paired-agent grant, scoped to its browser bridge or execution, expiry and agent identity. Not a user session JWT.
+    testEngineArtifactContext:
+      type: apiKey
+      in: header
+      name: X-TestEngine-Artifact-Context
+      description: Signed one-file upload context restricted to the engine run and evidence identity.
   parameters:
     CatalogPageSizeQuery:
       name: page_size
@@ -11780,3 +15146,329 @@ components:
               description: Automated case identifiers produced by a batch build.
             generated_steps: { type: integer, minimum: 0 }
             failed: { type: integer, minimum: 0 }
+    AuthoringOwnershipReceipt:
+      type: object
+      properties:
+        activity_id: &a1
+          type: string
+        operation:
+          type: string
+          enum:
+            - build
+            - recording
+        status:
+          type: string
+          enum:
+            - queued
+            - leased
+            - running
+        phase: *a1
+      required:
+        - activity_id
+      additionalProperties: false
+    AutomationAuthoringState:
+      type: object
+      properties:
+        case_id: *a1
+        state:
+          type: string
+          enum:
+            - idle
+            - building
+            - recording
+            - conflict
+        build:
+          allOf:
+            - $ref: "#/components/schemas/AuthoringOwnershipReceipt"
+          nullable: true
+        recording:
+          allOf:
+            - $ref: "#/components/schemas/AuthoringOwnershipReceipt"
+          nullable: true
+        can_build:
+          type: boolean
+        can_record:
+          type: boolean
+      required:
+        - case_id
+        - state
+        - can_build
+        - can_record
+      additionalProperties: false
+    AgentLifecycleRun:
+      type: object
+      required:
+        - id
+        - system
+        - source_run_id
+        - project_id
+        - agent_id
+        - status
+      properties:
+        id: *a1
+        system:
+          type: string
+          enum:
+            - workflow
+            - repository
+            - quality
+            - automation
+        source_run_id: *a1
+        project_id: *a1
+        app_type_id:
+          type: string
+          nullable: true
+        agent_id: *a1
+        descriptor: &a2
+          type: object
+          additionalProperties: true
+        descriptor_hash: *a1
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - waiting
+            - succeeded
+            - partial
+            - failed
+            - cancelled
+            - unknown
+        native_status: *a1
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        payload: *a2
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AgentActivityHistory:
+      type: object
+      properties:
+        contract_version: *a1
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentLifecycleRun"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+        coverage: *a2
+        pending: *a2
+      required:
+        - contract_version
+        - items
+        - has_more
+      additionalProperties: false
+    AgentActivityDetail:
+      type: object
+      properties:
+        run:
+          $ref: "#/components/schemas/AgentLifecycleRun"
+        events:
+          type: array
+          maxItems: 500
+          items: *a2
+        events_limited:
+          type: boolean
+      required:
+        - run
+        - events
+        - events_limited
+      additionalProperties: false
+    WorkflowResumeRequest:
+      type: object
+      properties:
+        node_id:
+          type: string
+          minLength: 1
+          maxLength: 160
+        source_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        request_id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{8,128}$
+        reconciliations:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            properties:
+              node_id: *a1
+              operation_id: *a1
+              disposition:
+                type: string
+                enum:
+                  - not_applied_or_reverted
+              note:
+                type: string
+                minLength: 20
+                maxLength: 2000
+            required:
+              - node_id
+              - disposition
+              - note
+            additionalProperties: false
+      required:
+        - node_id
+        - source_hash
+        - request_id
+      additionalProperties: false
+    WorkflowResumePlan:
+      type: object
+      properties:
+        node_id: *a1
+        source_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        reuse:
+          type: array
+          items:
+            type: object
+            properties:
+              node_id: *a1
+              status: *a1
+              result_hash: *a1
+            required:
+              - node_id
+              - status
+              - result_hash
+            additionalProperties: false
+        rerun:
+          type: array
+          items: *a1
+        reconciliation_required:
+          type: array
+          items:
+            type: object
+            properties:
+              node_id: *a1
+              operation_id: *a1
+              reason: *a1
+            required:
+              - node_id
+              - reason
+            additionalProperties: false
+      required:
+        - node_id
+        - source_hash
+        - reuse
+        - rerun
+        - reconciliation_required
+      additionalProperties: false
+    WorkflowTriggerStatus:
+      type: object
+      properties:
+        durable_enabled:
+          type: boolean
+        secret_configured:
+          type: boolean
+        endpoint: *a1
+        deliveries:
+          type: array
+          maxItems: 20
+          items: *a2
+      required:
+        - durable_enabled
+        - secret_configured
+        - endpoint
+        - deliveries
+      additionalProperties: false
+    WorkflowWebhookReceipt:
+      type: object
+      properties:
+        delivery_id: *a1
+        run_id:
+          type: string
+          nullable: true
+        state: *a1
+      required:
+        - delivery_id
+        - state
+      additionalProperties: false
+    ManagedConfigurationMutation:
+      type: object
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 0
+        config: *a2
+      required:
+        - expected_revision
+      additionalProperties: false
+    AiRequestInspection:
+      type: object
+      properties:
+        config: *a2
+        user_request:
+          type: string
+          maxLength: 18000
+        authoring_mode:
+          type: string
+          enum:
+            - structured
+            - gherkin
+        reduced_context:
+          type: boolean
+      required:
+        - user_request
+      additionalProperties: false
+    RetainedAutomationSourceRequest:
+      type: object
+      properties:
+        test_case_id: *a1
+        step_id: *a1
+        source_call_id: *a1
+        evidence_transaction_id: *a1
+        integration_id: *a1
+      required:
+        - test_case_id
+        - step_id
+        - source_call_id
+      additionalProperties: false
+    BrowserBridgeCreate:
+      type: object
+      properties:
+        test_case_id: *a1
+        test_case_ids:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          uniqueItems: true
+          items: *a1
+        project_id: *a1
+        app_type_id: *a1
+        local_agent_id: *a1
+        paired_origin:
+          type: string
+          format: uri
+      required:
+        - local_agent_id
+        - paired_origin
+      additionalProperties: false
+    BrowserBridgeReceipt:
+      type: object
+      properties:
+        id: *a1
+        token:
+          type: string
+          writeOnly: false
+        poll_url: *a1
+        result_url: *a1
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - token
+        - poll_url
+        - result_url
+        - expires_at
+      additionalProperties: false

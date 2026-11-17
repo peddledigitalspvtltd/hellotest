@@ -355,6 +355,9 @@ exports.appendTransactionEvent = async (transactionId, input = {}) => {
     normalizeMetadata(input.details)
   );
 
+  const family = transaction.related_kind === 'quality_agent_run' ? 'quality' : transaction.category === 'automation_build' ? 'automation' : transaction.related_kind === 'agentic_assistant_session' ? 'workflow' : null;
+  if (family) require('../src/utils/agentMetrics').event(require('../src/utils/llmTraceContext').current().agent_system || family, input);
+
   if (input.description !== undefined || input.status !== undefined || input.metadata !== undefined) {
     await exports.updateTransaction(transaction.id, {
       description: input.description,

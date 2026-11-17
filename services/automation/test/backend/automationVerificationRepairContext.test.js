@@ -1,9 +1,9 @@
 const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createVerificationRepairContext } = require('../../backend/lib/automationVerificationRepairContext');
-const { applyLocatorRepair } = require('../../backend/lib/automationVerificationPipeline');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
+const { createVerificationRepairContext } = require("../../backend/lib/verification/automationVerificationRepairContext");
+const { applyLocatorRepair } = require("../../backend/lib/verification/automationVerificationPipeline");
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
 
 const operation = value => ({ name: 'browser_fill', arguments: { locator: '#old-name', value } });
 const requirement = { step_id: 'manual:name', action: 'Enter @r.name', expected_result: 'The name retains @r.name' };

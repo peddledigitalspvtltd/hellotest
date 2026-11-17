@@ -167,8 +167,8 @@ test('stock case scope and NFR emphasis migrate to neutral defaults while review
 });
 
 test('browser planning recovery and current-goal guidance remain managed while host scope is structured data',()=>{
- const browser=fs.readFileSync(require.resolve('../../../automation/backend/lib/automationBrowserAgent'),'utf8');
- const builder=fs.readFileSync(require.resolve('../../../automation/backend/services/aiAutomationBuilder.service'),'utf8');
+ const browser=['automationBrowserAgent','automationBrowserLoop'].map(name=>fs.readFileSync(require.resolve(`../../../automation/backend/lib/browser/${name}`),'utf8')).join('\n');
+ const builder=['aiAutomationBuilder.service','builder/programGeneration'].map(name=>fs.readFileSync(require.resolve(`../../../automation/backend/services/${name}`),'utf8')).join('\n') + fs.readFileSync(require.resolve('../../../automation/backend/lib/build/automationModelClient'),'utf8');
  for(const literal of ['Correct the advertised read-only arguments using retained evidence.','Return the requested manual flow JSON, or a genuinely necessary','The host selected ONLY this current manual section:'])assert.ok(!`${browser}\n${builder}`.includes(literal),`Runtime contains unmanaged guidance: ${literal}`);
  for(const key of ['automationFlowPlanning.browserRecovery','automationFlowPlanning.finalTurn'])assert.ok(browser.includes(`aiInstructionBlock(featureKey, '${key}')`));
  assert.ok(builder.includes("'automationBrowserAgent.activeGoal'"));assert.match(builder,/host_selected_current_manual_section:\{action:activeGoal\.action,expected_result:activeGoal\.expected_result\}/);

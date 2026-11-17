@@ -6,9 +6,9 @@ import { chromium } from 'playwright';
 import { captureAutomationBrowserSnapshot, assertAutomationBrowserCondition, automationBrowserTools } from '../../dist/lib/automationMcp.js';
 
 const require = createRequire(import.meta.url);
-const { createAutomationNavigationGrounding } = require('../../../../services/automation/backend/lib/automationNavigationGrounding.js');
-const { projectModelSnapshot } = require('../../../../services/automation/backend/lib/automationBrowserModelTargets.js');
-const { createBrowserParameterResolver } = require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
+const { createAutomationNavigationGrounding } = require("../../../../services/automation/backend/lib/browser/automationNavigationGrounding.js");
+const { projectModelSnapshot } = require("../../../../services/automation/backend/lib/browser/automationBrowserModelTargets.js");
+const { createBrowserParameterResolver } = require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
 
 test('real observed link destinations ground navigation with DOM-base semantics, bounded evidence and privacy intact', { timeout: 45_000 }, async t => {
   const domSecret = 'owned private+token', parameterSecret = 'source-private-query@token';

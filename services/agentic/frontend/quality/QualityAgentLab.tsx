@@ -1,4 +1,7 @@
-import agentContextPolicies from "@hellotest/platform/shared/agentContextPolicies.json";
+import { QualityTimeline, QualityFindings, QualityMetrics } from './QualityRunPanels';
+import { AgentActivityDisclosure } from "@hellotest/ai/agent-activity";
+import { useQualityReview } from "./useQualityReview";
+import agentContextPolicies from "@hellotest/contracts/agents/contextPolicies.json";
 import { AgentContextSources } from "../components/AgentContextSources";
 import { AiLlmSelect } from "@hellotest/ai/frontend/components/AiLlmSelect";
 import { AgentEvidenceScope } from '../components/AgentEvidenceScope';
@@ -38,33 +41,11 @@ function exportRun(run: QualityAgentRun) {
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = `quality-run-${run.id.replace(/[^a-zA-Z0-9_-]/g, '')}.json`; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function QualityTimeline({ run }: { run: QualityAgentRun }) {
-  const completed = run.stages.filter(stage => stage.status === 'completed').length;
-  return <aside className="quality-timeline" aria-label="Observed execution stages">
-    <header><span className="quality-kicker">Execution trace</span><strong>{completed}<span> / {run.stages.length} stages</span></strong></header>
-    {run.stages.length ? <ol>{run.stages.map((stage, index) => <li className={`is-${stage.status}`} key={stage.id}><span className="quality-stage-marker">{stage.status === 'completed' ? <IconCheck size={13} /> : stage.status === 'failed' ? <IconX size={13} /> : String(index + 1).padStart(2, '0')}</span><div><strong>{stage.label}</strong><small>{stage.status === 'running' ? 'In progress' : stage.status === 'pending' ? 'Waiting' : stage.status === 'failed' ? run.status === 'cancelled' ? 'Stopped' : 'Failed' : 'Recorded'}</small></div></li>)}</ol> : <p className="quality-muted">Waiting for the engine to report its first stage.</p>}
-    <div className="quality-trace-receipt"><span>Isolated browser</span><span>{run.options.viewport?.width || 1280} × {run.options.viewport?.height || 720}</span><code title={run.id}>{run.id.slice(0, 16)}</code></div>
-  </aside>;
-}
 
-function QualityFindings({ run, canDraft, onDraft }: { run: QualityAgentRun; canDraft: boolean; onDraft: (finding: QualityAgentFinding) => void }) {
-  const [severity, setSeverity] = useState('all'); const [selectedId, setSelectedId] = useState('');
-  const filtered = run.findings.filter(finding => severity === 'all' || finding.severity === severity);
-  const selected = filtered.find(finding => finding.id === selectedId) || filtered[0];
-  useEffect(() => { setSeverity('all'); setSelectedId(''); }, [run.id]);
-  return <section className="quality-findings" aria-label="Observed findings">
-    <div className="quality-section-heading"><div><span className="quality-kicker">From the browser</span><h3>Findings <span>{run.findings.length}</span></h3></div><label className="quality-filter"><span className="sr-only">Finding severity</span><ContextSelect label="Finding severity" aria-label="Finding severity" value={severity} onChange={event => { setSeverity(event.target.value); setSelectedId(''); }}><option value="all">All severity</option>{['critical', 'high', 'medium', 'low', 'info'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</ContextSelect></label></div>
-    {selected ? <div className="quality-finding-layout"><div className="quality-finding-list" role="group" aria-label="Choose finding">{filtered.map(finding => <button type="button" aria-pressed={selected.id === finding.id} key={finding.id} onClick={() => setSelectedId(finding.id)}><span className={`quality-severity is-${finding.severity}`}>{finding.severity}</span><strong>{finding.title}</strong><small>{finding.category}</small><IconArrowRight size={16} /></button>)}</div><article className="quality-finding-detail"><span className={`quality-severity is-${selected.severity}`}>{selected.severity} · {selected.category}</span><h4>{agentOutputText(selected.title)}</h4><AgentStructuredValue value={selected.description} /><div className="quality-evidence-block"><span className="quality-kicker">Observed evidence</span><AgentStructuredValue value={selected.evidence} />{selected.selector && <code>{selected.selector}</code>}</div>{selected.recommendation && <div className="quality-recommendation"><span className="quality-kicker">Suggested next step</span><AgentStructuredValue value={selected.recommendation} /></div>}{canDraft && <button className="quality-primary-button" type="button" onClick={() => onDraft(selected)}>Draft defect<IconArrowRight size={17} /></button>}</article></div> : <div className="quality-output-empty"><IconCircleCheck size={28} /><h3>{severity !== 'all' ? 'No findings at this severity' : running(run) ? 'Observations are arriving' : run.status === 'completed' ? 'No findings reported' : 'No findings recorded'}</h3><p>{severity !== 'all' ? 'Choose another severity to inspect the recorded findings.' : run.status === 'completed' ? 'These bounded checks reported no findings. Review their scope before drawing a wider conclusion.' : 'Recorded findings will appear here when the browser reports them.'}</p></div>}
-  </section>;
-}
 
-function QualityMetrics({ run }: { run: QualityAgentRun }) {
-  const entries = Object.entries(run.metrics); const [chosen, setChosen] = useState<string[] | null>(null);
-  useEffect(() => setChosen(null), [run.id]);
-  const keys = chosen ?? entries.slice(0, 4).map(([key]) => key);
-  if (!entries.length) return null;
-  return <section className="quality-metrics" aria-label="Measured metrics"><div className="quality-section-heading"><span className="quality-kicker">Measured, not estimated</span><details className="quality-metric-picker"><summary><IconAdjustmentsHorizontal size={15} />Choose metrics</summary><div>{entries.map(([key]) => <label key={key}><input type="checkbox" checked={keys.includes(key)} onChange={event => setChosen(event.target.checked ? [...keys, key] : keys.filter(value => value !== key))} />{qualityMetricLabel(key)}</label>)}</div></details></div><div className="quality-metric-grid">{keys.map(key => <div key={key}><span>{qualityMetricLabel(key)}</span><strong>{qualityMetricValue(key, run.metrics[key])}</strong></div>)}</div></section>;
-}
+
+
+
 
 export function QualityAgentLab({ projectId, appTypeId, scopeLabel, userId, canRun, canManage, canCreateDefect, integrations = [] }: { integrations?: Array<{id:string;name:string;model?:string|null;is_active?:boolean}>; projectId: string; appTypeId: string; scopeLabel: string; userId: string; canRun: boolean; canManage: boolean; canCreateDefect: boolean }) {
   const { can } = useCapabilityAccess(projectId);
@@ -83,17 +64,17 @@ export function QualityAgentLab({ projectId, appTypeId, scopeLabel, userId, canR
   const [autonomous, setAutonomous] = useState(true);
   const contextInput = { execution_mode: autonomous ? 'agent' as const : 'checks' as const, ai_configuration:aiConfiguration, instructions, guardrails, review_criteria:reviewCriteria, llm_integration_id: llmId || undefined, context_scopes: contextScopes, evidence_scope: Object.fromEntries(Object.entries(evidenceScope).map(([key,value]) => [key,String(value)])),
     smart_context: smartContext ? { query: smartContext.query, source_ids: smartContext.sourceIds, source_kinds: smartContext.sourceKinds, reviewed_context: smartContext.contextText } : undefined };
-  useEffect(() => { setEvidenceScope({}); setSmartContext(null); }, [projectId, appTypeId, userId]);
+  useEffect(() => { setEvidenceScope({}); setSmartContext(null); dispatchReview({ type: 'scope.changed' }); }, [projectId, appTypeId, userId]);
   const queryClient = useQueryClient(); const [params, setParams] = useSearchParams();
   const requestedKind = params.get('agent')?.replace(/^browser-/, '') || params.get('quality_agent');
   const [kind, setKind] = useState<QualityAgentKind>(() => isQualityAgentKind(requestedKind) ? requestedKind : 'web');
   const [target, setTarget] = useState(() => params.get('target_url') || ''); const [goal, setGoal] = useState(() => params.get('goal') || '');
   useEffect(() => { setContextScopes(agentContextPolicies[`browser-${kind}`].scopes); setEvidenceScope({}); setSmartContext(null); }, [kind]);
   const [options, setOptions] = useState<QualityAgentOptions>(DEFAULT_OPTIONS); const [baselineId, setBaselineId] = useState('');
-  const [plan, setPlan] = useState<QualityAgentPlan | null>(null); const [reviewed, setReviewed] = useState(false);
-  const [showPolicy, setShowPolicy] = useState(false); const [showHistory, setShowHistory] = useState(false); const [tab, setTab] = useState<'overview' | 'model' | 'findings' | 'visual' | 'data'>('overview');
-  const [notice, setNotice] = useState(''); const [formError, setFormError] = useState('');
-  const [baselineArtifact, setBaselineArtifact] = useState<QualityAgentArtifact | null>(null); const [draftFinding, setDraftFinding] = useState<QualityAgentFinding | null>(null);
+  const { plan, setPlan, reviewed, setReviewed, showPolicy, setShowPolicy, showHistory, setShowHistory, tab, setTab, notice, setNotice, formError, setFormError, baselineArtifact, setBaselineArtifact, draftFinding, setDraftFinding, dispatch: dispatchReview } = useQualityReview();
+
+
+
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   const controller = useRef<AbortController | null>(null); const mounted = useRef(true); const launchKey = useRef<{ signature: string; key: string } | null>(null);
   const liveCursor = useRef({ key: '', seq: 0 });
@@ -131,13 +112,13 @@ export function QualityAgentLab({ projectId, appTypeId, scopeLabel, userId, canR
   const agentSupported = catalogQuery.data?.runtime.missions?.supported === true;
   const runtimeReady = Boolean(catalogQuery.data?.runtime.available && preset?.available && (!autonomous || agentSupported));
   const busy = active;
-  const resetPlan = () => { setPlan(null); setReviewed(false); setFormError(''); launchKey.current = null; };
+  const resetPlan = () => { dispatchReview({ type: 'plan.cleared' }); launchKey.current = null; };
   const setRun = (value?: QualityAgentRun) => {
     if (value) queryClient.setQueryData(['quality-agent-run', ...scopeKey, value.id], value);
     setParams(current => { const next = new URLSearchParams(current); next.set('view', 'workbench'); next.set('agent', `browser-${value?.kind || kind}`); next.delete('surface'); if (value) { next.set('quality_run', value.id); next.set('quality_agent', value.kind); } else next.delete('quality_run'); return next; });
   };
   const planMutation = useMutation({ mutationFn: (agentKind: QualityAgentKind) => { controller.current?.abort(); controller.current = new AbortController(); return agenticApi.qualityAgents.plan({ ...scope, ...contextInput, kind: agentKind, target_url: target.trim(), goal: goal.trim(), options: { ...options, mission: autonomous ? {max_actions:12,allow_form_submission:options.mission?.allow_form_submission || false} : undefined } }, { signal: controller.current.signal }); }, onSuccess: value => { if (!mounted.current) return; setPlan({ ...value, steps: value.steps.map(step => step.action === 'assert_text' ? { ...step, selector: step.selector?.trim() || 'body' } : step), options: { ...value.options, ...options, mission: autonomous ? value.options.mission : undefined } }); setReviewed(false); setNotice(''); }, onError: error => { if (mounted.current) setFormError(message(error, 'The plan could not be prepared.')); } });
-  const startMutation = useMutation({ mutationFn: (input: QualityAgentLaunch) => { controller.current?.abort(); controller.current = new AbortController(); return agenticApi.qualityAgents.start(input, { signal: controller.current.signal, idempotencyKey: input.idempotency_key }); }, onSuccess: value => { if (!mounted.current) return; setRun(value); setPlan(null); setReviewed(false); setTab('overview'); setShowPolicy(false); setShowHistory(false); setNotice(''); launchKey.current = null; void queryClient.invalidateQueries({ queryKey: ['quality-agent-runs', ...scopeKey] }); }, onError: error => { if (mounted.current) setFormError(message(error, 'The run could not be started. Review the plan and retry.')); } });
+  const startMutation = useMutation({ mutationFn: (input: QualityAgentLaunch) => { controller.current?.abort(); controller.current = new AbortController(); return agenticApi.qualityAgents.start(input, { signal: controller.current.signal, idempotencyKey: input.idempotency_key }); }, onSuccess: value => { if (!mounted.current) return; setRun(value); dispatchReview({ type: 'run.started' }); launchKey.current = null; void queryClient.invalidateQueries({ queryKey: ['quality-agent-runs', ...scopeKey] }); }, onError: error => { if (mounted.current) setFormError(message(error, 'The run could not be started. Review the plan and retry.')); } });
   const cancelMutation = useMutation({ onMutate: async () => { await queryClient.cancelQueries({ queryKey: ['quality-agent-run', ...scopeKey, selectedRunId], exact: true }); }, mutationFn: () => agenticApi.qualityAgents.cancel(selectedRunId), onSuccess: value => { if (!mounted.current) return; queryClient.setQueryData(['quality-agent-run', ...scopeKey, value.id], value); setNotice(value.status === 'cancelled' ? 'Run stopped. Recorded evidence is still available.' : 'Stop requested. Waiting for the browser to finish its current operation.'); void queryClient.invalidateQueries({ queryKey: ['quality-agent-runs', ...scopeKey] }); } });
   const preparing = planMutation.isPending || startMutation.isPending;
   const prepare = (agentKind = kind) => { if (busy || preparing) return; const error = qualityTargetError(target); setFormError(error); if (error || !projectId || !canRun || !runtimeReady) return; resetPlan(); planMutation.mutate(agentKind); };
@@ -192,6 +173,7 @@ export function QualityAgentLab({ projectId, appTypeId, scopeLabel, userId, canR
       {cancelMutation.error && <p className="quality-error" role="alert">{message(cancelMutation.error, 'The stop request failed. The browser may still be running.')}</p>}
     </section>}
     {!run && !plan && !selectedRunId && <section className="quality-evidence-preview"><div><span className="quality-kicker">What comes back</span><h2>{experience.outcome}</h2><p>{experience.description}</p></div><div className="quality-evidence-contract">{(preset?.checks || []).slice(0, 3).map(check => <span key={check}><IconCheck size={14} />{check}</span>)}<details><summary>Know the scope</summary><ul>{(preset?.limitations || ['Only bounded observations returned by the engine are reported.']).map(value => <li key={value}>{value}</li>)}</ul></details></div></section>}
+    <AgentActivityDisclosure projectId={projectId} appTypeId={appTypeId} system="quality" initialSourceRunId={selectedRunId} renderDetail={activity => <button type="button" className="quality-text-button" onClick={() => setParams(current => { const next = new URLSearchParams(current); next.set('quality_run', activity.source_run_id); return next; })}>Open quality run</button>} />
     {notice && <p className="quality-inline-notice" role="status">{notice}</p>}
     {run && baselineArtifact && <QualityBaselineReview run={run} artifact={baselineArtifact} onClose={() => setBaselineArtifact(null)} onApproved={() => { setBaselineArtifact(null); setNotice('Baseline approved. Future visual runs can compare against this reviewed screenshot.'); void queryClient.invalidateQueries({ queryKey: ['quality-agent-baselines', ...scopeKey] }); }} />}
     {run && draftFinding && <QualityDefectDraft key={`${run.id}:${draftFinding.id}`} run={run} finding={draftFinding} projectId={projectId} userId={userId} onClose={() => setDraftFinding(null)} />}

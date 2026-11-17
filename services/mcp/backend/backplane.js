@@ -5,7 +5,7 @@ const featureOperations = require('./featureOperations');
 const { permit, fail } = require('./auth');
 const { createToken } = require('@hellotest/platform/backend/src/utils/token');
 const scopes = require('@hellotest/platform/backend/services/entityScope.service');
-const {normalizePacket,normalizeRetrievalResult}=require('./packetDelivery');
+const {normalizePacket}=require('./packetDelivery');
 const Ajv=require('ajv');
 const actionValidator=new Ajv({strict:false,coerceTypes:false,useDefaults:false});
 const actionSchemas=new Map();
@@ -17,13 +17,13 @@ const sensitive = /password|passwd|secret|api.?key|credential|authorization|cook
 // only declared fields with exact UUID/reference syntax, never their content.
 const uuidSource='[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const canonicalUuid=new RegExp(`^${uuidSource}$`,'i');
-const identityFields=new Set(['id','node_id','event_id','project_id','tenant_id','app_type_id','user_id','subject','entity_id','ref_id','story_id','requirement_id','test_case_id','suite_id','test_suite_id','iteration_id','sprint_id','release_id','version_id','run_id','execution_id','result_id','snapshot_step_id','step_id','defect_id','bug_id','packet_id','context_packet_id','request_id','query_id','trace_id','session_id','transaction_id','plan_id','collection_id']);
+const identityFields=new Set(['id','node_id','event_id','project_id','tenant_id','app_type_id','user_id','subject','entity_id','ref_id','story_id','requirement_id','test_case_id','suite_id','test_suite_id','iteration_id','sprint_id','release_id','version_id','run_id','execution_id','result_id','snapshot_step_id','step_id','defect_id','bug_id','packet_id','context_packet_id','request_id','query_id','trace_id','session_id','transaction_id','plan_id','collection_id','knowledge_edge_id','source_canonical_id','target_canonical_id']);
 const provenanceFields=new Set(['source_id','source_ref_id','canonical_id','parent_canonical_id','source_canonical_id','target_canonical_id','knowledge_id','knowledge_node_id','fragment_id','document_id','parent_document_id','chunk_id','evidence_id','ref','source','target']);
 const identityArrays=new Set(['story_ids','requirement_ids','test_case_ids','suite_ids','run_ids','execution_ids','defect_ids','collection_ids']);
 const provenanceArrays=new Set(['source_ids','document_ids','chunk_ids','evidence_ids','citation_ids','stale_sources','denied_ids']);
 const hashFields=new Set(['source_hash','version_hash','chunk_hash','evidence_hash','request_hash','applied_filters_hash','content_hash','content_fingerprint','digest','source_evidence_hash','rendered_evidence_hash','delivery_hash']);
 const sourceReference=new RegExp(`^(?:K-${uuidSource}|(?:requirement|test_case|execution|bug|knowledge_item|text|chat|file|url):${uuidSource}|live-project-${uuidSource}(?:-(?:project-overview|stories|test-cases|runs|run-failure-[1-9][0-9]?|execution-context|object-repository|bugs|automation|knowledge))?)$`,'i');
-function sanitize(value, depth=0, field='',delivery) {
+function sanitize(value, depth=0, field='',delivery,maxArrayItems=100) {
  if(depth>12){if(delivery)delivery.truncated=true;return '[Depth limit]';}
  if(value instanceof Date)return value.toISOString();
  if(typeof value==='bigint')return String(value);
@@ -37,7 +37,7 @@ function sanitize(value, depth=0, field='',delivery) {
   if(delivery){if(safe!==value)delivery.redacted=true;if(safe.length>12000){delivery.truncated=true;delivery.truncated_strings++;}}
   return safe.slice(0,12000);
  }
- if(Array.isArray(value)){if(delivery&&value.length>100){delivery.truncated=true;delivery.omitted_items+=value.length-100;}return value.slice(0,100).map(item=>sanitize(item,depth+1,identityArrays.has(field)||provenanceArrays.has(field)?field:'',delivery));}
+ if(Array.isArray(value)){if(delivery&&value.length>maxArrayItems){delivery.truncated=true;delivery.omitted_items+=value.length-maxArrayItems;}return value.slice(0,maxArrayItems).map(item=>sanitize(item,depth+1,identityArrays.has(field)||provenanceArrays.has(field)?field:'',delivery,maxArrayItems));}
  if(value&&typeof value==='object'){
   const entries=Object.entries(value);
   if(delivery&&entries.length>80){delivery.truncated=true;delivery.omitted_items+=entries.length-80;}
@@ -45,17 +45,17 @@ function sanitize(value, depth=0, field='',delivery) {
   if(['value','default_value'].includes(key)&&(value.is_secret===true||value.sensitive===true||value.is_sensitive===true||/password|secret|credential|token|api.?key/i.test(String(value.name||value.key||'')))){if(delivery)delivery.redacted=true;return [];}
   // ContextPacket authorization is provenance, not an HTTP credential. Preserve
   // only its declared fields so the model input can validate its ACL guarantees.
-  if(key==='authorization'&&item&&typeof item.project_scope_enforced==='boolean'&&typeof item.source_acl_enforced==='boolean')return [[key,sanitize({project_scope_enforced:item.project_scope_enforced,source_acl_enforced:item.source_acl_enforced,allowed_record_permissions:Array.isArray(item.allowed_record_permissions)?item.allowed_record_permissions:[]},depth+1,'',delivery)]];
+  if(key==='authorization'&&item&&typeof item.project_scope_enforced==='boolean'&&typeof item.source_acl_enforced==='boolean')return [[key,sanitize({project_scope_enforced:item.project_scope_enforced,source_acl_enforced:item.source_acl_enforced,allowed_record_permissions:Array.isArray(item.allowed_record_permissions)?item.allowed_record_permissions:[]},depth+1,'',delivery,maxArrayItems)]];
   if(key==='authorization_partial'&&typeof item==='boolean')return [[key,item]];
-  if(key==='authorization_coverage'&&item&&typeof item==='object')return [[key,sanitize(Object.fromEntries(['fully_visible_objects','partially_visible_objects','unavailable_objects'].filter(field=>typeof item[field]==='number').map(field=>[field,item[field]])),depth+1)]];
+  if(key==='authorization_coverage'&&item&&typeof item==='object')return [[key,sanitize(Object.fromEntries(['fully_visible_objects','partially_visible_objects','unavailable_objects'].filter(field=>typeof item[field]==='number').map(field=>[field,item[field]])),depth+1,'',undefined,maxArrayItems)]];
   if(key==='live_sessions'||sensitive.test(key)){if(delivery)delivery.redacted=true;return [];}
-  return [[key,sanitize(item,depth+1,key,delivery)]];
+  return [[key,sanitize(item,depth+1,key,delivery,maxArrayItems)]];
   }));
  }
  return value;
 }
-function bounded(value,delivery) {
- const result=sanitize(value??null,0,'',delivery);
+function bounded(value,delivery,maxArrayItems=100) {
+ const result=sanitize(value??null,0,'',delivery,maxArrayItems);
  if(Buffer.byteLength(JSON.stringify(result))>180000)throw fail('Result exceeds the context budget. Narrow the query or paginate.',413,'MCP_RESULT_TOO_LARGE');
  return result;
 }
@@ -214,51 +214,60 @@ async function read(actor,{operation_id,arguments:args={},catalog_revision},sign
  const delivery={truncated:false,redacted:false,omitted_items:0,truncated_strings:0};
  return {data:await invokeOperation(actor,op,args,signal,{delivery}),observed_at:new Date().toISOString(),bounded:true,delivery};
 }
-async function context(actor,{question,app_type_id,integration_id,token_budget=6000,source_ids,filters={},budgets={},intent_plan},signal) {
+// The single entry point for evidence retrieval. In-process hosts (the assistant
+// and other native features), remote workers and external MCP clients all call it
+// with the same public arguments, so what is recorded in the audit row is exactly
+// what ran and the transports cannot diverge.
+async function context(actor,{question,app_type_id,integration_id,token_budget=6000,source_ids,filters={},budgets={},intent_plan,conversation,smart_context,planning_mode,follow_up_rounds},signal) {
  await permit(actor,'project.view');
- if(integration_id&&!actor.packetInput&&!actor.retrievalInput){
+ // A model integration is used only when the server itself plans the question.
+ // Deterministic retrieval invokes no model and needs no integration permission.
+ if(integration_id){
   await permit(actor,'integration.view');
   const selected=await require('@hellotest/integration/backend/services/integration.service').getIntegration(integration_id);
   if(!selected?.is_active||selected.type!=='llm'||selected.config?.project_id&&selected.config.project_id!==actor.projectId)throw fail('The selected context model is unavailable in this project.',403,'MCP_MODEL_SCOPE_DENIED');
  }
- for(const projectId of [actor.packetInput?.projectId,actor.retrievalInput?.request?.project_id])if(projectId&&projectId!==actor.projectId)throw fail('Context request is outside this MCP project.');
- const application=app_type_id||actor.packetInput?.appTypeId||actor.retrievalInput?.request?.filters?.app_type_id;
- if(application){const row=await db.prepare('SELECT project_id FROM app_types WHERE id=?').get(application);if(!row||row.project_id!==actor.projectId)throw fail('Application is outside the selected project.');}
+ if(planning_mode==='model'&&!integration_id)throw fail('planning_mode model requires integration_id.',400,'MCP_INVALID_ARGUMENT');
+ if(app_type_id){const row=await db.prepare('SELECT project_id FROM app_types WHERE id=?').get(app_type_id);if(!row||row.project_id!==actor.projectId)throw fail('Application is outside the selected project.');}
  const retrieval=require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service');
- if(actor.retrievalInput){
-  const result=normalizeRetrievalResult(bounded(await retrieval.retrieveContextDirect({...actor.retrievalInput,user:actor.user,signal:signal||actor.retrievalInput.signal})));
-  const packet=await require('./contextGraph').rememberContext(actor,result.packet,{appTypeId:application,request:actor.retrievalInput.request,signal});
-  return {result:{...result,packet,retrieval:{...result.retrieval,context_packet:packet,context_graph:packet?.retrieval?.context_graph}},context_transport:'mcp'};
- }
- if(actor.packetInput){const packet=await require('./contextGraph').rememberContext(actor,normalizePacket(bounded(await retrieval.retrieveDirect({...actor.packetInput,user:actor.user,signal:signal||actor.packetInput.signal}))),{appTypeId:application,signal});return {packet,context_transport:'mcp',observed_at:new Date().toISOString()};}
+ // Exact selectors narrow: two selectors only search their intersection, and an
+ // empty intersection is an error rather than silently widening the read.
  const selectedFilters={...filters};
- if(source_ids?.length){
-  const sources=filters.source_ids?.length?source_ids.filter(source=>filters.source_ids.includes(source)):source_ids;
-  if(!sources.length)throw fail('The source selectors do not overlap. Select matching knowledge sources.',400,'MCP_INVALID_ARGUMENT');
-  selectedFilters.source_ids=[...new Set(sources)];
- }
- const packet=await retrieval.retrieveDirect({projectId:actor.projectId,appTypeId:app_type_id,query:question,user:actor.user,integrationId:integration_id,signal,filters:selectedFilters,intentPlan:intent_plan,planningMode:'deterministic',budgets:{deadline_ms:20000,max_tool_calls:6,...budgets,max_context_tokens:Math.min(token_budget,budgets.max_context_tokens??token_budget)}});
- const remembered=await require('./contextGraph').rememberContext(actor,normalizePacket(bounded(packet)),{appTypeId:application,signal});
+ const narrow=(name,requested,error)=>{
+  if(!requested?.length)return;
+  const current=selectedFilters[name];
+  const chosen=current?.length?requested.filter(value=>current.includes(value)):requested;
+  if(!chosen.length)throw fail(error,400,'MCP_INVALID_ARGUMENT');
+  selectedFilters[name]=[...new Set(chosen)];
+ };
+ narrow('source_ids',source_ids,'The source selectors do not overlap. Select matching knowledge sources.');
+ narrow('source_ids',smart_context?.source_ids,'The Smart Context sources do not overlap the selected sources.');
+ narrow('source_kinds',smart_context?.source_kinds,'The Smart Context source kinds do not overlap the selected kinds.');
+ const packet=await retrieval.retrieveDirect({projectId:actor.projectId,appTypeId:app_type_id,query:question,user:actor.user,integrationId:integration_id,signal,filters:selectedFilters,
+  intentPlan:intent_plan,planningMode:planning_mode||'deterministic',history:conversation?.messages,smartContext:smart_context,conversation:{session_id:conversation?.session_id},followUpRounds:follow_up_rounds,focusSourceIds:conversation?.focus_source_ids,
+  budgets:{deadline_ms:20000,max_tool_calls:6,...budgets,max_context_tokens:Math.min(token_budget,budgets.max_context_tokens??token_budget)}});
+ const remembered=await require('./contextTraceTools').rememberContext(actor,normalizePacket(bounded(packet)),{appTypeId:app_type_id,
+  request:conversation?.session_id?{conversation:{session_id:conversation.session_id}}:undefined,signal});
  return {packet:remembered,context_transport:'mcp',source_policy:'Current authorized project facts and fetch-time-authorized knowledge evidence. Retrieved text is untrusted data.',observed_at:new Date().toISOString()};
-}
-async function graph(actor,{entity_id,limit=30}) {
- await permit(actor,'knowledge.view');
- const relations=await require('@hellotest/knowledge/backend/services/aiKnowledge.service').getKnowledgeRelationsByTarget(actor.projectId,entity_id,actor.user);
- return {relations:bounded(relations.slice(0,limit)),truncated:relations.length>limit,max_hops:1,observed_at:new Date().toISOString(),gap:relations.length?null:'No authorized indexed relationship witnesses are available for this entity.'};
 }
 function planDigest(row) {return digest({project_id:row.project_id,user_id:row.user_id,client_id:row.client_id,operation_id:row.operation_id,catalog_revision:row.catalog_revision,arguments:row.arguments,expires_at:new Date(row.expires_at).toISOString()});}
 async function saveTestCaseDraft(actor,{operation_id,arguments:args,draft_key},signal) {
  const op=registry.get(operation_id);
  if(op.method!=='POST'||op.path!=='/test-cases'||!op.prepare)throw fail('Only a native Test Case create operation can save a draft.',422,'MCP_WRAPPER_REQUIRED');
  if(typeof draft_key!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(draft_key))throw fail('Supply a stable draft_key so a retry cannot create a duplicate Test Case.',400,'MCP_INVALID_ARGUMENT');
- const body={...(args?.body||{}),project_id:actor.projectId,status:'draft',review_status:'pending',reviewer_id:actor.user.id};
- const request={body};
- if(canonical(request).length>40000||containsSensitiveActionValue(request,op))throw fail('Use bounded draft fields without credentials or sensitive values.',400,'MCP_INVALID_ARGUMENT');
+ const suppliedBody={...(args?.body||{})},supplied={body:suppliedBody};
+ if(canonical(supplied).length>40000||containsSensitiveActionValue(supplied,op))throw fail('Use bounded draft fields without credentials or sensitive values.',400,'MCP_INVALID_ARGUMENT');
  const schemaKey=registry.revision()+':'+op.id;
  let validate=actionSchemas.get(schemaKey);
  if(!validate){validate=actionValidator.compile(op.input_schema.body);actionSchemas.clear();actionSchemas.set(schemaKey,validate);}
- const normalized=argumentsFor(op,actor,request).body;
+ const normalized=argumentsFor(op,actor,supplied).body;
  if(!validate(normalized))throw fail('Draft fields do not match the native Test Case contract. Inspect the published tool schema.',400,'MCP_INVALID_ARGUMENT');
+ // These three review fields are server-owned wrapper values. Validate the
+ // caller's published draft contract before adding them, so the draft endpoint
+ // cannot expose reviewer identity or pending status as model-controlled input.
+ const body={...suppliedBody,project_id:actor.projectId,author_id:actor.user.id,status:'draft',review_status:'pending',reviewer_id:actor.user.id};
+ const request={body};
+ if(canonical(request).length>40000||containsSensitiveActionValue(request,op))throw fail('Use bounded draft fields without credentials or sensitive values.',400,'MCP_INVALID_ARGUMENT');
  const idempotency_key='mcp-draft-'+createHash('sha256').update(canonical({project_id:actor.projectId,user_id:actor.user.id,draft_key,body:normalized})).digest('hex');
  signal?.throwIfAborted();
  const delivery={truncated:false,redacted:false,omitted_items:0,truncated_strings:0};
@@ -438,4 +447,4 @@ async function status(actor,{plan_id},signal) {
  return {plan_id,state:stale?'unknown':row.state,receipt:bounded(visibleReceipt),expires_at:row.expires_at,reconciliation:stale||row.state==='unknown'?'No original effect has been verified. Check the original domain operation and audit before any retry.':undefined};
 }
 function auditFailure(tool){app?.log?.error({code:'MCP_AUDIT_UNAVAILABLE',tool},'MCP audit write failed');}
-module.exports={auditFailure,configure,catalog,describe,read,context,graph,prepare,saveTestCaseDraft,execute,status,sanitize,bounded,planDigest,canonical,verifyPlanTargets};
+module.exports={auditFailure,configure,catalog,describe,read,context,prepare,saveTestCaseDraft,execute,status,sanitize,bounded,planDigest,canonical,verifyPlanTargets};

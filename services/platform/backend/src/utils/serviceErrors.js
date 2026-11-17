@@ -24,6 +24,8 @@ const PUBLIC_MESSAGES = Object.freeze({
   [SERVICE_ERROR_CODES.UPSTREAM_REJECTED]: "A connected service rejected the request."
 });
 
+const LLM_LIMIT_MESSAGE = "The selected AI provider is limiting requests or has exhausted its available quota. Review the connection's rate limits, usage and billing before retrying.";
+
 const normalizeDependency = (value) => {
   const normalized = String(value || "external-service")
     .trim()
@@ -68,7 +70,11 @@ class ServiceBoundaryError extends Error {
     this.retryAfterSeconds = normalizeRetryAfter(retryAfterSeconds);
     this.upstreamStatus = upstreamStatus != null && Number.isInteger(Number(upstreamStatus))
       && Number(upstreamStatus) >= 100 && Number(upstreamStatus) <= 599 ? Number(upstreamStatus) : null;
-    this.publicMessage = PUBLIC_MESSAGES[code] || PUBLIC_MESSAGES[SERVICE_ERROR_CODES.UNAVAILABLE];
+    this.publicMessage = code === SERVICE_ERROR_CODES.CIRCUIT_OPEN
+      && this.dependency === "llm-provider"
+      && this.upstreamStatus === 429
+      ? LLM_LIMIT_MESSAGE
+      : PUBLIC_MESSAGES[code] || PUBLIC_MESSAGES[SERVICE_ERROR_CODES.UNAVAILABLE];
   }
 
   toJSON() {

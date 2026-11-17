@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {stampObservation,reconcileAction,exactLinearCoverage}=require('../../backend/lib/automationActionReconciliation');
-const {browserRecoveryState,recordBrowserCheck,repeatedUnsuccessfulCheck,confirmedLocatorValidation}=require('../../backend/lib/automationBrowserRecovery');
-const {createAutomationSnapshotReadGuard}=require('../../backend/lib/automationSnapshotReadGuard');
+const {stampObservation,reconcileAction,exactLinearCoverage}=require("../../backend/lib/build/automationActionReconciliation");
+const {browserRecoveryState,recordBrowserCheck,repeatedUnsuccessfulCheck,confirmedLocatorValidation}=require("../../backend/lib/browser/automationBrowserRecovery");
+const {createAutomationSnapshotReadGuard}=require("../../backend/lib/browser/automationSnapshotReadGuard");
 const execution={required:true,step_id:'section'};
 const receipt=(fields={},isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',url:'https://app.test/shell',title:'Outer',...fields})}]});
 const scope=(frame,document='document-one')=>({frame_path:frame,frame_url:'https://app.test/embedded',frame_document_id:document});

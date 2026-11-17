@@ -354,7 +354,7 @@ resolve_defaults() {
 
 write_env_file() {
   # Read retained MCP settings before the generated file is opened for writing.
-  for mcp_setting in HELLOTEST_MCP_PUBLIC_URL HELLOTEST_MCP_ALLOWED_HOSTS HELLOTEST_MCP_SIGNING_KEY HELLOTEST_MCP_DATABASE_URL HELLOTEST_MCP_MAX_CONCURRENT; do
+  for mcp_setting in HELLOTEST_MCP_PUBLIC_URL HELLOTEST_MCP_OAUTH_ENABLED HELLOTEST_MCP_ALLOWED_HOSTS HELLOTEST_MCP_SIGNING_KEY HELLOTEST_MCP_DATABASE_URL HELLOTEST_MCP_MAX_CONCURRENT; do
     mcp_value="$(printenv "$mcp_setting" || true)"
     if [ -z "$mcp_value" ]; then
       mcp_value="$(generated_env_value "$mcp_setting" || true)"
@@ -374,6 +374,7 @@ write_env_file() {
 
   {
     printf 'APP_MODE=%s\n' "$APP_MODE"
+    printf 'WORKFLOW_ALLOW_LOCAL_FALLBACK=%s\n' "${WORKFLOW_ALLOW_LOCAL_FALLBACK:-false}"
     printf 'HELLOTEST_PUBLIC_URL=%s\n' "$HELLOTEST_PUBLIC_URL"
     printf 'HELLOTEST_API_PUBLIC_URL=%s\n' "$HELLOTEST_API_PUBLIC_URL"
     printf 'HELLOTEST_ADMIN_URL=%s\n' "$HELLOTEST_ADMIN_URL"
@@ -394,7 +395,7 @@ write_env_file() {
     printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
     printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
     printf 'WORKFLOW_CREDENTIAL_KEY=%s\n' "$WORKFLOW_CREDENTIAL_KEY"
-    for mcp_setting in HELLOTEST_MCP_PUBLIC_URL HELLOTEST_MCP_ALLOWED_HOSTS HELLOTEST_MCP_SIGNING_KEY HELLOTEST_MCP_DATABASE_URL HELLOTEST_MCP_MAX_CONCURRENT; do
+    for mcp_setting in HELLOTEST_MCP_PUBLIC_URL HELLOTEST_MCP_OAUTH_ENABLED HELLOTEST_MCP_ALLOWED_HOSTS HELLOTEST_MCP_SIGNING_KEY HELLOTEST_MCP_DATABASE_URL HELLOTEST_MCP_MAX_CONCURRENT; do
       mcp_value="$(printenv "$mcp_setting" || true)"
       if [ -n "$mcp_value" ]; then
         printf '%s=%s\n' "$mcp_setting" "$mcp_value"

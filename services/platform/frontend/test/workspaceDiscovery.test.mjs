@@ -25,6 +25,8 @@ test("destination history resolves views while ignoring transient record and fil
   assert.equal(discovery.capabilityForDestination("/agentic-workflows", "?view=workflows&workflow=one").id, "workflows");
   assert.equal(discovery.capabilityForDestination("/agentic-workflows", "").id, "quality-agents");
   assert.equal(discovery.capabilityForDestination("/agentic-workflows", "?surface=quality&run=one").id, "quality-agents");
+  assert.equal(discovery.capabilityForDestination("/agentic-workflows", "?view=workflows&surface=quality").id, "workflows", "The explicit current view takes precedence over the legacy surface");
+  assert.equal(discovery.capabilityForDestination("/agentic-workflows", "?view=agents&surface=quality").id, "agents");
   assert.equal(discovery.capabilityForDestination("/unexpected", ""), undefined);
 });
 

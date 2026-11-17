@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import test from 'node:test';
 import ts from 'typescript';
 import * as mapping from '../../shared/automationInstructionMapping.mjs';
-import {createGenerationManifest} from '../../backend/lib/automationGenerationManifest.js';
+import {createGenerationManifest} from "../../backend/lib/build/automationGenerationManifest.js";
 
 const require=createRequire(new URL('../../../platform/frontend/package.json',import.meta.url));
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');

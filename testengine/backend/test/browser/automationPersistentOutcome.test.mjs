@@ -8,9 +8,9 @@ import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../d
 import { resolveRepositoryLocator } from '../../dist/lib/repositoryLocator.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { createBrowserParameterResolver } = require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
-const { projectModelSnapshot } = require('../../../../services/automation/backend/lib/automationBrowserModelTargets.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { createBrowserParameterResolver } = require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
+const { projectModelSnapshot } = require("../../../../services/automation/backend/lib/browser/automationBrowserModelTargets.js");
 
 test('plain page outcome text is bounded, uniquely grounded and does not displace controls or mutate the DOM', { timeout: 30_000 }, async t => {
   const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}) });

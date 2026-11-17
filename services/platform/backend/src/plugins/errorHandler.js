@@ -47,6 +47,15 @@ async function errorHandlerPlugin(fastify) {
     if (classified.statusCode < 500 && Number.isSafeInteger(error.current_revision)) {
       payload.current_revision = error.current_revision;
     }
+    // Authoring conflicts expose only the durable ownership reference. Never
+    // forward the source/model/recorder metadata attached to arbitrary errors.
+    if (['AUTOMATION_AUTHORING_BUSY', 'AUTOMATION_RECORDER_START_UNKNOWN'].includes(classified.code)
+      && typeof error.details?.activity_id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_:-]{0,199}$/.test(error.details.activity_id)) {
+      payload.details = { activity_id: error.details.activity_id };
+      if (['build', 'recording'].includes(error.details.operation)) payload.details.operation = error.details.operation;
+      if (['queued', 'leased', 'running'].includes(error.details.status)) payload.details.status = error.details.status;
+      if (typeof error.details.phase === 'string' && /^[a-z._-]{1,100}$/.test(error.details.phase)) payload.details.phase = error.details.phase;
+    }
 
     reply.status(classified.statusCode).send(payload);
   });

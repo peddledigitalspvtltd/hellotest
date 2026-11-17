@@ -10,8 +10,23 @@ export function resolveSourceImport(root, file, specifier) {
     const [, owner, ...parts] = clean.split('/');
     const manifest = resolve(root, 'services', owner, 'package.json');
     if (!existsSync(manifest)) return undefined;
-    const exported = JSON.parse(readFileSync(manifest, 'utf8')).exports?.[`./${parts.join('/')}`];
-    if (typeof exported !== 'string') return undefined;
+    const exports = JSON.parse(readFileSync(manifest, 'utf8')).exports || {}, key = `./${parts.join('/')}`;
+    let exported = exports[key];
+    if (exported === undefined) {
+      const match = Object.keys(exports).filter(pattern => pattern.includes('*')).sort((a, b) => b.length - a.length).find(pattern => {
+        const [prefix, suffix] = pattern.split('*'); return key.startsWith(prefix) && key.endsWith(suffix) && key.length >= prefix.length + suffix.length;
+      });
+      if (match) {
+        const [prefix, suffix] = match.split('*'), member = key.slice(prefix.length, suffix ? -suffix.length : undefined);
+        const substitute = target => typeof target === 'string' ? target.replaceAll('*', member)
+          : target && typeof target === 'object' && !Array.isArray(target) ? Object.fromEntries(Object.entries(target).map(([condition, value]) => [condition, substitute(value)])) : target;
+        exported = substitute(exports[match]);
+      }
+    }
+    // Audit runtime implementations, not declaration-only siblings. Node's
+    // conditional public exports may independently provide TypeScript types.
+    while (exported && typeof exported === 'object' && !Array.isArray(exported)) exported = exported.import ?? exported.require ?? exported.default;
+    if (typeof exported !== 'string' || !exported.startsWith('./')) return undefined;
     base = resolve(root, 'services', owner, exported);
   }
   else if (clean.startsWith('/src/')) base = resolve(root, 'services/platform/frontend', clean.slice(1));

@@ -1,3 +1,4 @@
+import { automationOwnerSource, automationWorkspaceSource, findAutomationBinding,findAutomationEffect,automationMutationProperty } from "./helpers/automationWorkspaceSources.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -10,10 +11,9 @@ import { applyAutomationStepOptions, parseAutomationStepOptions } from "../../fr
 const transpile = (source) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const helpers = {};
 new Function("exports", transpile(readFileSync(new URL("../../frontend/lib/automationMetadataDraft.ts", import.meta.url), "utf8")))(helpers);
-const page = readFileSync(new URL("../../frontend/pages/AutomationPage.tsx", import.meta.url), "utf8");
-const effectStart = page.indexOf("  useEffect(() => {\n    if (!selectedCaseId) {\n      if (lastAutomationCaseDraftSeedRef.current)") + "  useEffect(".length;
-const effectEnd = page.indexOf("\n  }, [activeCase, projectId, selectedCaseId]);", effectStart) + "\n  }".length;
-const effectScript = transpile(`const effect = ${page.slice(effectStart, effectEnd)};`);
+const page = automationWorkspaceSource();
+const {node:metadataEffect,ast:metadataEffectAst}=findAutomationEffect(['activeCase','projectId','selectedCaseId'],'workspaces/case/useAutomationCaseDetailController.tsx');
+const effectScript = transpile(`const effect = ${metadataEffect.getText(metadataEffectAst)};`);
 
 function metadataFixture() {
   const state = {};
@@ -72,11 +72,6 @@ test("metadata refresh keeps explicit parameter deletions and accepts newly save
 });
 
 test("module or suite failure after metadata save returns success and refreshes the case revision for retry", async () => {
-  const start = page.indexOf("  const updateAutomationCase = useMutation({");
-  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
-  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
-  const successStart = fnEnd + "\n    onSuccess:".length;
-  const successEnd = page.indexOf("\n    onError:", successStart);
   const invalidated = [];
   const warnings = [];
   const context = {
@@ -95,7 +90,7 @@ test("module or suite failure after metadata save returns success and refreshes 
     queryClient: { invalidateQueries: async ({ queryKey }) => { invalidated.push(queryKey); } },
     showError: (error) => warnings.push(error.message), showSuccess: () => {}
   };
-  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")}; const onSuccess = ${page.slice(successStart, successEnd).trim().replace(/,$/, "")};`);
+  const script = transpile(`const mutation = ${automationMutationProperty('updateAutomationCase','mutationFn','workspaces/case/useAutomationCaseDataActions.tsx')}; const onSuccess = ${automationMutationProperty('updateAutomationCase','onSuccess','workspaces/case/useAutomationCaseDataActions.tsx')};`);
   const { mutation, onSuccess } = new Function(...Object.keys(context), `${script}\nreturn { mutation, onSuccess };`)(...Object.values(context));
   const result = await mutation();
   assert.equal(result.response.revision, 5);
@@ -108,10 +103,7 @@ test("module or suite failure after metadata save returns success and refreshes 
 
 
 test("revoked case-update access stops an automation metadata write before any API call", async () => {
-  const start = page.indexOf("  const updateAutomationCase = useMutation({");
-  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
-  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
-  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`);
+  const script = transpile(`const mutation = ${automationMutationProperty('updateAutomationCase','mutationFn','workspaces/case/useAutomationCaseDataActions.tsx')};`);
   const mutation = new Function("canUpdateAutomationCase", `${script}\nreturn mutation;`)(false);
   await assert.rejects(mutation(), /Test Case update permissions are required/);
 });
@@ -129,10 +121,7 @@ test('shared section options replace only metadata while preserving full program
 });
 
 test("metadata-only save without Test Data access preserves every saved parameter value and option", async () => {
-  const start = page.indexOf("  const updateAutomationCase = useMutation({");
-  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
-  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
-  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`);
+  const script = transpile(`const mutation = ${automationMutationProperty('updateAutomationCase','mutationFn','workspaces/case/useAutomationCaseDataActions.tsx')};`);
   let saved;
   const context = {
     canUpdateAutomationCase:true, isAutomationCaseDetailReady:true, canViewTestData:false,
@@ -150,10 +139,7 @@ test("metadata-only save without Test Data access preserves every saved paramete
 });
 
 function recorderFixture(flush) {
-  const start = page.indexOf("const startRecorder = useMutation({");
-  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
-  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
-  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`);
+  const script = transpile(`const mutation = ${automationMutationProperty('startRecorder','mutationFn','workspaces/case/useAutomationCaseRecorderActions.tsx')};`);
   const calls = [];
   const context = {
     canUseRecorder:true, activeCase:{id:"case"}, recorderSession:null, canRecordCurrentPlan:true,
@@ -161,7 +147,9 @@ function recorderFixture(flush) {
     reviewedAutomationStartUrl: value=>value,
     flushAutomationBuildParameters: async ids=>{calls.push(["flush",ids]);await flush();},
     rememberAutomationBuildDrafts:()=>calls.push(["remember"]),
-    recorderPrivateValuesRef:{current:[]},mergedParameterValues:{},visiblePrivateNames:new Set(),
+    mergedParameterValues:{},visiblePrivateNames:new Set(),
+    testCaseParameterValues:{},suiteParameterValues:{},privateCaseParameterDraft:{scope:"",names:[]},caseParameterPrivacyScope:"project:case",caseParameterOverrideDraftRef:{current:{scope:"",names:new Set()}},
+    authoring:{syncAuthoringState:async()=>{},beginRecording:()=>"operation",recordingDraftChanged:()=>{},recordingStartRejected:()=>{}},
     recorderOriginRef:{current:null}, projectId:"project", appTypeId:"app", recordingTargetStepId:"step",
     selectedParameterSuiteId:"selected-suite", selectedExecutionEnvironmentId:"env", selectedExecutionConfigurationId:"config", selectedExecutionDataSetId:"data",
     api:{testCases:{startRecorderSession: async (id,input)=>{calls.push(["start",id,input]);return {id:"recorder"};}}}

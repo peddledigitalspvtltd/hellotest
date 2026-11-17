@@ -1,0 +1,20 @@
+const test=require('node:test');const assert=require('node:assert/strict');
+const planning=require('../../backend/services/knowledgeIntentPlanning.service');const engine=require('../../backend/services/knowledgeContextEngine.service');const retrieval=require('../../backend/services/knowledgeRetrieval.service');const execution=require('../../backend/services/knowledgeExecution.service');const contracts=require('../../backend/services/knowledgeContracts.service');const intent=require('@hellotest/contracts/agents/contextIntent');
+test('known intent skips model planning; unresolved intent invokes the existing structured planner exactly once',async t=>{
+ const calls=[],plans=[];t.mock.method(planning,'planIntent',async input=>{calls.push(input);return{mode:'llm',reason:null,plan:{queries:['zebra boundary'],source_kinds:['requirement'],information_needs:['zebra boundary'],query_class:'INVESTIGATIVE',context_scopes:['stories'],confidence:'high'}};});
+ t.mock.method(engine,'retrieve',async input=>{plans.push(input.intentPlan);return{packet:{retrieval:{}},retrieval:{context_packet:{}}};});
+ const known=await retrieval.retrieveDirect({projectId:'p',query:'Which Test Cases failed?',user:{id:'u'}});assert.equal(calls.length,0);assert.equal(known.retrieval.intent_planning_mode,'deterministic_resolved');
+ const unresolved=await retrieval.retrieveDirect({projectId:'p',query:'Assess zebra boundary',user:{id:'u'}});assert.equal(calls.length,1);assert.equal(unresolved.retrieval.route_confidence,'high');assert.equal(unresolved.retrieval.model_context_plan.query_class,'INVESTIGATIVE');assert.deepEqual(plans.at(-1).context_scopes,['stories']);
+ await retrieval.retrieveDirect({projectId:'p',query:'Assess zebra boundary',filters:{requested_scopes:['stories'],evidence_scope:{story_id:'exact'}},user:{id:'u'}});assert.equal(calls.length,1,'Exact record scope avoids a redundant planning model');
+});
+test('structured intent enums reject unavailable scopes and uncertainty remains explicit',()=>{
+ const plan=planning.normalizePlan({search_queries:['zebra boundary'],query_class:'INVESTIGATIVE',context_scopes:['stories'],confidence:'low'},'zebra boundary');assert.equal(plan.confidence,'low');
+ for(const candidate of [{query_class:'EXECUTE_SQL'},{context_scopes:['all-projects']},{confidence:1}])assert.throws(()=>planning.normalizePlan({search_queries:['zebra boundary'],...candidate},'zebra boundary'),{code:'MODEL_INVALID_RESPONSE'});
+ const unknown=intent.planContext({prompt:'Assess zebra boundary'});assert.equal(unknown.route_confidence,'low');assert.equal(unknown.scope_widened,true);assert.deepEqual([...unknown.effective_scopes].sort(),[...intent.CONTEXT_SCOPES].sort());
+ const selected=intent.planContext({prompt:'Assess zebra boundary',requestedScopes:['stories']});assert.deepEqual([...selected.effective_scopes].sort(),['knowledge','stories']);assert.equal(selected.scope_widened,false);
+});
+test('structured low confidence cannot narrow retrieval while explicit selectors remain absolute',async()=>{
+ async function route(filters={}){const dependencies={planContext:intent.planContext,search:async()=>({results:[],errors:[]}),liveEvidence:async({contextRoute})=>({hits:[],counts:{},route:contextRoute}),merge:()=>[],assess:()=>({requires_more_context:false}),authorize:async hits=>({allowed:hits,denied_ids:[]})};return execution.run({},()=>engine.retrieve({request:contracts.buildRetrievalRequest({projectId:'p',query:'Assess zebra boundary',filters}),user:{id:'u'},intentPlan:{confidence:'low',context_scopes:['knowledge'],source_kinds:['text'],queries:[],information_needs:[]},dependencies}));}
+ const broad=await route();assert.equal(broad.route.route_confidence,'low');assert.equal(broad.route.scope_widened,true);assert.ok(broad.route.live_scopes.includes('bugs'));assert.ok(broad.route.live_scopes.includes('stories'));
+ const selected=await route({requested_scopes:['stories']});assert.deepEqual(selected.route.effective_scopes,['stories']);assert.ok(!selected.route.live_scopes.includes('bugs'));
+});

@@ -4,7 +4,7 @@ const projectService = require("@hellotest/platform/backend/public/projectAccess
 const requirementDesignService = require("../services/requirementDesign.service");
 const batchProcessService = require("@hellotest/testing/backend/services/batchProcess.service");
 const requirementWorkspaceService = require("../services/requirementWorkspace.service");
-const richTextAiService = require("@hellotest/ai/backend/services/richTextAi.service");
+const richTextAiService = require("@hellotest/ai/services/richTextAi");
 const { requirementMetadata } = require("@hellotest/platform/backend/src/utils/nativeIssueMetadata");
 const { paginate, shouldPaginate } = require("@hellotest/platform/backend/src/utils/pagination");
 const { httpConfig } = require("@hellotest/platform/backend/src/runtime/httpConfig");
@@ -339,7 +339,7 @@ module.exports = async function (fastify) {
     fastify.validate({ expected_revision:{ required:true, type:"number" }, checks:{ required:true, type:"object" } }, req.body || {});
     const requirement = await service.getRequirement(req.params.id, { includeLinkedRecords:false });
     await ensureRequirementPermission(fastify, req, requirement, "requirement.update");
-    return require("@hellotest/ai/backend/services/storyReadiness.service").update(req.params.id, { ...req.body, updated_by:req.user.id });
+    return require("@hellotest/ai/services/storyReadiness").update(req.params.id, { ...req.body, updated_by:req.user.id });
   });
 
   fastify.put("/requirements/:id", async (req) => {

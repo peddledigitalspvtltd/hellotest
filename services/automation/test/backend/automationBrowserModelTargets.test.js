@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { projectModelSnapshot, resolveModelToolRequest, modelTargetForLocator, browserExcerptAssertionFeedback } = require('../../backend/lib/automationBrowserModelTargets');
-const {browserPromptContext}=require('../../backend/lib/automationBrowserContext');
+const { projectModelSnapshot, resolveModelToolRequest, modelTargetForLocator, browserExcerptAssertionFeedback } = require("../../backend/lib/browser/automationBrowserModelTargets");
+const {browserPromptContext}=require("../../backend/lib/browser/automationBrowserContext");
 
 const element = (name, candidates, extra = {}) => ({ tag: 'input', accessible_role: 'textbox', accessible_name: name,
   locator_candidates: candidates, locators_validated: true, displayed: true, disabled: false, ...extra });

@@ -225,7 +225,7 @@ test("Story grooming keeps the six-tab layout compact and horizontally scrollabl
   assert.match(styles, /\.story-grooming-panel\[hidden\]\s*\{\s*display:\s*none/);
   assert.match(styles, /@container story-grooming \(max-width: 680px\)[\s\S]*\.story-grooming-tabs\s*\{[^}]*display:\s*flex[^}]*overflow-x:\s*auto[^}]*scroll-snap-type:\s*x proximity/s);
   assert.match(styles, /@container story-grooming \(max-width: 680px\)[\s\S]*\.story-grooming-tabs button\s*\{[^}]*min-width:\s*126px[^}]*flex:\s*1 0 126px/s);
-  assert.match(styles, /:root\[data-theme="dark"\][\s\S]*\.story-grooming-tabs button\.active[\s\S]*color:\s*#85b8ff/s);
+  assert.match(styles, /:root\[data-theme="dark"\][\s\S]*\.story-grooming-tabs button\.active[\s\S]*color:\s*var\(--ui-blue-text\)/s);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });
 

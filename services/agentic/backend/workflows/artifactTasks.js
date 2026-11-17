@@ -3,13 +3,13 @@ const permissions = require('@hellotest/platform/backend/services/permission.ser
 const flags = require('@hellotest/platform/backend/services/featureFlag.service');
 const requirements = require('@hellotest/manual/backend/services/requirement.service');
 const design = require('@hellotest/manual/backend/services/requirementDesign.service');
-const assurance = require('@hellotest/ai/backend/services/artifactAssurance.service');
+const assurance = require('@hellotest/ai/services/artifactAssurance');
 const apps = require('@hellotest/platform/backend/public/applicationAccess');
 const { storyAiSnapshot } = require('@hellotest/platform/backend/src/utils/aiArtifactContext');
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { resolveAutomationDraftSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
-const { referenceKey, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
-const { UPSTREAM_BUILD_ENGINE } = require('@hellotest/automation/backend/lib/automationBuildPipelineOptions');
+const { referenceKey, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/parameters');
+const { UPSTREAM_BUILD_ENGINE } = require('@hellotest/automation/build-options');
 const { fail } = require('./connections');
 const { safeMessage, failureInfo, withArtifact } = require('./runtimeEvents');
 const automationInputs = require('./automationNodeInputs');
@@ -381,8 +381,9 @@ async function executeCaseScoped({ run, node, user, signal, onProgress, context,
       missing_parameters: testDataResult.missing_parameters } : null })].filter(Boolean).join('\n\n');
   const app = await apps.getAppType(run.app_type_id);
   const nativeSteps = resolveAutomationDraftSteps(supplied.draft, supplied.draft.steps, { appTypeKind: app.kind || app.type || 'web' }).steps;
+  const browserSections = nativeSteps.some(step => step.step_type === 'web');
   const interactive = inputs.browserMode === 'perform_steps'
-    && nativeSteps.some(step => step.step_type === 'web');
+    && browserSections;
   let completedSections = null, activeStepOrder = null, progressPercent = 0;
   const reportProgress = async event => {
     const details = event?.details && typeof event.details === 'object' ? event.details : {};
@@ -404,12 +405,12 @@ async function executeCaseScoped({ run, node, user, signal, onProgress, context,
       current_case: caseIndex + 1, total_cases: packet.cases.length, completed_items: [row], automation_progress: row.automation_progress });
   };
   const generate = async () => {
-    try { return supplied.project(await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({
+    try { return supplied.project(await require('@hellotest/automation/build').previewAutomationDraft({
       draft: supplied.draft, runtime_parameter_values: supplied.runtimeValues, test_environment_id: inputs.testEnvironmentId || undefined,
       test_data_set_id: testDataResult?.test_data_set_id || undefined,
       app_type_kind: app.kind || app.type || 'web',
       additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: run.app_type_id,
-      user_id: user.id, inspect_browser: inputs.browserMode !== 'offline', allow_browser_actions: interactive, signal, onProgress: reportProgress
+      user_id: user.id, inspect_browser: browserSections && inputs.browserMode !== 'offline', allow_browser_actions: interactive, signal, onProgress: reportProgress
     })); } catch (error) { if (interactive) error.effect_dispatched = true; throw error; }
   };
   let automation;
@@ -758,11 +759,11 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
         try {
           // Browser visibility and action authority are separate. Existing
           // workflows retain read-only behavior until their saved mode changes.
-          const interactive = inputs.browserMode === 'perform_steps'
-            && resolveAutomationDraftSteps(automationDraft, automationDraft.steps, { appTypeKind: app.kind || app.type || 'web' }).steps.some(step => step.step_type === 'web');
+          const browserSections = resolveAutomationDraftSteps(automationDraft, automationDraft.steps, { appTypeKind: app.kind || app.type || 'web' }).steps.some(step => step.step_type === 'web');
+          const interactive = inputs.browserMode === 'perform_steps' && browserSections;
           const generate = async (reportProgress = async () => {}) => {
-            try { return supplied.project(await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({ draft: automationDraft, runtime_parameter_values:supplied.runtimeValues, test_environment_id: inputs.testEnvironmentId || undefined, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id,
-              inspect_browser: inputs.browserMode !== 'offline', allow_browser_actions: interactive, signal, onProgress: reportProgress })); }
+            try { return supplied.project(await require('@hellotest/automation/build').previewAutomationDraft({ draft: automationDraft, runtime_parameter_values:supplied.runtimeValues, test_environment_id: inputs.testEnvironmentId || undefined, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id,
+              inspect_browser: browserSections && inputs.browserMode !== 'offline', allow_browser_actions: interactive, signal, onProgress: reportProgress })); }
             catch (error) {
               // A model's pre-dispatch failure cannot establish that earlier
               // browser submissions in the whole case did not happen.

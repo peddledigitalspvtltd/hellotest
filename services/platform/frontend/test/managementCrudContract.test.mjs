@@ -1,3 +1,4 @@
+import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -344,7 +345,7 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
     readSource("../pages/ProjectsPage.tsx"),
     readApiSources(),
     readSource("../../../integration/frontend/lib/aiPromptRegistry.ts"),
-    readSource("../pages/SettingsPage.tsx"),
+    readSource("../admin/MetricGovernance.tsx"),
     readSource("../src/shared/components/EvidenceFlipCard.tsx"),
     readSource("../pages/ProjectsPage.css")
   ]);
@@ -379,11 +380,15 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
   assert.match(flipCard, /evidence\.slice\(0, maxEvidenceItems\)/);
   assert.match(flipCard, /className="evidence-flip-card-back-button"[\s\S]*<svg/);
   assert.match(registry, /AI_METRIC_FORMULA_VALUES_KEY/);
-  assert.match(registry, /key: "metric\.project\.execution_evidence"/);
-  assert.match(registry, /key: "metric\.project\.execution_failures"/);
-  assert.match(registry, /key: "metric\.project\.bugs"/);
-  assert.match(settings, /Formula values/);
-  assert.match(settings, /portfolio readiness weights must total 100%/i);
+  assert.match(registry, /import metricCatalog from "@hellotest\/platform\/shared\/metricCatalog\.json"/);
+  const defaults = JSON.parse(await readSource("../../shared/metricCatalog.json"));
+  for (const key of ["metric.project.execution_evidence", "metric.project.execution_failures", "metric.project.bugs"]) {
+    assert.ok(defaults.some(item => item.key === key && item.criteria.trim() && item.formula.trim()), `${key} retains its actual managed default`);
+  }
+  assert.match(settings, /export function MetricGovernance/);
+  const governance = await readSource("../admin/MetricGovernance.tsx");
+  assert.match(governance, /Formula values/);
+  assert.match(governance, /Weights must total 100% before saving or publishing/);
   assert.match(styles, /\.project-risk-summary-card\.evidence-flip-card/);
 });
 
@@ -496,8 +501,8 @@ test("test data authoring uses an iteration grid and module health loads before 
 
 test("Object Repository separates manual screen creation from the inspection workspace", async () => {
   const [page, browser, styles] = await Promise.all([
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
-    readSource("../../../agentic/frontend/components/RepositoryInspectBrowser.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
+    readSource("../../../automation/frontend/components/RepositoryInspectBrowser.tsx"),
     readSource("../src/styles.css")
   ]);
 

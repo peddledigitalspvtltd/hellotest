@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {auditAuthoredInputWrites} = require('../../backend/lib/automationUpstreamInputWrites');
-const {buildWithUpstreamPlaywright} = require('../../backend/lib/automationUpstreamEngineer');
+const {auditAuthoredInputWrites} = require("../../backend/lib/upstream/automationUpstreamInputWrites");
+const {buildWithUpstreamPlaywright} = require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan} = require('../../backend/services/automationReadiness.service');
 const step = {id: 'joined', step_order: 1, step_type: 'web', action: 'Fill Joined Date input with @r.employee_joined_date',
   expected_result: 'Joined Date retains @r.employee_joined_date', parameter_references: ['r.employee_joined_date']};

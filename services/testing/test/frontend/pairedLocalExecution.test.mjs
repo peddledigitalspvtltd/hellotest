@@ -11,7 +11,7 @@ const storage=()=>{const items=new Map();return {getItem:key=>items.get(key)||nu
 function executionHarness({ready=true,parameterExpressions=true,failedAck=false}={}) {
  const apiCalls=[],agentCalls=[],sessionStorage=storage();let apiFailure=false,failAck=failedAck;
  const paired={probePairedLocalAgent:async()=>({publicBaseUrl:'http://127.0.0.1:4311',token:'private-pair-token',agentId:'device',localExecution:ready,parameterExpressions}),submitPairedLocalRun:async(agent,dispatch)=>{agentCalls.push({agent,dispatch});if(failAck){failAck=false;throw new Error('lost acknowledgment');}return {accepted:true};}};
- const client=load('../../frontend/lib/pairedLocalExecution.ts',{'@hellotest/agentic/frontend/lib/pairedLocalAgent':paired},{crypto:webcrypto,sessionStorage,window:{location:{origin:'https://app.hellotest.ai'}}});
+ const client=load('../../frontend/lib/pairedLocalExecution.ts',{'@hellotest/automation/frontend/lib/localAgentPairing':paired},{crypto:webcrypto,sessionStorage,window:{location:{origin:'https://app.hellotest.ai'}}});
  const request=async(path,input)=>{apiCalls.push({path,input});if(apiFailure){apiFailure=false;throw new Error('API response lost');}return {id:'run',started:true,local_dispatch:{protocol_version:1,execution_id:'run',claim_url:'https://app.hellotest.ai/api/executions/run/local-dispatch/claim',grant_token:'scoped',expires_at:new Date(Date.now()+600000).toISOString()}};};
  return {...client,apiCalls,agentCalls,sessionStorage,request,loseApiAck(){apiFailure=true;}};
 }
@@ -57,7 +57,7 @@ test('an older paired execution agent fails before creating or starting a Run un
 });
 test('the actual browser transport sends only the scoped grant to localhost and rejects foreign claim addresses',async()=>{
  const requests=[],store=storage();store.setItem('hellotest.repository-inspection.agent-token.v1','a'.repeat(64));
- const paired=load('../../../agentic/frontend/lib/pairedLocalAgent.ts',{}, {crypto:webcrypto,localStorage:store,window:{location:{origin:'https://app.hellotest.ai'}},fetch:async(url,options)=>{requests.push({url,options});return new Response(JSON.stringify(url.endsWith('/status')?{ready:true,service:'hellotest-inspection-agent',protocol_version:1,agent_id:'device',capabilities:{local_execution:true},execution_protocol_version:1}:{accepted:true,execution_id:'run'}));}});
+ const paired=load('../../../automation/frontend/lib/localAgentPairing.ts',{}, {crypto:webcrypto,localStorage:store,window:{location:{origin:'https://app.hellotest.ai'}},fetch:async(url,options)=>{requests.push({url,options});return new Response(JSON.stringify(url.endsWith('/status')?{ready:true,service:'hellotest-inspection-agent',protocol_version:1,agent_id:'device',capabilities:{local_execution:true},execution_protocol_version:1}:{accepted:true,execution_id:'run'}));}});
  const agent=await paired.probePairedLocalAgent();assert.equal(agent.localExecution,true);assert.equal(agent.parameterExpressions,false);
  const dispatch={protocol_version:1,execution_id:'run',claim_url:'https://app.hellotest.ai/api/executions/run/local-dispatch/claim',grant_token:'scoped',expires_at:'later'};
  await paired.submitPairedLocalRun(agent,dispatch);assert.equal(requests[1].url,'http://127.0.0.1:4311/api/v1/local-executions');assert.equal(requests[1].options.headers['X-HelloTest-Agent-Token'],'a'.repeat(64));assert.deepEqual(JSON.parse(requests[1].options.body),{claim_url:dispatch.claim_url,grant_token:'scoped',execution_id:'run'});
@@ -65,14 +65,14 @@ test('the actual browser transport sends only the scoped grant to localhost and 
 });
 test('the pairing health reader requires the exact advertised expression capability without changing its stored pairing',async()=>{
  const store=storage();store.setItem('hellotest.repository-inspection.agent-token.v1','a'.repeat(64));let advertised;
- const paired=load('../../../agentic/frontend/lib/pairedLocalAgent.ts',{}, {crypto:webcrypto,localStorage:store,fetch:async()=>new Response(JSON.stringify({ready:true,service:'hellotest-inspection-agent',protocol_version:1,agent_id:'device',execution_protocol_version:1,capabilities:{local_execution:true,parameter_expressions_v1:advertised}}))});
+ const paired=load('../../../automation/frontend/lib/localAgentPairing.ts',{}, {crypto:webcrypto,localStorage:store,fetch:async()=>new Response(JSON.stringify({ready:true,service:'hellotest-inspection-agent',protocol_version:1,agent_id:'device',execution_protocol_version:1,capabilities:{local_execution:true,parameter_expressions_v1:advertised}}))});
  for(const [capability,expected] of [[undefined,false],['true',false],[false,false],[true,true]]){
   advertised=capability;const status=await paired.probePairedLocalAgent();assert.equal(status.parameterExpressions,expected);assert.equal(status.localExecution,true);
   assert.equal(store.getItem('hellotest.repository-inspection.agent-token.v1'),'a'.repeat(64));
  }
 });
 test('local Engineer preflight binds scoped bridge while remote and scheduled choices behave explicitly',async()=>{
- const api=[],local=[];const mod=load('../../frontend/lib/pairedBrowserBuild.ts',{'@hellotest/agentic/frontend/lib/pairedLocalAgent':{probePairedLocalAgent:async()=>({agentId:'device',localExecution:true,publicBaseUrl:'http://127.0.0.1:4311',token:'pair'})}},{window:{location:{origin:'https://app.hellotest.ai'}},fetch:async(url,options)=>{local.push({url,options});return new Response(JSON.stringify({accepted:true,bridge_id:'bridge'}));}});
+ const api=[],local=[];const mod=load('../../frontend/lib/pairedBrowserBuild.ts',{'@hellotest/automation/frontend/lib/localAgentPairing':{probePairedLocalAgent:async()=>({agentId:'device',localExecution:true,publicBaseUrl:'http://127.0.0.1:4311',token:'pair'})}},{window:{location:{origin:'https://app.hellotest.ai'}},fetch:async(url,options)=>{local.push({url,options});return new Response(JSON.stringify({accepted:true,bridge_id:'bridge'}));}});
  const request=async(path,input)=>{api.push({path,input});return {id:'bridge',token:'grant',poll_url:'poll',result_url:'result',expires_at:'later'};};
  assert.deepEqual(await mod.preparePairedBrowserBuild({browser_location:'remote',test_case_ids:['case']},request),{test_case_ids:['case']});assert.equal(api.length,0);
  assert.deepEqual(await mod.preparePairedBrowserBuild({browser_location:'local',test_case_ids:['case']},request),{test_case_ids:['case'],paired_browser_bridge_id:'bridge'});assert.equal(api[0].input.local_agent_id,'device');assert.equal(local[0].url,'http://127.0.0.1:4311/api/v1/local-browser-bridges');
@@ -80,7 +80,7 @@ test('local Engineer preflight binds scoped bridge while remote and scheduled ch
 });
 test('paired recording stops and caches complete capture before import; a failed save retains it for retry',async()=>{
  const calls=[];const session={id:'session',status:'running',purpose:'automation-recording',live_view_path:'/live'};
- const mod=load('../../frontend/lib/pairedRecorder.ts',{'@hellotest/agentic/frontend/lib/pairedLocalAgent':{probePairedLocalAgent:async()=>({publicBaseUrl:'http://127.0.0.1:4311',token:'pair'})}},{fetch:async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/stop')?{...session,status:'stopped',actions:[{index:1,type:'click',locator:'#button'}]}:session));}});
+ const mod=load('../../frontend/lib/pairedRecorder.ts',{'@hellotest/automation/frontend/lib/localAgentPairing':{probePairedLocalAgent:async()=>({publicBaseUrl:'http://127.0.0.1:4311',token:'pair'})}},{fetch:async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/stop')?{...session,status:'stopped',actions:[{index:1,type:'click',locator:'#button'}]}:session));}});
  const result=await mod.startPairedRecording(async()=>({id:'prepare',transaction_id:'transaction',paired_recording_id:'prepare',paired_session_payload:{start_url:'https://private.test',purpose:'automation-recording'}}));assert.equal(result.inspector_agent_token,'pair');assert.equal(result.transaction_id,'transaction');
  let first=true;const save=async capture=>{assert.equal(capture.paired_recording_id,'prepare');assert.equal(capture.captured_session.status,'stopped');if(first){first=false;throw new Error('save unavailable');}return {saved:true};};
  await assert.rejects(mod.finishPairedRecording('session',save),/save unavailable/);assert.deepEqual(await mod.finishPairedRecording('session',save),{saved:true});assert.equal(calls.filter(call=>call.url.endsWith('/stop')).length,1);assert.equal(mod.isPairedRecording('session'),false);

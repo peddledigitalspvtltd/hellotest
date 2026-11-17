@@ -1,4 +1,4 @@
-import type { AgentOutcomePreview as Preview } from '../lib/assistantProgressStream';
+import type { AgentOutcomePreview as Preview } from '@hellotest/ai/frontend/lib/assistantProgressStream';
 import { AgentReportVisuals, AgentStructuredValue } from './AgentStructuredValue';
 
 /** Validated intermediate output has no approval or write controls. */

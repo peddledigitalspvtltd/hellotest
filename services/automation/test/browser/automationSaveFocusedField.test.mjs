@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,rm} from 'node:fs/promises';
@@ -33,12 +34,15 @@ test('the first pointer Save from a focused parameter field saves the latest dra
  try{
   await writeFile(new URL(name+'.tsx',frontendRoot),fixture);
   await writeFile(new URL(name+'.html',frontendRoot),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
-  vite=await createServer({root:fileURLToPath(frontendRoot),configFile:fileURLToPath(new URL('vite.config.ts',frontendRoot)),server:{host:'127.0.0.1',port:0,strictPort:false},logLevel:'error'});
-  await vite.listen();const address=vite.httpServer.address();
+  let baseUrl=process.env.VITE_TEST_URL;
+  if(!baseUrl){
+    vite=await createServer({root:fileURLToPath(frontendRoot),configFile:fileURLToPath(new URL('vite.config.ts',frontendRoot)),server:{host:'127.0.0.1',port:0,strictPort:false,hmr:false},logLevel:'error'});
+    await vite.listen();const address=vite.httpServer.address();baseUrl=`http://127.0.0.1:${address.port}`;
+  }
   browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(12_000);
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
-  await page.route('**/api/**',route=>{errors.push('Unexpected application API request');return route.abort();});
-  await page.goto(`http://127.0.0.1:${address.port}/${name}.html`);
+  await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected application API request');return route.abort();});
+  await page.goto(`${baseUrl}/${name}.html`);
   await page.getByRole('tab',{name:/^Plan/}).click();await page.locator('.automation-plan-row').first().getByRole('button',{name:'Edit',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Edit section',exact:true});
   await dialog.getByRole('button',{name:'Edit Step 1 action',exact:true}).click();

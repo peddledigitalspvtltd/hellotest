@@ -106,6 +106,7 @@ test('Gherkin workflow assurance and automation use authored scenarios rather th
 });
 
 test('acceptance uses only saved, assessed outputs and atomically reuses a native Test Case receipt', async t => {
+
   const { accept } = require('../../../agentic/backend/workflows/acceptDraft');
   const db = require('../src/db');
   const receipts = new Map(), injections = [];

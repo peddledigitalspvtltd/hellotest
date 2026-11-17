@@ -56,7 +56,7 @@ import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemp
 import { isQualityAgentKind } from "../lib/qualityAgentExperience";
 import { QualityAgentLab } from "../quality/QualityAgentLab";
 import { AgentOutcomePreview } from '../components/AgentOutcomePreview';
-import type { AgentOutcomePreview as OutcomePreview } from '../lib/assistantProgressStream';
+import type { AgentOutcomePreview as OutcomePreview } from '@hellotest/ai/frontend/lib/assistantProgressStream';
 
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
@@ -1437,7 +1437,7 @@ export function AgenticWorkflowsPage() {
 
       {draft && selectedRunId && !selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog" role="dialog" aria-modal="true" aria-label="Workflow execution details"><p role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? "Execution details could not be loaded." : "Loading execution…"}</p>{selectedRunQuery.isError ? <button className="ghost-button" type="button" onClick={() => void selectedRunQuery.refetch()}>Retry</button> : null}<button className="ghost-button" type="button" onClick={closeRun}>Back to workflow</button></div></div>, document.body)}
 
-      {selectedRun && runPresentation === "live" && <WorkflowExecutionView key={selectedRun.id} run={selectedRun} presentation="live" onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
+      {selectedRun && runPresentation === "live" && <WorkflowExecutionView onResumed={openRun} key={selectedRun.id} run={selectedRun} presentation="live" onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
         stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
         error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
         onRefresh={() => void selectedRunQuery.refetch()}
@@ -1445,7 +1445,7 @@ export function AgenticWorkflowsPage() {
         onOpenSource={(agent, run) => { if (isRepositoryAgentType(agent)) { closeRun(); closeDraft(); openRepositoryAgent(agent, run); } }}
       />}
 
-      {selectedRun && runPresentation === "history" && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog workflow-execution-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView key={selectedRun.id} run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
+      {selectedRun && runPresentation === "history" && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog workflow-execution-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView onResumed={openRun} key={selectedRun.id} run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
         stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
         error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
         onRefresh={() => void selectedRunQuery.refetch()}

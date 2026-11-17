@@ -1,9 +1,9 @@
 const {createHash}=require('node:crypto');
-const {createGenerationManifest,generationApplicability}=require('../lib/automationGenerationManifest');
-const {groundedManualCoverage}=require('../lib/automationBuildCompletion');
-const {createUpstreamPrivateBindingScope}=require('../lib/automationUpstreamPrivateBindings');
-const {selectUpstreamSourceParameterValues}=require('../lib/automationUpstreamSourceBindings');
-const {generateUpstreamSectionSource}=require('../lib/automationUpstreamSectionSource');
+const {createGenerationManifest,generationApplicability}=require("../lib/build/automationGenerationManifest");
+const {groundedManualCoverage}=require("../lib/build/automationBuildCompletion");
+const {createUpstreamPrivateBindingScope}=require("../lib/upstream/automationUpstreamPrivateBindings");
+const {selectUpstreamSourceParameterValues}=require("../lib/upstream/automationUpstreamSourceBindings");
+const {generateUpstreamSectionSource}=require("../lib/upstream/automationUpstreamSectionSource");
 const permissions=['automation.build','automation.ai','automation.view','automation.code.view','testcase.view','data.view','ops.view'];
 const fail=(message,code='AUTOMATION_SOURCE_PROPOSAL_UNAVAILABLE',statusCode=409)=>Object.assign(new Error(message),{code,statusCode,nonRetryable:true});
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -44,7 +44,7 @@ function defaultPorts(){
  return {
   access:async(user,projectId)=>{await require('@hellotest/platform/backend/public/projectAccess').getProject(projectId,user.id);return require('@hellotest/platform/backend/services/optionalEvidenceAccess.service').getOptionalEvidenceAccess(user,projectId,permissions);},
   transaction:id=>transactions.getTransaction(id),
-  current:async(caseId,user,projectId)=>{const testCase=await db.prepare('SELECT tc.*,app.project_id,app.type AS app_type_kind FROM test_cases tc JOIN app_types app ON app.id=tc.app_type_id WHERE tc.id=? AND app.project_id=?').get(caseId,projectId);if(!testCase)throw fail('The automation case is unavailable in this project.');const context=require('../lib/automationBuildContext');return {testCase,steps:await db.prepare('SELECT * FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(caseId),manualCases:await context.loadAutomationManualContext({caseId,projectId,userId:user.id}),parameter_source_key:(await context.loadAutomationParameterContext({testCase,projectId,userId:user.id})).source_key};},
+  current:async(caseId,user,projectId)=>{const testCase=await db.prepare('SELECT tc.*,app.project_id,app.type AS app_type_kind FROM test_cases tc JOIN app_types app ON app.id=tc.app_type_id WHERE tc.id=? AND app.project_id=?').get(caseId,projectId);if(!testCase)throw fail('The automation case is unavailable in this project.');const context=require("../lib/build/automationBuildContext");return {testCase,steps:await db.prepare('SELECT * FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(caseId),manualCases:await context.loadAutomationManualContext({caseId,projectId,userId:user.id}),parameter_source_key:(await context.loadAutomationParameterContext({testCase,projectId,userId:user.id})).source_key};},
   data:(transaction,id)=>activity.buildData(transaction,id),
   preview:(transaction,id)=>activity.preview(transaction,id),
   trace:(projectId,id)=>require('@hellotest/trace/backend/services/llmTraceQuery.service').detail(projectId,id,{includeContent:true}),
@@ -68,7 +68,7 @@ async function previewRetainedSource({transactionId,input={},user,signal},ports=
  const dataId=evidence.metadata?.build_data_artifacts?.[input.test_case_id];
  if(!identifiers(dataId))throw fail('The old build public-value snapshot is required before its native sample values can be rebound.');
  const data=await ports.data(evidence,dataId);
- const historicalResolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:{parameter_values:data.parameter_values},caseValues:data.parameter_values,privateParameterNames:data.private_parameter_references||[],steps:current.steps,materialize:false});
+ const historicalResolver=require("../lib/parameters/automationBrowserParameters").createBrowserParameterResolver({testCase:{parameter_values:data.parameter_values},caseValues:data.parameter_values,privateParameterNames:data.private_parameter_references||[],steps:current.steps,materialize:false});
  const sameHistoricalIntent=(now,old)=>sameIntent(now,old)||sameIntent(historicalResolver.projectSteps([now])[0],old);
  const oldStep=data.steps.find(row=>row.step_id===step.id),progress=(evidence.metadata?.step_progress||[]).find(row=>row.test_case_id===input.test_case_id&&row.step_id===step.id);
  if(!oldStep||!sameHistoricalIntent(step,oldStep)||!progress||Number(progress.step_order)!==Number(step.step_order)||!sameIntent(step,progress))throw fail('The authored section changed since its native work was observed.');

@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const rules=require('../../backend/services/automationRepairRules');
-const {compileRecordedProgram}=require('../../../automation/backend/lib/automationRecordedProgram');
-const serviceSource=fs.readFileSync(require.resolve('../../backend/services/automationRepair.service'),'utf8');
+const rules=require('../../../automation/backend/services/automationRepairRules');
+const {compileRecordedProgram}=require("../../../automation/backend/lib/browser/automationRecordedProgram");
+const serviceSource=fs.readFileSync(require.resolve('../../../automation/backend/services/automationRepair.service'),'utf8');
 
 function fixture(){
  const steps=[{id:'setup',step_order:1,step_type:'web',action:'Open form',expected_result:'Form displayed',automation_code:'await web.expectVisible("#form");'},
@@ -19,7 +19,7 @@ function fixture(){
   if(id.endsWith('/aiTextPolicy'))return {};
   if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
-  if(id==='./automationRepairContext')return require('../../backend/services/automationRepairContext');
+  if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
   throw Error(`Unexpected dependency: ${id}`);
  }});
  return module.exports;

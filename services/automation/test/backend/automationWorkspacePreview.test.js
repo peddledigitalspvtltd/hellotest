@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
-const workspace=require('../../backend/lib/automationWorkspacePreview');
-const {completeAutomationBuild}=require('../../backend/lib/automationBuildCompletion');
-const {reduceActivityProgress}=require('../../backend/lib/automationActivityProgress');
+const workspace=require("../../backend/lib/build/automationWorkspacePreview");
+const {completeAutomationBuild}=require("../../backend/lib/build/automationBuildCompletion");
+const {reduceActivityProgress}=require("../../backend/lib/build/automationActivityProgress");
 const step={id:'email',step_order:2,step_type:'web',action:'Enter email',expected_result:'Email populated'};
 const repository=[{id:'field',page_key:'Signup',locator_intent:'Email',locator:'getByRole("textbox", {name:"Email", exact:true})',metadata:{screen_name:'Signup',object_name:'Email',reference_aliases:['Account.Email']}}];
 function activityService({currentStep,manualSteps=[],comparisonError}={}){
@@ -9,7 +9,7 @@ function activityService({currentStep,manualSteps=[],comparisonError}={}){
  const queries=[];
  const planDb={prepare:sql=>({get:async(...args)=>{queries.push({sql,args});if(comparisonError)throw comparisonError;return currentStep;},all:async(...args)=>{queries.push({sql,args});if(comparisonError)throw comparisonError;return manualSteps;}})};
  const transactions={createTransactionArtifact:async(transaction_id,input)=>{const value={id:`artifact-${++count}`,transaction_id,...input};artifacts.set(value.id,value);return value;},getTransactionArtifact:async id=>artifacts.get(id)};
- const module={exports:{}};new Function('require','module','Buffer',fs.readFileSync(require.resolve('../../backend/services/automationAgentActivity.service'),'utf8'))(id=>id==='../lib/automationProgressDiagnostics'?require('../../backend/lib/automationProgressDiagnostics'):id.endsWith('/obsDb')?{}:id.endsWith('/src/db')?planDb:id==='../lib/automationWorkspacePreview'?workspace:id==='../lib/automationGenerationManifest'?require('../../backend/lib/automationGenerationManifest'):transactions,module,Buffer);
+ const module={exports:{}};new Function('require','module','Buffer',fs.readFileSync(require.resolve('../../backend/services/automationAgentActivity.service'),'utf8'))(id=>id==='../lib/build/automationProgressDiagnostics'?require("../../backend/lib/build/automationProgressDiagnostics"):id.endsWith('/obsDb')?{}:id.endsWith('/src/db')?planDb:id==='../lib/build/automationWorkspacePreview'?workspace:id==='../lib/build/automationGenerationManifest'?require("../../backend/lib/build/automationGenerationManifest"):transactions,module,Buffer);
  return {service:module.exports,artifacts,events,queries};
 }
 test('protected normalized previews bind real native semantic locators and actual parameter namespaces, without name guessing',()=>{
@@ -127,7 +127,7 @@ test('preview reads require the exact activity step/artifact mapping and missing
  const transaction={id:'activity',metadata:{input_test_case_ids:['case'],step_progress:[{test_case_id:'case',step_id:'foreign',preview_artifact_id:preview.preview_artifact_id}]}};
  await assert.rejects(service.preview(transaction,preview.preview_artifact_id),error=>error.statusCode===404);transaction.metadata.step_progress[0].step_id=step.id;assert.equal((await service.preview(transaction,preview.preview_artifact_id)).step_id,step.id);
  const artifact=artifacts.get(preview.preview_artifact_id),original=artifact.mime_type;artifact.mime_type='text/plain';await assert.rejects(service.preview(transaction,artifact.id),error=>error.statusCode===404);artifact.mime_type=original;
- const module={exports:{}};let failure=new Error('Workspace transaction artifact not found');new Function('require','module','Buffer',fs.readFileSync(require.resolve('../../backend/services/automationAgentActivity.service'),'utf8'))(id=>id.endsWith('/obsDb')?{}:id==='../lib/automationWorkspacePreview'?workspace:{getTransactionArtifact:async()=>{throw failure;}},module,Buffer);
+ const module={exports:{}};let failure=new Error('Workspace transaction artifact not found');new Function('require','module','Buffer',fs.readFileSync(require.resolve('../../backend/services/automationAgentActivity.service'),'utf8'))(id=>id.endsWith('/obsDb')?{}:id==='../lib/build/automationWorkspacePreview'?workspace:{getTransactionArtifact:async()=>{throw failure;}},module,Buffer);
  for(const method of ['preview','evidence','screenshot'])await assert.rejects(module.exports[method](transaction,'missing'),error=>error.statusCode===404);
  failure=Object.assign(new Error('Database unavailable'),{code:'ECONNRESET'});await assert.rejects(module.exports.evidence(transaction,'missing'),error=>error===failure);
 });

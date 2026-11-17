@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationSnapshotReadGuard } = require('../../backend/lib/automationSnapshotReadGuard');
+const { createAutomationSnapshotReadGuard } = require("../../backend/lib/browser/automationSnapshotReadGuard");
 
 const request = { name: 'browser_snapshot', arguments: {} };
 const receipt = (value = {}, isError = false) => ({ isError, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });

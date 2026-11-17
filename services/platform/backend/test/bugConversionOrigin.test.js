@@ -24,6 +24,7 @@ const fixture = () => {
       const sql = statement.replace(/\s+/g, " ").trim();
       return {
         get: async (id) => {
+          if (/FROM test_cases/.test(sql)) return state.cases.has(id) ? { ...state.cases.get(id) } : null;
           if (/FROM app_types/.test(sql)) return { id: "app", project_id: "project" };
           if (/FROM users/.test(sql)) return { id: "author", name: "Author" };
           if (/FROM project_members/.test(sql)) return { user_id: "author" };
@@ -32,7 +33,6 @@ const fixture = () => {
             assert.match(sql, /FOR SHARE/);
             return bugs.get(id);
           }
-          if (/FROM test_cases/.test(sql)) return state.cases.has(id) ? { ...state.cases.get(id) } : null;
           return null;
         },
         all: async () => [],
@@ -57,6 +57,7 @@ const fixture = () => {
     exports: service,
     require: (dependency) => {
       if (dependencyName(dependency) === "db") return db;
+      if (dependency.endsWith("/caseExecutionHooks.service")) return {validateCaseExecutionHooks:async value=>value||[],normalizeCaseExecutionHooks:value=>value||[]};
       if (dependency === "crypto") return require("node:crypto");
       if (dependency.includes("/utils/") || dependencyName(dependency) === "catalog") return require(sourceFile(dependency, "services"));
       if (dependencyName(dependency) === "displayId.service") return { createDisplayId: async () => "TC-1" };

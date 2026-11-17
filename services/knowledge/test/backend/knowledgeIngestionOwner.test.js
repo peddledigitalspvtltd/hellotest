@@ -14,7 +14,8 @@ for(const mode of ['inactive_owner','revoked_permission','disabled_capability'])
   t.mock.method(db,'prepare',sql=>({
     get:async(...args)=>{
       queries.push({sql,args});
-      if(sql.includes("WHERE status = 'queued'")){if(claimed)return undefined;claimed=true;return{id:job.id};}
+      if(sql.includes('pg_advisory_xact_lock'))return{};
+      if(sql.includes("WHERE status = 'queued'")||sql.includes("jobs.status='queued'")){if(claimed)return undefined;claimed=true;return{...job};}
       if(sql.includes("SET status = 'running'"))return job;
       if(sql.includes('FROM users')){assert.match(sql,/status = 'active'/);return mode==='inactive_owner'?undefined:{id:'owner',is_workspace_admin:true};}
       if(sql.includes('SELECT * FROM ai_knowledge_ingestion_jobs'))return{...job,status:terminal};

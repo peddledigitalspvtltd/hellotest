@@ -214,6 +214,9 @@ export type HelloTestExecutionStepApiDetail = {
     headers: Record<string, string>;
     body: string;
     json: unknown;
+    body_truncated?: boolean;
+    body_original_bytes?: number;
+    body_retained_bytes?: number;
   };
   captures: Record<string, string>;
   assertions: HelloTestExecutionApiAssertion[];
@@ -330,6 +333,7 @@ export type ParameterDataPolicy = {
 export type ParameterOverrideOptions = { parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_steps?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean };
 
 export type EngineRunEnvelope = {
+  engine_envelope_version?: "engine-run/1";
   engine_run_id: string;
   hellotest_run_id: string;
   hellotest_execution_id?: string | null;

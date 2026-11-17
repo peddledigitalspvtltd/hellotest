@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile, writeFile, rm, mkdir} from 'node:fs/promises';
@@ -26,7 +27,7 @@ test('automation platform selection is mandatory, constrains steps and recording
   try {
     await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
     browser=await chromium.launch({headless:true});page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(10000);
-    const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',route=>{errors.push('Unexpected API '+route.request().url());return route.abort();});
+    const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API '+route.request().url());return route.abort();});
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);
     await page.getByRole('tab',{name:/^Details/}).click();
     const savedType=page.getByLabel('Automation case type',{exact:true});await expect(savedType).toHaveValue('web');

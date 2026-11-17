@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { validateGeneratedApiRequest } = require('../../../platform/backend/src/utils/testStepAutomation');
 const { executeApiRequestStep } = require('../../backend/services/apiRequestExecution.service');
-const { validateJsonSchema } = require('../../backend/lib/automationApiAssertions');
-const { createPortableAutomationArtifact } = require('../../backend/lib/automationPortableArtifact');
+const { validateJsonSchema } = require("../../backend/lib/build/automationApiAssertions");
+const { createPortableAutomationArtifact } = require("../../backend/lib/build/automationPortableArtifact");
 
 const validations = () => [{kind:'status',expected:'@t.expected_status'},{kind:'response_time',expected:'@s.[Maximum response ms]'},{kind:'json_schema',expected:'@r.response_schema'}];
 const values = () => ({'t.expected_status':'200','s.maximum response ms':'5000','r.response_schema':'{"type":"object","required":["count"],"properties":{"count":{"type":"integer"}}}'});

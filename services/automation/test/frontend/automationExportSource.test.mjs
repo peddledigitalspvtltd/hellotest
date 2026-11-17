@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "acorn";
 import { createRequire } from "node:module";
-import { prepareAutomationExportSource as prepare } from "../../frontend/lib/automationExportSource.ts";
+import { prepareAutomationExportSource as prepare } from "../../shared/automationExportSource.mjs";
 const ts = createRequire(new URL("../../../../package.json",import.meta.url))("typescript");
 
 const run = async (source, options = {}) => {

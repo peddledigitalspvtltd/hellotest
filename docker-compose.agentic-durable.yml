@@ -7,9 +7,11 @@ services:
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?Set the reachable Temporal frontend address}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-hellotest-agentic-v1}
+      TEMPORAL_TLS: ${TEMPORAL_TLS:-false}
+      TEMPORAL_API_KEY: ${TEMPORAL_API_KEY:-}
   agentic-durable:
     build:
-      context: .
+      context: ${HELLOTEST_SOURCE_CONTEXT:-.}
       dockerfile: services/agentic/Dockerfile.durable
     init: true
     restart: unless-stopped
@@ -44,8 +46,12 @@ services:
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       SESSION_SECRET: ${SESSION_SECRET:?Use the same credential encryption key as the API}
       WORKFLOW_CREDENTIAL_KEY: ${WORKFLOW_CREDENTIAL_KEY:-}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-}
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-}
       HELLOTEST_MCP_SIGNING_KEY: ${HELLOTEST_MCP_SIGNING_KEY:-}
       HELLOTEST_MCP_PUBLIC_URL: ${HELLOTEST_MCP_PUBLIC_URL:-}
+      HELLOTEST_MCP_OAUTH_ENABLED: ${HELLOTEST_MCP_OAUTH_ENABLED:-false}
       HELLOTEST_MCP_INTERNAL_URL: ${HELLOTEST_MCP_INTERNAL_URL:-http://api:3000/mcp}
       AGENTIC_HTTP_CONNECTIONS: ${AGENTIC_HTTP_CONNECTIONS:-[]}
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?Set the reachable Temporal frontend address}

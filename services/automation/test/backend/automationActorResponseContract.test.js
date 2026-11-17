@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { automationActorResponseContract, normalizeAutomationActorResponse } = require('../../backend/lib/automationActorResponseContract');
+const { automationActorResponseContract, normalizeAutomationActorResponse } = require("../../backend/lib/browser/automationActorResponseContract");
 
 const fill = () => ({ name: 'browser_fill', arguments: { locator: 'ref:observed-email', value: '@t.email' } });
 const normalize = value => normalizeAutomationActorResponse(value, { stepId: 'current' });

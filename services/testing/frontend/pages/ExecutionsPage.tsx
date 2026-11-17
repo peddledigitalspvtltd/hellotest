@@ -10337,6 +10337,7 @@ function ExecutionApiStepDialog({
 
               <div className="automation-response-meta">
                 <strong>Response</strong>
+                {detail?.response?.body_truncated ? <p className="inline-message" role="status">Response preview is shortened to {Number(detail.response.body_retained_bytes || 0).toLocaleString()}{typeof detail.response.body_original_bytes === "number" ? ` of ${detail.response.body_original_bytes.toLocaleString()}` : ""} bytes. Review the recorded assertions and captures below. JSON exploration is unavailable for a partial body.</p> : null}
                 <span>
                   {detail?.response
                     ? `${detail.response.status} ${detail.response.status_text || ""}`.trim()

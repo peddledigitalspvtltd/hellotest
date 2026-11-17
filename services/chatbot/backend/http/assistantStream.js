@@ -49,9 +49,46 @@ const streamAssistant = async (req, reply, task) => {
   heartbeat.unref?.();
   try {
     const result = await task({ signal: controller.signal, onProgress: (event) => send("progress", event) });
-    // Deliver the complete saved contract once. Artificially splitting an
-    // already-validated answer duplicates its content and exposes an incomplete
-    // preview before the structured answer and its citations arrive.
+    // Only the persisted, contract-checked answer is streamed. The evidence
+    // cards go first, then paragraphs from the validated contract, so provider
+    // drafts and claims removed by validation can never reach the browser.
+    const message = result?.assistant_message || result?.message;
+    const contract = result?.answer_contract || message?.answer_contract || message?.retrieval?.answer_contract;
+    if (active() && message && typeof message.id === "string" && message.id.length <= 255
+      && typeof message.content === "string" && message.content.length > 0
+      && contract?.contract_type === "AnswerContract"
+      && ["1.0", "AnswerContract.v1"].includes(contract.contract_version)
+      && Array.isArray(contract.claims) && Array.isArray(contract.citation_ids)) {
+      const citations = (Array.isArray(message.citations) ? message.citations : []).slice(0, 30).map(item => ({
+        id: String(item.id || "").slice(0, 255),
+        source_id: typeof item.source_id === "string" ? item.source_id.slice(0, 255) : null,
+        source_kind: typeof item.source_kind === "string" ? item.source_kind.slice(0, 80) : null,
+        title: String(item.title || item.label || "Project source").slice(0, 500),
+        uri: typeof item.uri === "string" ? item.uri.slice(0, 2000) : null,
+        source_uri: typeof item.source_uri === "string" ? item.source_uri.slice(0, 2000) : null,
+        freshness: item.freshness && typeof item.freshness === "object" ? { current: item.freshness.current === true } : undefined
+      })).filter(item => item.id);
+      if (citations.length && !send("answer_sources", { contract_type: "AnswerSources", contract_version: "1.0", verification: "complete", answer_id: message.id, citations })) await waitForDrain();
+      const sections = message.content.split(/(\n{2,})/).reduce((items, part, index, all) => {
+        if (index % 2 === 0) items.push(`${part}${all[index + 1] || ""}`);
+        return items;
+      }, []);
+      const sectionCount = Math.max(1, sections.length);
+      let sequence = 0;
+      for (let sectionIndex = 0; sectionIndex < sections.length && active(); sectionIndex++) {
+        let remaining = sections[sectionIndex];
+        while (remaining && active()) {
+          let end = Math.min(4096, remaining.length);
+          if (end < remaining.length && /[\uD800-\uDBFF]/.test(remaining[end - 1])) end -= 1;
+          if (!end) end = Math.min(4096, remaining.length);
+          const chunk = remaining.slice(0, end);
+          remaining = remaining.slice(end);
+          const delivered = send("answer_delta", { contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete",
+            answer_id: message.id, sequence: sequence++, section_index: sectionIndex, section_count: sectionCount, text: chunk });
+          if (!delivered) await waitForDrain();
+        }
+      }
+    }
     if (active() && !send("result", result)) await waitForDrain();
   } catch (error) {
     if (active()) {

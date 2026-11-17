@@ -1,8 +1,8 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {buildFailureProgress}=require('../../backend/lib/automationBuildFailureProgress');
-const {stepBuildError}=require('../../backend/lib/automationStepBuildErrors');
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {buildFailureProgress}=require("../../backend/lib/build/automationBuildFailureProgress");
+const {stepBuildError}=require("../../backend/lib/build/automationStepBuildErrors");
 
 test('identical unsupported assertion proposals stop on unchanged evidence before another MCP call or review',async()=>{
  const observations=[],events=[];let actorCalls=0,browserCalls=0,reviews=0;

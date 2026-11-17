@@ -1,6 +1,6 @@
 import { Children, cloneElement, isValidElement, useState, type ReactElement, type ReactNode } from "react";
 import { IconAdjustmentsHorizontal, IconBraces, IconLayoutGrid, IconListDetails, IconRefresh, IconSearch, IconSparkles, IconX } from "@tabler/icons-react";
-import { type AgenticFeatureProfileId, type AgenticProcessStageId, type AgenticProcessStatus, type AgenticProcessingSnapshot } from "@hellotest/agentic/frontend/components/AgenticExperience";
+import { type AgenticFeatureProfileId, type AgenticProcessStageId, type AgenticProcessStatus, type AgenticProcessingSnapshot } from "@hellotest/ai/agent-experience";
 import { AiGenerationProgress } from "./AiGenerationProgress";
 import { AiIntentCanvas } from "./AiIntentCanvas";
 import { AiContextPeek } from "./AiContextPeek";

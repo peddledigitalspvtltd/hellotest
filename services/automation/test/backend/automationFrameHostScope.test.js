@@ -1,10 +1,10 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {projectModelSnapshot,resolveModelToolRequest,repositoryTargetEvidence}=require('../../backend/lib/automationBrowserModelTargets');
-const {recordBrowserOperation,recordedSectionRequests}=require('../../backend/lib/automationBrowserRecording');
-const {createBrowserBatchTargetResolver}=require('../../backend/lib/automationBrowserBatchTargets');
-const {captureBrowserBatchState,browserBatchBoundary}=require('../../backend/lib/automationBrowserBatchState');
-const {projectBrowserModelTool}=require('../../backend/lib/automationBrowserModelContext');
+const {projectModelSnapshot,resolveModelToolRequest,repositoryTargetEvidence}=require("../../backend/lib/browser/automationBrowserModelTargets");
+const {recordBrowserOperation,recordedSectionRequests}=require("../../backend/lib/browser/automationBrowserRecording");
+const {createBrowserBatchTargetResolver}=require("../../backend/lib/browser/automationBrowserBatchTargets");
+const {captureBrowserBatchState,browserBatchBoundary}=require("../../backend/lib/browser/automationBrowserBatchState");
+const {projectBrowserModelTool}=require("../../backend/lib/browser/automationBrowserModelContext");
 const path=['#embedded'];
 const receipt=value=>({content:[{type:'text',text:JSON.stringify({source:'playwright',url:'https://app.test/work',...value})}]});
 const snapshot=(extra={})=>({tool:'browser_snapshot',result:receipt({observation_id:'observed',target_id:'actual-page',scope:'body',elements:[{tag:'input',accessible_role:'textbox',accessible_name:'Name',displayed:true,disabled:false,attributes:{id:'name'},locators_validated:true,locator_candidates:['#name']}],...extra})});

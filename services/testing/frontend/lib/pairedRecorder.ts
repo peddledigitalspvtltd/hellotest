@@ -1,4 +1,4 @@
-import { probePairedLocalAgent } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
+import { probePairedLocalAgent } from "@hellotest/automation/frontend/lib/localAgentPairing";
 import type { RecorderSessionResponse } from "@hellotest/platform/frontend/src/types";
 
 type PairedRecording = RecorderSessionResponse & { paired_recording_id: string; inspector_agent_token: string; engine_base_url: string };

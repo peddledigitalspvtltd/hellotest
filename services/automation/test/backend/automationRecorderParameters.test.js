@@ -1,20 +1,25 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {bindRecorderParameterCandidates:bind,recorderPromptProjector}=require('../../backend/lib/automationRecorderParameters');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {bindRecorderParameterCandidates:bind,recorderPromptProjector}=require("../../backend/lib/recording/automationRecorderParameters");
 
 function recorder(){
   const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js');
   const database={prepare:()=>({all:async()=>[],get:async()=>null,run:async()=>({changes:1})})};
   const sandbox={module:{exports:{}},exports:{},process,URL,Buffer,setTimeout,clearTimeout,console,require:id=>{
+ if (typeof id === 'string' && id.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(id);
+ if (id.endsWith('/automationAuthoringAdmission.service') || id === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
     if(id.endsWith('/db')||id.endsWith('/obsDb'))return database;
     if(id==='crypto')return require('node:crypto');
     if(id.endsWith('/testStepAutomation'))return require('../../../platform/backend/src/utils/testStepAutomation');
-    if(id.endsWith('/automationBrowserParameters'))return require('../../backend/lib/automationBrowserParameters');
-    if(id.endsWith('/automationRecorderActions'))return require('../../backend/lib/automationRecorderActions');
+    if(id.endsWith('/automationBrowserParameters'))return require("../../backend/lib/parameters/automationBrowserParameters");
+    if(id.endsWith('/automationRecorderActions'))return require("../../backend/lib/recording/automationRecorderActions");
+    if(id.endsWith('/automationRecorderReplayPlan'))return require("../../backend/lib/recording/automationRecorderReplayPlan");
     return {};
   }};
   vm.runInNewContext(fs.readFileSync(file,'utf8')+'\nmodule.exports={buildRecorderStepCandidate,buildRecorderStepCandidates,normalizeCapturedActions,inferRecorderFillValue,recorderParameterHint};',sandbox,{filename:file});
@@ -34,7 +39,7 @@ test('actual recorder candidates use the shared strict compiler without losing e
   const candidate = host.buildRecorderStepCandidate(action(1, 'fill', '@r.email', 'getByRole("textbox", {name:"Email",exact:false}).nth(1)'), 1, model);
   assert.match(candidate.automation_code, /page\.getByRole\("textbox", \{ name: "Email", exact: false \}\)\.nth\(1\)/);
   assert.doesNotMatch(candidate.automation_code, /\.first\(\)/);
-  assert.doesNotThrow(() => require('../../backend/lib/automationGeneratedProgram').normalizeGeneratedProgram(candidate.automation_code));
+  assert.doesNotThrow(() => require("../../backend/lib/build/automationGeneratedProgram").normalizeGeneratedProgram(candidate.automation_code));
   assert.throws(() => host.buildRecorderStepCandidate(action(1, 'click', '', 'getByRole("button", {name:"Save",checked:true})'), 1, model), /Unsupported semantic locator/);
 });
 
@@ -118,6 +123,19 @@ test('a navigation URL containing a private query value requires an explicit sco
   assert.match(result.candidates[0].automation_code,/@r.entry/);assert.doesNotMatch(result.candidates[0].automation_code,/recorded-private-token|configured-private-token/);
 });
 
+test('browser-selected filenames require an explicit or unique original configured file parameter', () => {
+  const actions = [{ ...action(1, 'upload', 'report.csv', '#file'), source: 'page-recorder' }];
+  const resolver = createBrowserParameterResolver({ caseValues: { file: '/approved/runner/report.csv' } });
+  const input = { actions, candidates: host.buildRecorderStepCandidates(actions), resolver, rebuildCandidate: (action, order) => host.buildRecorderStepCandidate(action, order) };
+  assert.throws(() => bind(input), { code: 'AUTOMATION_RECORDER_UPLOAD_BINDING_REQUIRED' });
+  const selected = bind({ ...input, parameterBindings: [{ source_action_index: 1, parameter_reference: '@t.file' }] });
+  assert.match(selected.candidates[0].automation_code, /setInputFiles\("@t.file"\)/);
+  assert.doesNotMatch(selected.candidates[0].automation_code, /report\.csv/);
+  const named = createBrowserParameterResolver({ caseValues: { file: 'report.csv' } });
+  const original = bind({ ...input, resolver: named, mappings: [{ step: source('upload', 'Upload @t.file'), candidates: input.candidates }] });
+  assert.match(original.candidates[0].automation_code, /setInputFiles\("@t.file"\)/);
+});
+
 test('input bursts keep earlier submit values and tab boundaries, and explicit early choices follow their final fill',()=>{
   const actions=[action(1,'fill','a','#search'),action(2,'change','apple','#search'),{index:3,type:'click',locator:'#submit'},action(4,'fill','pear','#search'),{...action(5,'fill','orange','#search'),page_id:'other-tab'}];
   const candidates=host.buildRecorderStepCandidates(actions);
@@ -129,7 +147,7 @@ test('input bursts keep earlier submit values and tab boundaries, and explicit e
 
 test('real recorder finalization resolves selected inputs before mapping and publishes symbolic source without changing case data',async()=>{
   const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js'),sourceText=fs.readFileSync(file,'utf8');
-  const body=sourceText.slice(sourceText.indexOf('const finalizeRecorderBuild ='),sourceText.indexOf('exports.buildAutomationForCase ='));
+  const body=implementationFunctionSource('builder/recorderImport','finalizeRecorderBuild');
   const testCase={id:'automation',project_id:'project',app_type_id:'web-app',title:'Recorded account',automated:'yes',parameter_values:{'t.email':'public@example.test','r.login_secret':'Private-current-fixture'},test_data_options:{private_parameter_names:['r.login_secret']}};
   const original=structuredClone(testCase),step=source('sign-in','Fill @t.email and @r.login_secret');
   const actions=[action(1,'fill','public@example.test','#email'),action(2,'fill','Private-current-fixture','#password')];
@@ -137,10 +155,10 @@ test('real recorder finalization resolves selected inputs before mapping and pub
   const resolver=createBrowserParameterResolver({caseValues:testCase.parameter_values,privateParameterNames:['r.login_secret']});
   const dependencies={
     selectStepsForCase:{all:async()=>persistedRows},selectCaseWithScope:{get:async()=>({...testCase,automation_status:automationStatus})},
-    normalizeGeneratedProgram:require('../../backend/lib/automationGeneratedProgram').normalizeGeneratedProgram,
+    normalizeGeneratedProgram:require("../../backend/lib/build/automationGeneratedProgram").normalizeGeneratedProgram,
     inferAutomationStepType:require('../../../platform/backend/src/utils/testStepAutomation').inferAutomationStepType,
     loadAutomationParameterContext:async()=>({runtime_parameter_values:testCase.parameter_values,private_parameter_names:['r.login_secret']}),
-    require:id=>id.endsWith('automationBrowserParameters')?{loadBrowserParameterResolver:async input=>{selection=input;return resolver;}}:id.endsWith('automationRecorderReadiness')?require('../../backend/lib/automationRecorderReadiness'):require('../../backend/lib/automationRecorderParameters'),
+    require:id=>id.endsWith('automationBrowserParameters')?{loadBrowserParameterResolver:async input=>{selection=input;return resolver;}}:id.endsWith('automationRecorderReadiness')?require("../../backend/lib/recording/automationRecorderReadiness"):id.endsWith('automationRecorderReplayPlan')?require("../../backend/lib/recording/automationRecorderReplayPlan"):require("../../backend/lib/recording/automationRecorderParameters"),
     buildRecorderRepositoryModel:async input=>{assert.equal(input.allowAiNaming,false);assert.doesNotMatch(input.projectPrompt(JSON.stringify({actions:input.capturedActions})),/Private-current-fixture/);return {};},
     buildRecorderStepCandidates:items=>items.map((action,index)=>host.buildRecorderStepCandidate(action,index+1,null)),
     buildRecorderStepCandidate:host.buildRecorderStepCandidate,
@@ -151,7 +169,7 @@ test('real recorder finalization resolves selected inputs before mapping and pub
     persistLearning:async()=>0,markTestCaseAutomationReady:{run:async()=>{automationStatus='ready';}},normalizeText:value=>value,
     markTestCaseAutomationIncomplete:{run:async()=>{automationStatus='incomplete';}},
     workspaceTransactionService:{createTransactionArtifact:async(_id,input)=>{artifact=input.content;return {id:'artifact'};}},
-    createArtifactContent:require('../../backend/lib/automationPortableArtifact').createPortableAutomationArtifact,
+    createArtifactContent:require("../../backend/lib/build/automationPortableArtifact").createPortableAutomationArtifact,
     listLearningCacheRows:async()=>[],MAX_CACHE_ROWS:40,updateTransaction:async()=>{}
   };
   const finalize=new Function(...Object.keys(dependencies),body+'\nreturn finalizeRecorderBuild;')(...Object.values(dependencies));

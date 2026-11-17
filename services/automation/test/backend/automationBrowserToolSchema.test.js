@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {runAutomationBrowserAgent,connectAutomationBrowser}=require('../../backend/lib/automationBrowserAgent');
+const {runAutomationBrowserAgent,connectAutomationBrowser}=require("../../backend/lib/browser/automationBrowserAgent");
 const {toolArgumentIssues}=require('@hellotest/platform/backend/src/utils/toolArgumentValidation');
 
 const string={type:'string',maxLength:2000};

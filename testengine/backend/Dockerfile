@@ -24,6 +24,12 @@ RUN npm run build
 
 FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
+# Guarantee the native VP9 encoder used during browser video finalization.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'libvpx-vp9' \
+    && rm -rf /var/lib/apt/lists/*
+
 # Reuse verified downloads and bound registry retries on unreliable connections.
 ARG NPM_CONFIG_FETCH_RETRIES=5
 ARG NPM_CONFIG_FETCH_RETRY_FACTOR=2

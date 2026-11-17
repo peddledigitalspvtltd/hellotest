@@ -13,13 +13,13 @@ import {runAutomationVerification} from '../../dist/lib/automationVerification.j
 import {compileRecordedProgram as compileEngineProgram} from '../../dist/lib/automationVerificationProgram.js';
 
 const require=createRequire(import.meta.url);
-const {compileRecordedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools');
-const {normalizeGeneratedProgram}=require('../../../../services/automation/backend/lib/automationGeneratedProgram');
+const {compileRecordedProgram}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools");
+const {normalizeGeneratedProgram}=require("../../../../services/automation/backend/lib/build/automationGeneratedProgram");
 const {prepareExecutablePlan}=require('../../../../services/automation/backend/services/automationReadiness.service');
-const {effectiveInputTypeSource}=require('../../../../services/automation/backend/lib/automationInputType');
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
-const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
+const {effectiveInputTypeSource}=require("../../../../services/automation/backend/lib/build/automationInputType");
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
+const {createBrowserParameterResolver}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters");
 const stable=value=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'
  ?Object.fromEntries(Object.entries(value).filter(([key])=>!['start','end','loc','raw'].includes(key)).map(([key,item])=>[key,stable(item)])):value;
 const expression=source=>stable(require('acorn').parseExpressionAt(source,0,{ecmaVersion:'latest'}));

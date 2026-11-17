@@ -1,4 +1,5 @@
 import { MarkerType } from "@xyflow/react";
+import nodeKinds from "../../shared/workflowNodeKinds.json";
 import { specialistDefaults } from "./specialistProfiles";
 import { nativeTaskDefaults, withNativeTaskDefaults } from "./nativeTaskProfiles";
 import { dataOperationDefaults } from "./dataOperationProfiles";
@@ -12,30 +13,9 @@ import type {
   AgenticWorkflowStatus,
   AgenticWorkflowTriggerKind,
 } from "@hellotest/platform/frontend/src/types";
-export type WorkflowNodeKind =
-  | "artifactTask"
-  | "customAI"
-  | "mcpTool"
-  | "repositoryAgent"
-  | "trigger"
-  | "agent"
-  | "llmAgent"
-  | "webAgent"
-  | "apiAgent"
-  | "apiTool"
-  | "knowledgeTool"
-  | "repositoryTool"
-  | "testOpsTool"
-  | "condition"
-  | "loop"
-  | "aggregator"
-  | "transform"
-  | "dataOperation"
-  | "wait"
-  | "stop"
-  | "errorHandler"
-  | "log"
-  | "output";
+export type WorkflowNodeKind = keyof typeof nodeKinds.kinds;
+export const WORKFLOW_LIMITS = nodeKinds.limits;
+export const workflowSpecialistCount = (nodes: AgenticWorkflowNode[]) => nodes.filter(node => nodeKinds.kinds[node.data.kind as WorkflowNodeKind]?.specialist).length;
 
 export type WorkflowDraft = {
   id?: string;
@@ -66,83 +46,14 @@ export const DEFAULT_RUN_INPUT = `{
   "source": "release-planning"
 }`;
 
-export const nodeKindLabels: Record<WorkflowNodeKind, string> = {
-  artifactTask: "Native AI task",
-  customAI: "Custom AI",
-  mcpTool: "MCP server tool",
-  repositoryAgent: "Source analysis",
-  trigger: "Manual trigger",
-  agent: "Workspace specialist",
-  llmAgent: "Specialist review",
-  webAgent: "Web Evidence Agent",
-  apiAgent: "API Agent",
-  apiTool: "HTTP Request",
-  knowledgeTool: "Knowledge search",
-  repositoryTool: "Repository evidence",
-  testOpsTool: "Run evidence",
-  condition: "Condition",
-  loop: "Loop over items",
-  aggregator: "Merge",
-  transform: "Map JSON",
-  dataOperation: "Data operation",
-  wait: "Wait",
-  stop: "Stop with error",
-  errorHandler: "Error handler",
-  log: "Log",
-  output: "Output",
-};
+export const nodeKindLabels = Object.fromEntries(Object.entries(nodeKinds.kinds).map(([kind, entry]) => [kind, entry.label])) as Record<WorkflowNodeKind, string>;
+export const nodeKindDescriptions = Object.fromEntries(Object.entries(nodeKinds.kinds).map(([kind, entry]) => [kind, entry.description])) as Record<WorkflowNodeKind, string>;
+export const executableNodeKinds = new Set(Object.entries(nodeKinds.kinds).filter(([, entry]) => entry.executable).map(([kind]) => kind));
 
-export const nodeKindDescriptions: Record<WorkflowNodeKind, string> = {
-  artifactTask: "Pass revision-pinned Story packets through native assurance, Test Case authoring and validated automation contracts",
-  customAI: "Review connected input with your own prompt and model",
-  mcpTool: "Call an enabled tool on a configured MCP server",
-  repositoryAgent: "Analyze GitHub source with a repository agent",
-  trigger: "Accept workflow input",
-  agent: "Ask a workspace specialist for an evidence-backed review and artifact proposals, with permitted agent handoffs",
-  llmAgent: "Reason over intent, RAG context, and upstream output",
-  webAgent:
-    "Analyze supplied web evidence without trusting embedded instructions",
-  apiAgent: "Design and interpret approved API requests and responses",
-  apiTool: "Call an approved HTTP API",
-  knowledgeTool: "Query HelloTest knowledge context",
-  repositoryTool: "Read repository or object metadata",
-  testOpsTool: "Read permitted run and execution evidence",
-  condition: "Route data through true and false branches",
-  loop: "Process batches through connected steps, then collect their results",
-  aggregator: "Wait for branches, append items, match fields or combine by position",
-  transform: "Shape JSON output",
-  dataOperation: "Split out, aggregate, limit, sort, remove duplicates, filter or switch items",
-  wait: "Pause this branch for a configured duration",
-  stop: "End execution with an explicit error message",
-  errorHandler: "Handle failed node output",
-  log: "Record evidence and trace data",
-  output: "Publish result",
-};
-
-export const nodePaletteGroups: Array<{
-  label: string;
-  kinds: WorkflowNodeKind[];
-}> = [
-  { label: "Start", kinds: ["trigger"] },
-  {
-    label: "Native artifact tasks",
-    kinds: ["artifactTask"],
-  },
-  {
-    label: "AI reviews and source analysis",
-    kinds: ["customAI", "agent", "repositoryAgent"],
-  },
-  { label: "Connections and servers", kinds: ["apiTool", "mcpTool"] },
-  {
-    label: "Project capabilities",
-    kinds: ["knowledgeTool", "repositoryTool", "testOpsTool"],
-  },
-  {
-    label: "Data and flow",
-    kinds: ["condition", "loop", "transform", "dataOperation", "aggregator", "wait", "stop"],
-  },
-  { label: "Results and recovery", kinds: ["output", "log", "errorHandler"] },
-];
+const paletteOrder = ["Start","Native artifact tasks","AI reviews and source analysis","Connections and servers","Project capabilities","Data and flow","Results and recovery"];
+export const nodePaletteGroups: Array<{label:string;kinds:WorkflowNodeKind[]}> = [...new Set(Object.values(nodeKinds.kinds).map(entry=>entry.ui.paletteGroup))]
+ .sort((a,b)=>paletteOrder.indexOf(a)-paletteOrder.indexOf(b))
+ .map(label=>({label,kinds:(Object.keys(nodeKinds.kinds) as WorkflowNodeKind[]).filter(kind=>nodeKinds.kinds[kind].ui.paletteGroup===label)}));
 
 export const compactCount = (
   count: number,
@@ -166,205 +77,9 @@ export const safeJsonParse = (value: string): Record<string, unknown> => {
 export const prettyJson = (value: unknown) =>
   JSON.stringify(value ?? {}, null, 2);
 
-export const buildNodeDefaults = (
-  kind: WorkflowNodeKind,
-  index: number,
-): AgenticWorkflowNodeData => {
-  const isAgentKind = ["agent", "llmAgent", "webAgent", "apiAgent"].includes(
-    kind,
-  );
-  const base: AgenticWorkflowNodeData = {
-    label: `${nodeKindLabels[kind]} step`,
-    ...(["agent", "llmAgent"].includes(kind)
-      ? {
-          agentId: "quality-evaluator",
-          prompt:
-            "Review the workflow request using permitted project evidence. Identify gaps and cite supporting sources.",
-        }
-      : {}),
-    kind,
-    summary: nodeKindDescriptions[kind],
-    outputKey: `${kind}_${index + 1}`,
-    retryCount: kind === "apiTool" || isAgentKind ? "2" : "0",
-    retryDelayMs: "1000",
-    timeoutMs: isAgentKind ? "60000" : "30000",
-    onError: "stop",
-    logLevel: "standard",
-    redactSecrets: "true",
-  };
-
-  if (kind === "customAI")
-    return {
-      ...base,
-      ...specialistDefaults("quality-evaluator"),
-      label: "Custom AI review",
-      prompt:
-        "Review the connected input and project evidence. Return a clear answer with supporting sources.",
-      instructions: "",
-      knowledgeScope: "requirements,test-cases,test-runs,knowledge",
-      timeoutMs: "60000",
-    };
-  if (kind === "mcpTool")
-    return {
-      ...base,
-      label: "MCP tool",
-      connectionId: "",
-      mcpTool: "",
-      mcpArguments: "{}",
-      retryCount: "0",
-    };
-  if (kind === "transform")
-    return {
-      ...base,
-      label: "Map JSON",
-      transformMapping: '{\n  "result": "$input"\n}',
-    };
-  if (kind === "dataOperation") return { ...base, ...dataOperationDefaults("editFields") };
-  if (kind === "wait") return { ...base, label: "Wait", waitMs: 1000, retryCount: "0" };
-  if (kind === "stop") return { ...base, label: "Stop with error", stopMessage: "Workflow stopped by the configured condition.", retryCount: "0" };
-  if (kind === "condition")
-    return {
-      ...base,
-      label: "Check condition",
-      conditionPath: "input.status",
-      conditionOperator: "equals",
-      conditionValue: '"passed"',
-    };
-  if (isAgentKind) {
-    return {
-      ...base,
-      agentId: "quality-orchestrator",
-      model: "Default workspace LLM",
-      intent:
-        "Produce a quality-engineering decision grounded in the connected evidence.",
-      instructions:
-        "Return a concise result with evidence, risks, and the recommended next action.",
-      prompt:
-        "Use the workflow input and connected tools to produce a structured answer.",
-      toolPolicy: "approved-tools-only",
-      knowledgeScope: "requirements,test-cases,test-runs,knowledge",
-      ...(kind === "webAgent"
-        ? {
-            webSourceMode: "supplied-evidence-only",
-            externalLinksKey: "external_links",
-          }
-        : {}),
-      ...(kind === "apiAgent"
-        ? {
-            apiMethod: "GET",
-            apiResponseStyle: "json",
-            apiValidationMode: "schema-and-status",
-          }
-        : {}),
-      ...(["agent", "llmAgent"].includes(kind) ? specialistDefaults("quality-orchestrator") : {}),
-    };
-  }
-
-  if (kind === "apiTool") {
-    return {
-      ...base,
-      label: "API tool",
-      apiMethod: "GET",
-      apiResponseStyle: "json",
-      toolName: "HTTP Request",
-      summary:
-        "Call an approved REST API with bounded timeout and response preview.",
-    };
-  }
-
-  if (kind === "knowledgeTool") {
-    return {
-      ...base,
-      label: "Knowledge lookup",
-      toolName: "HelloTest Knowledge",
-      knowledgeScope: "requirements,test-cases,object-repository",
-      summary:
-        "Search project knowledge without leaving the HelloTest boundary.",
-    };
-  }
-
-  if (kind === "repositoryTool") {
-    return {
-      ...base,
-      label: "Repository lookup",
-      toolName: "Repository",
-      repositoryScope: "object-repository,automation-code",
-      summary:
-        "Resolve code, locator, and repository metadata through configured integrations.",
-    };
-  }
-
-  if (kind === "testOpsTool") {
-    return {
-      ...base,
-      label: "TestOps tool",
-      toolName: "TestOps",
-      testOpsAction: "read-runs",
-      summary:
-        "Use HelloTest TestOps adapters for controlled background activity.",
-    };
-  }
-
-  if (kind === "artifactTask") {
-    return { ...base, ...nativeTaskDefaults("story-assurance"), timeoutMs: "1800000", retryCount: "0", outputKey: "" };
-  }
-
-  if (kind === "loop") {
-    return {
-      ...base,
-      label: "Loop over items",
-      loopSourceKey: "input.items",
-      loopMaxIterations: "10",
-      loopAction: "workflow",
-      loopBatchSize: 1,
-      timeoutMs: "180000",
-      summary:
-        "Process a selected item array sequentially within a bounded item limit.",
-    };
-  }
-
-  if (kind === "aggregator") {
-    return {
-      ...base,
-      label: "Merge branch outputs",
-      inputMode: "allIncoming",
-      mergeMode: "waitAllAppend",
-      outputKey: "aggregated_results",
-      summary:
-        "Collect parallel branch outputs into one deterministic downstream payload.",
-    };
-  }
-
-  if (kind === "errorHandler") {
-    return {
-      ...base,
-      label: "Error recovery",
-      errorRoute: "notify-and-continue",
-      outputKey: "error_recovery",
-      summary:
-        "Collect failed node context and route it to a safe recovery path.",
-    };
-  }
-
-  if (kind === "log") {
-    return {
-      ...base,
-      label: "Execution log",
-      logLevel: "audit",
-      outputKey: "execution_log",
-      summary: "Persist node-level input, output, timings, and retry evidence.",
-    };
-  }
-
-  if (kind === "repositoryAgent")
-    return {
-      ...base,
-      repositoryAgentType: "api_tests",
-      timeoutMs: "180000",
-      retryCount: "0",
-    };
-  return base;
-};
+export const buildNodeDefaults = (kind: WorkflowNodeKind, index: number): AgenticWorkflowNodeData => ({
+  outputKey: kind + "_" + String(index + 1), ...structuredClone(nodeKinds.kinds[kind].defaults), kind
+});
 
 export const getNodeOutputKey = (
   node: AgenticWorkflowNode | null | undefined,
@@ -413,10 +128,9 @@ export function switchRoutes(data: AgenticWorkflowNodeData): Array<{ id: string;
   } catch { return []; }
 }
 export function workflowSourceHandles(node: AgenticWorkflowNode): Array<{ id: string; label: string }> {
-  if (node.data.kind === "condition") return [{ id: "true", label: "true" }, { id: "false", label: "false" }];
   if (isWorkflowLoop(node)) return [{ id: "loop", label: "loop" }, { id: "done", label: "done" }];
   if (node.data.kind === "dataOperation" && node.data.dataOperation === "switch") return [...switchRoutes(node.data), ...((node.data.dataFallback ?? "fallback") === "fallback" ? [{ id: "fallback", label: "fallback" }] : [])];
-  return [];
+  return nodeKinds.kinds[node.data.kind as WorkflowNodeKind]?.handles || [];
 }
 export const defaultSourceHandle = (node: AgenticWorkflowNode) => isWorkflowLoop(node) ? "done" : workflowSourceHandles(node)[0]?.id || null;
 export function canConnectWorkflow(nodes: AgenticWorkflowNode[], edges: AgenticWorkflowEdge[], source: string, target: string, handle?: string | null, targetHandle?: string | null) {
@@ -449,6 +163,8 @@ export function canConnectWorkflow(nodes: AgenticWorkflowNode[], edges: AgenticW
 }
 
 export function insertWorkflowNode(nodes: AgenticWorkflowNode[], edges: AgenticWorkflowEdge[], kind: WorkflowNodeKind, insertion: NodeInsertion = {}) {
+  if (nodes.length >= WORKFLOW_LIMITS.max_nodes) throw new Error(`A workflow supports at most ${WORKFLOW_LIMITS.max_nodes} nodes.`);
+  if (nodeKinds.kinds[kind]?.specialist && workflowSpecialistCount(nodes) >= WORKFLOW_LIMITS.max_specialists) throw new Error(`A workflow supports at most ${WORKFLOW_LIMITS.max_specialists} specialist nodes.`);
   if (!nodes.length) kind = "trigger";
   if (kind === "trigger" && nodes.some(node => node.data.kind === "trigger")) throw new Error("A workflow already has a manual trigger.");
   const edge = edges.find(item => item.id === insertion.edgeId);

@@ -58,10 +58,11 @@ export function getAutomationKeywordInputSpec(keywordId: string, platform = "web
   if (["switchtab", "closetab"].includes(keyword)) return spec("text", "Tab index, title, or URL", "", false, undefined, false);
   if (["reload", "goback", "goforward"].includes(keyword)) return spec("none", "");
   if (keyword === "waitforloadstate") return spec("none", "", "Load state");
-  if (keyword === "waitforselector") return spec("repository", "Element locator", "Wait state (visible or hidden)");
+  if (keyword === "waitforselector") return spec("repository", "Element locator", "Wait state (attached, detached, visible, or hidden)");
   if (keyword === "wait") return spec("none", "", "Milliseconds", true);
   if (keyword === "scroll") return spec("text", "Direction (down, up, left, right)", "Pixels", true, undefined, false);
   if (keyword === "expecturl") return spec("none", "", "URL fragment", true);
+  if (keyword === "expectcount") return spec("repository", "Element locator", "Expected count", true);
   if (keyword === "screenshot") return spec("none", "");
   if (["fill", "type", "select", "expecttext", "expectvalue", "press"].includes(keyword)) return spec("repository", keyword === "press" || keyword === "expecttext" ? "Optional object" : "Object Repository field", keyword === "press" ? "Key" : keyword.startsWith("expect") ? "Expected value" : "Value", true, undefined, !["press", "expecttext"].includes(keyword));
   if (["uploadfile", "uploadlocalfile", "uploadremotefile"].includes(keyword)) return spec("repository", "File input", keyword === "uploadremotefile" ? "File URL" : "File path", true);

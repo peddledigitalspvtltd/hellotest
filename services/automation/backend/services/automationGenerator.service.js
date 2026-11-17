@@ -1,5 +1,5 @@
 const { buildFeature } = require('./aiAutomationFeaturePolicy');
-const {createBatchJobLease,RENEWAL_TIMEOUT_MS}=require('@hellotest/testing/backend/services/batchJobLease');
+const {createBatchJobLease,RENEWAL_TIMEOUT_MS,leaseSeconds:normalizeLeaseSeconds,leaseExpiry}=require('@hellotest/contracts/runtime/lease');
 const {runWithoutDatabaseOperationGuard,runWithDatabaseOperationGuard}=require('@hellotest/platform/backend/src/db/databaseOperationGuard');
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
@@ -11,7 +11,7 @@ const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const aiAutomationBuilderService = require("./aiAutomationBuilder.service");
 
-const DEFAULT_LEASE_SECONDS = Math.max(30, Number(process.env.AUTOMATION_GENERATOR_LEASE_SECONDS || 180));
+const DEFAULT_LEASE_SECONDS = normalizeLeaseSeconds(process.env.AUTOMATION_GENERATOR_LEASE_SECONDS, 180);
 const activeGeneratorGuards = new Map();
 
 const selectJobForCancellation = obsDb.prepare(`SELECT * FROM automation_generator_jobs
@@ -176,7 +176,7 @@ exports.queueGeneratorJob = db.transaction(async ({
   created_by
 } = {}) => {
   const selectedFeature = buildFeature(ai_feature);
-  ({ verification_mode, browser_driver, verification_driver } = require('../lib/automationBuildPipelineOptions').normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions }));
+  ({ verification_mode, browser_driver, verification_driver } = require("../lib/build/automationBuildPipelineOptions").normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions }));
   const scheduledAt = normalizeScheduledAt(scheduled_at);
   const testCaseId = normalizeText(test_case_id);
 
@@ -195,9 +195,10 @@ exports.queueGeneratorJob = db.transaction(async ({
     throw new Error("Test case not found");
   }
   if(testCase.app_type_id!==observed.app_type_id)throw Object.assign(new Error('The test case application changed while this build was being queued. Refresh the case before starting a new build.'),{statusCode:409,code:'AUTOMATION_TARGET_CHANGED'});
+  await require('./automationAuthoringAdmission.service').assertNoRecorder({testCase});
   if (paired_browser_bridge_id) await require('./pairedBrowserBridge.service').authorize({bridgeId:paired_browser_bridge_id,projectId:testCase.project_id,appTypeId:testCase.app_type_id,userId:created_by,caseId:testCaseId},{requireStarted:false});
-  await require('../lib/automationBuildPipelineOptions').assertBuildVerificationAccess({mode:verification_mode,createdBy:created_by,projectId:testCase.project_id});
-  const buildValues=require('../lib/automationBuildParameterPlan').buildParameterValues(parameter_values||{});
+  await require("../lib/build/automationBuildPipelineOptions").assertBuildVerificationAccess({mode:verification_mode,createdBy:created_by,projectId:testCase.project_id});
+  const buildValues=require("../lib/build/automationBuildParameterPlan").buildParameterValues(parameter_values||{});
   if(test_suite_id!=null&&(typeof test_suite_id!=='string'||!test_suite_id.trim()))throw Object.assign(new Error('Select a valid Test Suite for this build.'),{statusCode:400,code:'AUTOMATION_BUILD_SUITE_INVALID'});
   const reviewedPlan=test_suite_id!=null||parameter_plan_key!=null||Object.keys(buildValues).length?await require('./automationBuildParameterPlan.service').load({testCase,userId:created_by,test_environment_id,test_configuration_id,test_suite_id,test_data_set_id,parameter_values:buildValues,expectedKey:parameter_plan_key}):null;
   const selectedSuite=reviewedPlan&&Object.hasOwn(reviewedPlan,'test_suite_id')?reviewedPlan.test_suite_id:normalizeText(test_suite_id);
@@ -260,7 +261,7 @@ exports.queueGeneratorJob = db.transaction(async ({
     browser_driver,
     verification_driver,
     additional_context: normalizeText(additional_context),
-    agent_context: require("../lib/automationAgentContext").normalizeAgentContext(agent_context),
+    agent_context: require("../lib/build/automationAgentContext").normalizeAgentContext(agent_context),
     ai_feature: selectedFeature,
     test_environment_id: normalizeText(test_environment_id),
     test_configuration_id: normalizeText(test_configuration_id),
@@ -335,14 +336,14 @@ exports.cancelGeneratorJob = async ({transactionId,projectId,userId} = {}) => {
 
 exports.leaseNextJob = async ({ worker_id, lease_seconds } = {}) => {
   const workerId = normalizeText(worker_id) || "local-llm-agent";
-  const leaseSeconds = Math.max(30, Math.min(900, Number(lease_seconds) || DEFAULT_LEASE_SECONDS));
+  const leaseSeconds = normalizeLeaseSeconds(lease_seconds, DEFAULT_LEASE_SECONDS);
   const candidate = await selectQueuedJob.get();
 
   if (!candidate) {
     return null;
   }
 
-  const leaseExpiresAt = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+  const leaseExpiresAt = leaseExpiry(leaseSeconds);
   const result = await leaseJob.run(workerId, leaseExpiresAt, candidate.id);
 
   if (!result.changes) {
@@ -378,13 +379,13 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
     agent_plan: normalizeText(agent_plan),
     current_phase: "generator.building"
   };
-  const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString();
+  const leaseExpiresAt = leaseExpiry(DEFAULT_LEASE_SECONDS);
 
   const started = await markRunning.run(serialize(runtimeState), leaseExpiresAt, job.id, runtimeState.worker_id);
   if (!started.changes) {
     throw Object.assign(new Error("Automation generator lease expired, belongs to another worker, or was already started"), { statusCode: 409 });
   }
-  const executionGuard=createBatchJobLease({renew:()=>renewLease.run(new Date(Date.now()+DEFAULT_LEASE_SECONDS*1000).toISOString(),job.id,runtimeState.worker_id)});
+  const executionGuard=createBatchJobLease({renew:()=>renewLease.run(leaseExpiry(DEFAULT_LEASE_SECONDS),job.id,runtimeState.worker_id)});
   activeGeneratorGuards.set(job.id,executionGuard);
   try {
   await executionGuard.ensureOwnership();

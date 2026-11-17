@@ -55,6 +55,7 @@ test('the whole-repository model inventory captures adapters, small features and
   assert.ok(inventory.scanned_sources>1000);
   assert.ok(inventory.transports.some(item=>item.kind==='inactive_vendor_model'&&item.runtime_status==='inactive'));
   assert.ok(inventory.transports.some(item=>item.kind==='connection_probe'));
+  assert.ok(inventory.transports.some(item=>item.path==='services/platform/backend/src/utils/structuredModelBoundary.js'&&item.kind==='model_adapter'));
   for(const id of ['ai.authoring.request_validation','ai.automation.recorder_mapping','ai.knowledge.graph_extract','ai.execution.report_analysis']) {
     assert.ok(inventory.profiles.find(item=>item.id===id)?.entry_points.length,`${id}: no source consumer`);
   }

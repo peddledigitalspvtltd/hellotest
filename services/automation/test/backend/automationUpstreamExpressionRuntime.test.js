@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { parse } = require('acorn');
-const { bindUpstreamSourceParameters: bind, validateUpstreamSourceBoundary } = require('../../backend/lib/automationUpstreamSourceBindings');
+const { bindUpstreamSourceParameters: bind, validateUpstreamSourceBoundary } = require("../../backend/lib/upstream/automationUpstreamSourceBindings");
 
 const runtimeRoot = process.env.HELLOTEST_RUNTIME_TEST_BUILD
   ? path.resolve(process.env.HELLOTEST_RUNTIME_TEST_BUILD)

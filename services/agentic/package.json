@@ -18,21 +18,20 @@
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",
     "./frontend/components/AgenticExperience": "./frontend/components/AgenticExperience.tsx",
-    "./frontend/components/RepositoryInspectBrowser": "./frontend/components/RepositoryInspectBrowser.tsx",
-    "./frontend/components/RepositoryInspectControls": "./frontend/components/RepositoryInspectControls.tsx",
-    "./frontend/hooks/useRepositoryInspectAgent": "./frontend/hooks/useRepositoryInspectAgent.ts",
     "./frontend/index": "./frontend/index.ts",
-    "./frontend/lib/pairedLocalAgent": "./frontend/lib/pairedLocalAgent.ts",
-    "./frontend/lib/repositoryInspectSession": "./frontend/lib/repositoryInspectSession.ts",
-    "./frontend/lib/repositoryWorkspace": "./frontend/lib/repositoryWorkspace.ts",
     "./frontend/lib/qualityAgentContracts": "./frontend/lib/qualityAgentContracts.ts",
     "./frontend/pages/AgenticWorkflowsPage": "./frontend/pages/AgenticWorkflowsPage.tsx",
     "./package.json": "./package.json",
     "./ui": "./frontend/entry.ts",
     "./frontend/workflows/WorkflowConnectionSettings": "./frontend/workflows/WorkflowConnectionSettings.tsx",
     "./frontend/pages/McpServersPage": "./frontend/pages/McpServersPage.tsx",
-    "./backend/workflows/mcpClient": "./backend/workflows/mcpClient.js",
-    "./frontend/components/AgentEvidenceScope": "./frontend/components/AgentEvidenceScope.tsx"
+    "./frontend/components/AgentEvidenceScope": "./frontend/components/AgentEvidenceScope.tsx",
+    "./backend/agents/activitySchema": "./backend/agents/activitySchema.js",
+    "./backend/agents/activityTransactionSchema": "./backend/agents/activityTransactionSchema.js",
+    "./backend/agents/activityOutboxSchema": "./backend/agents/activityOutboxSchema.js",
+    "./activity": "./frontend/components/AgentActivity.tsx",
+    "./mcp-client": "./backend/workflows/mcpClient.js",
+    "./repository-runtime": "./backend/agents/compiler.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs agentic",
@@ -70,7 +69,8 @@
     "@temporalio/workflow": "1.24.0",
     "ajv": "^8.20.0",
     "@hellotest/mcp": "^1.0.0",
-    "@hellotest/trace": "^1.0.0"
+    "@hellotest/trace": "^1.0.0",
+    "@hellotest/contracts": "^1.0.0"
   },
   "devDependencies": {
     "@temporalio/testing": "1.24.0"

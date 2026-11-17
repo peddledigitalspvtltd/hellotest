@@ -35,6 +35,11 @@ type RecorderAction = {
   url?: string | null;
   page_id?: string | null;
   page_title?: string | null;
+  frame_scope?: "main" | "child";
+  frame_url?: string | null;
+  click_count?: number | null;
+  remote_input_id?: string | null;
+  keyboard_activation_id?: string | null;
   x?: number | null;
   y?: number | null;
   source?: "page-recorder" | "remote-control" | "browser";
@@ -148,7 +153,7 @@ type RecorderLocatorValidation = {
 const sessions = new Map<string, RecorderSession>();
 let inspectionSessionsStarting = 0;
 const inspectResults = new Map<string, RecorderInspectResult>();
-const REPOSITORY_HIGHLIGHT_DURATION_MS = 1_000;
+const REPOSITORY_HIGHLIGHT_DURATION_MS = 3_000;
 const REPOSITORY_VALIDATION_FIELD_LIMIT = 80;
 const RECORDER_ACTION_TYPES = new Set<RecorderAction["type"]>([
   "click",
@@ -349,6 +354,11 @@ export const pushRecorderAction = (
     url: action.url ?? null,
     page_id: action.page_id ?? null,
     page_title: action.page_title ?? null,
+    frame_scope: action.frame_scope,
+    frame_url: action.frame_url ?? null,
+    click_count: action.click_count ?? null,
+    remote_input_id: action.remote_input_id ?? null,
+    keyboard_activation_id: action.keyboard_activation_id ?? null,
     x: action.x ?? null,
     y: action.y ?? null,
     source: action.source,
@@ -493,6 +503,7 @@ const recorderInitScript = `
       const pending = window.__hellotestRecorderEmit({
         ...event,
         source: "page-recorder",
+        remote_input_id: window.__hellotestRecorderRemoteInputId || null,
         url: window.location.href,
         timestamp: new Date().toISOString()
       }).catch(() => {});
@@ -501,6 +512,23 @@ const recorderInitScript = `
     }
   };
   const inputTimers = new Map();
+  let scrollTimer = null;
+  let keyboardActivation = null;
+  let keyboardActivationTimer = null;
+  let keyboardActivationSequence = 0;
+  const keyboardActivationKeys = new Map();
+  let pendingScrollTarget = null;
+  const flushScroll = () => {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = null;
+    const target = pendingScrollTarget;
+    pendingScrollTarget = null;
+    if (!target) return;
+    const viewport = target === document || target === document.documentElement || target === document.body;
+    emit({ type: "scroll", locator: viewport ? "viewport" : locatorFor(target), text: "Scroll",
+      value: JSON.stringify({ x: viewport ? window.scrollX || 0 : target.scrollLeft || 0,
+        y: viewport ? window.scrollY || 0 : target.scrollTop || 0, target: viewport ? "viewport" : "element" }) });
+  };
   const lastInputValues = new WeakMap();
   const controlLabel = (target) => attr(target, "name") || attr(target, "placeholder") || attr(target, "aria-label") || visibleText(target);
   const selectedOptions = (target) => Array.from(target.selectedOptions || []).map((option) => ({
@@ -578,6 +606,7 @@ const recorderInitScript = `
   };
 
   const flushInputs = () => {
+    flushScroll();
     for (const [target, timer] of inputTimers) {
       clearTimeout(timer);
       recordInput(target, "fill");
@@ -586,6 +615,10 @@ const recorderInitScript = `
   };
   window.__hellotestRecorderFlush = async () => {
     flushInputs();
+    if (keyboardActivationTimer) clearTimeout(keyboardActivationTimer);
+    keyboardActivationTimer = null;
+    keyboardActivation = null;
+    keyboardActivationKeys.clear();
     await Promise.all([...pendingEmissions]);
   };
 
@@ -595,13 +628,17 @@ const recorderInitScript = `
     emit({
       type: "click",
       locator: locatorFor(target),
-      text: visibleText(target)
+      text: visibleText(target),
+      click_count: event.detail,
+      x: event.clientX,
+      y: event.clientY,
+      keyboard_activation_id: event.detail === 0 ? keyboardActivation : null
     });
   }, true);
 
   document.addEventListener("dblclick", (event) => {
     const target = event.target && event.target.closest ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[data-testid],[data-test],[data-qa]") : event.target;
-    emit({ type: "dblclick", locator: locatorFor(target), text: visibleText(target) });
+    emit({ type: "dblclick", locator: locatorFor(target), text: visibleText(target), click_count: event.detail });
   }, true);
 
   document.addEventListener("contextmenu", (event) => {
@@ -634,15 +671,35 @@ const recorderInitScript = `
   }, true);
 
   document.addEventListener("keydown", (event) => {
-    const key = String(event.key || "");
-    if (!["Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key)) return;
+    const key = event.key === " " ? "Space" : String(event.key || "");
+    if (!["Enter", "Space", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key)) return;
+    const tag = String(event.target && event.target.tagName || "").toLowerCase();
+    const inputType = String(event.target && event.target.type || "").toLowerCase();
+    if (key === "Space" && (event.target && event.target.isContentEditable || tag === "textarea" || tag === "input" && !["button", "submit", "reset", "checkbox", "radio"].includes(inputType))) return;
     flushInputs();
+    if (["Enter", "Space"].includes(key)) {
+      if (keyboardActivationTimer) clearTimeout(keyboardActivationTimer);
+      keyboardActivation = String(Date.now()) + ":" + String(++keyboardActivationSequence);
+      keyboardActivationKeys.set(key, keyboardActivation);
+      keyboardActivationTimer = setTimeout(() => { keyboardActivation = null; keyboardActivationTimer = null; }, 0);
+    }
     emit({
       type: key === "Tab" ? "tab" : "press",
       locator: locatorFor(event.target),
       text: key,
-      value: key
+      value: key,
+      keyboard_activation_id: keyboardActivation
     });
+  }, true);
+
+  document.addEventListener("keyup", (event) => {
+    const key = event.key === " " ? "Space" : String(event.key || "");
+    const activation = keyboardActivationKeys.get(key);
+    if (!activation) return;
+    keyboardActivationKeys.delete(key);
+    keyboardActivation = activation;
+    if (keyboardActivationTimer) clearTimeout(keyboardActivationTimer);
+    keyboardActivationTimer = setTimeout(() => { keyboardActivation = null; keyboardActivationTimer = null; }, 0);
   }, true);
 
   document.addEventListener("dragstart", (event) => {
@@ -653,17 +710,12 @@ const recorderInitScript = `
     emit({ type: "drop", locator: locatorFor(event.target), text: visibleText(event.target) });
   }, true);
 
-  let lastScrollAt = 0;
-  document.addEventListener("scroll", () => {
-    const now = Date.now();
-    if (now - lastScrollAt < 750) return;
-    lastScrollAt = now;
-    emit({
-      type: "scroll",
-      locator: "viewport",
-      text: "Scroll",
-      value: JSON.stringify({ x: window.scrollX || 0, y: window.scrollY || 0 })
-    });
+  document.addEventListener("scroll", (event) => {
+    const target = event.target;
+    if (pendingScrollTarget && pendingScrollTarget !== target) flushScroll();
+    pendingScrollTarget = target;
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(flushScroll, 150);
   }, true);
 
   document.addEventListener("submit", (event) => {
@@ -1227,177 +1279,57 @@ const captureValidatedRepositoryLocator = async (
   }
 };
 
-const highlightRepositoryElement = async (page: Page, locator: string, label?: string | null, retainExisting = false) =>
-  page.evaluate(({ targetLocator, targetLabel, keepExisting, durationMs }) => {
-    const clean = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
-    const clearHighlight = () => {
-      document.querySelectorAll("[data-hellotest-repository-highlight='true']").forEach((node) => {
-        const element = node as HTMLElement;
-        element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || "";
-        element.style.outlineOffset = element.dataset.hellotestRepositoryPreviousOutlineOffset || "";
-        element.style.borderRadius = element.dataset.hellotestRepositoryPreviousBorderRadius || "";
-        element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || "";
-        delete element.dataset.hellotestRepositoryPreviousOutline;
-        delete element.dataset.hellotestRepositoryPreviousOutlineOffset;
-        delete element.dataset.hellotestRepositoryPreviousBorderRadius;
-        delete element.dataset.hellotestRepositoryPreviousBoxShadow;
-        delete element.dataset.hellotestRepositoryHighlight;
-        delete element.dataset.hellotestRepositoryHighlightToken;
-      });
-      document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
+const highlightRepositoryElement = async (page: Page, expression: string, label?: string | null, retainExisting = false) => {
+  const locator = resolveRepositoryLocator(page, expression);
+  const count = await locator.count();
+  if (!count) return { found: false, locator: expression, match_count: 0 };
+  if (count !== 1) throw new Error(`Locator matches ${count} elements. Refine and validate a unique locator before highlighting.`);
+  if (!await locator.isVisible()) return { found: false, locator: expression, match_count: 1, visible: false, message: 'The locator matches one element, but it is hidden. Make the field visible before highlighting.' };
+  if (!retainExisting) await clearRepositoryHighlights(page);
+  return locator.evaluate((element, input) => {
+    if (!(element instanceof HTMLElement || element instanceof SVGElement)) return { found: false, locator: input.locator };
+    const document = element.ownerDocument;
+    const window = document.defaultView!;
+    const previous = {
+      outline: element.dataset.hellotestRepositoryPreviousOutline ?? element.style.outline,
+      offset: element.dataset.hellotestRepositoryPreviousOutlineOffset ?? element.style.outlineOffset,
+      radius: element.dataset.hellotestRepositoryPreviousBorderRadius ?? element.style.borderRadius,
+      shadow: element.dataset.hellotestRepositoryPreviousBoxShadow ?? element.style.boxShadow
     };
-    const resolveTarget = () => {
-      const unescapeLiteral = (value: string) => value.replace(/\\(["'`\\])/g, "$1");
-      const firstQuotedArgument = (value: string) => {
-        const match = value.match(/\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/);
-        return match ? unescapeLiteral(match[2]) : "";
-      };
-      const optionName = (value: string) => {
-        const match = value.match(/\bname\s*:\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/i);
-        return match ? unescapeLiteral(match[2]) : "";
-      };
-      const accessibleText = (element: Element) => clean(
-        element.getAttribute("aria-label")
-        || element.getAttribute("placeholder")
-        || element.getAttribute("name")
-        || element.textContent
-      ).toLowerCase();
-      const byAccessibleText = (text: string) => {
-        const normalized = clean(text).toLowerCase();
-        return [...document.querySelectorAll("button,a,[role],input,select,textarea,label,[data-testid],[data-test],[data-qa]")]
-          .find((element) => accessibleText(element).includes(normalized)) || null;
-      };
-      const getByMatch = targetLocator.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\s*\(/i);
-      if (getByMatch) {
-        const method = getByMatch[1].toLowerCase();
-        const firstArg = firstQuotedArgument(targetLocator);
-        if (method === "getbytestid") {
-          try {
-            return document.querySelector(`[data-testid="${CSS.escape(firstArg)}"],[data-test="${CSS.escape(firstArg)}"],[data-qa="${CSS.escape(firstArg)}"]`);
-          } catch {
-            return null;
-          }
-        }
-        if (method === "getbyplaceholder") {
-          try {
-            return document.querySelector(`[placeholder="${CSS.escape(firstArg)}"]`);
-          } catch {
-            return byAccessibleText(firstArg);
-          }
-        }
-        if (method === "getbylabel") {
-          return [...document.querySelectorAll("input,select,textarea")]
-            .find((element) => clean((element as HTMLInputElement).labels?.[0]?.textContent || element.getAttribute("aria-label") || "").toLowerCase().includes(firstArg.toLowerCase()))
-            || byAccessibleText(firstArg);
-        }
-        if (method === "getbyrole") {
-          const role = firstArg.toLowerCase();
-          const name = clean(optionName(targetLocator)).toLowerCase();
-          return [...document.querySelectorAll(`[role="${role}"],${role === "button" ? "button," : ""}${role === "link" ? "a," : ""}input,select,textarea`)]
-            .find((element) => !name || accessibleText(element).includes(name)) || null;
-        }
-        if (method === "getbytext") {
-          return byAccessibleText(firstArg);
-        }
-      }
-      const roleMatch = targetLocator.match(/^role=([^\[]+)\[name=["']?(.+?)["']?\]$/i);
-      if (roleMatch) {
-        const role = roleMatch[1].toLowerCase();
-        const name = clean(roleMatch[2]).toLowerCase();
-        return [...document.querySelectorAll(`[role="${role}"],${role === "button" ? "button," : ""}${role === "link" ? "a," : ""}input,select,textarea`)]
-          .find((element) => clean(element.getAttribute("aria-label") || element.textContent).toLowerCase() === name) || null;
-      }
-      const textMatch = targetLocator.match(/^text=(.+)$/i);
-      if (textMatch) {
-        const text = clean(textMatch[1]).toLowerCase();
-        return [...document.querySelectorAll("button,a,[role],input,select,textarea")]
-          .find((element) => clean(element.getAttribute("aria-label") || element.textContent).toLowerCase().includes(text)) || null;
-      }
-      const labelMatch = targetLocator.match(/^label=(.+)$/i);
-      if (labelMatch) {
-        return byAccessibleText(labelMatch[1]);
-      }
-      const placeholderMatch = targetLocator.match(/^placeholder=(.+)$/i);
-      if (placeholderMatch) {
-        try {
-          return document.querySelector(`[placeholder="${CSS.escape(clean(placeholderMatch[1]))}"]`);
-        } catch {
-          return byAccessibleText(placeholderMatch[1]);
-        }
-      }
-      const testIdMatch = targetLocator.match(/^(?:testid|data-testid)=(.+)$/i);
-      if (testIdMatch) {
-        try {
-          const testId = clean(testIdMatch[1]);
-          return document.querySelector(`[data-testid="${CSS.escape(testId)}"],[data-test="${CSS.escape(testId)}"],[data-qa="${CSS.escape(testId)}"]`);
-        } catch {
-          return null;
-        }
-      }
-      if (/^xpath=/i.test(targetLocator)) {
-        return document.evaluate(targetLocator.replace(/^xpath=/i, ""), document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue as Element | null;
-      }
-      try {
-        return document.querySelector(targetLocator);
-      } catch {
-        return null;
-      }
-    };
-
-    if (!keepExisting) {
-      clearHighlight();
-    }
-    const element = resolveTarget();
-    if (!(element instanceof HTMLElement)) {
-      return { found: false, locator: targetLocator };
-    }
-
-    if (element.dataset.hellotestRepositoryHighlight !== "true") {
-      element.dataset.hellotestRepositoryPreviousOutline = element.dataset.hellotestPreviousOutline || element.style.outline || "";
-      element.dataset.hellotestRepositoryPreviousOutlineOffset = element.style.outlineOffset || "";
-      element.dataset.hellotestRepositoryPreviousBorderRadius = element.style.borderRadius || "";
-      element.dataset.hellotestRepositoryPreviousBoxShadow = element.dataset.hellotestPreviousBoxShadow || element.style.boxShadow || "";
-    }
-    element.dataset.hellotestRepositoryHighlight = "true";
-    const highlightToken = `${Date.now()}-${Math.random()}`;
-    element.dataset.hellotestRepositoryHighlightToken = highlightToken;
-    element.style.outline = "1px solid #2f6df6";
-    element.style.outlineOffset = "1px";
-    element.style.borderRadius = "1px";
-    element.style.boxShadow = "none";
+    element.dataset.hellotestRepositoryPreviousOutline = previous.outline;
+    element.dataset.hellotestRepositoryPreviousOutlineOffset = previous.offset;
+    element.dataset.hellotestRepositoryPreviousBorderRadius = previous.radius;
+    element.dataset.hellotestRepositoryPreviousBoxShadow = previous.shadow;
+    element.dataset.hellotestRepositoryHighlight = 'true';
+    const token = `${Date.now()}-${Math.random()}`;
+    element.dataset.hellotestRepositoryHighlightToken = token;
+    element.style.outline = '2px solid #2f6df6';
+    element.style.outlineOffset = '2px';
     const bounds = element.getBoundingClientRect();
-    if (bounds.top < 0 || bounds.left < 0 || bounds.bottom > window.innerHeight || bounds.right > window.innerWidth) {
-      element.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
-    }
-
-    if (!keepExisting) {
-      const badge = document.createElement("div");
-      badge.id = "__hellotestRepositoryHighlightLabel";
-      badge.textContent = targetLabel || targetLocator;
-      badge.style.cssText = "position:fixed;z-index:2147483647;padding:3px 6px;border-radius:2px;background:#2f6df6;color:#fff;font:600 11px system-ui;pointer-events:none;box-shadow:none";
-      const rect = element.getBoundingClientRect();
-      badge.style.left = `${Math.max(8, rect.left)}px`;
-      badge.style.top = `${Math.max(8, rect.top - 32)}px`;
+    if (bounds.top < 0 || bounds.left < 0 || bounds.bottom > window.innerHeight || bounds.right > window.innerWidth) element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+    let badge: HTMLDivElement | undefined;
+    if (!input.retainExisting) {
+      badge = document.createElement('div');
+      badge.id = '__hellotestRepositoryHighlightLabel';
+      badge.textContent = input.label || input.locator;
+      badge.style.cssText = 'position:fixed;z-index:2147483647;padding:4px 8px;border-radius:4px;background:#2f6df6;color:#fff;font:600 12px system-ui;pointer-events:none';
+      const box = element.getBoundingClientRect();
+      badge.style.left = `${Math.max(8, box.left)}px`;
+      badge.style.top = `${Math.max(8, box.top - 32)}px`;
       document.body.appendChild(badge);
     }
-
     window.setTimeout(() => {
-      if (element.dataset.hellotestRepositoryHighlightToken !== highlightToken) return;
-      element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || "";
-      element.style.outlineOffset = element.dataset.hellotestRepositoryPreviousOutlineOffset || "";
-      element.style.borderRadius = element.dataset.hellotestRepositoryPreviousBorderRadius || "";
-      element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || "";
-      delete element.dataset.hellotestRepositoryPreviousOutline;
-      delete element.dataset.hellotestRepositoryPreviousOutlineOffset;
-      delete element.dataset.hellotestRepositoryPreviousBorderRadius;
-      delete element.dataset.hellotestRepositoryPreviousBoxShadow;
-      delete element.dataset.hellotestRepositoryHighlight;
-      delete element.dataset.hellotestRepositoryHighlightToken;
-      document.getElementById("__hellotestRepositoryHighlightLabel")?.remove();
-    }, durationMs);
-
-    return { found: true, locator: targetLocator, tag: element.tagName.toLowerCase(), duration_ms: durationMs };
-  }, { targetLocator: locator, targetLabel: label || null, keepExisting: retainExisting, durationMs: REPOSITORY_HIGHLIGHT_DURATION_MS });
+      if (element.dataset.hellotestRepositoryHighlightToken !== token) return;
+      element.style.outline = previous.outline;
+      element.style.outlineOffset = previous.offset;
+      element.style.borderRadius = previous.radius;
+      element.style.boxShadow = previous.shadow;
+      for (const key of ['hellotestRepositoryPreviousOutline','hellotestRepositoryPreviousOutlineOffset','hellotestRepositoryPreviousBorderRadius','hellotestRepositoryPreviousBoxShadow','hellotestRepositoryHighlight','hellotestRepositoryHighlightToken']) delete element.dataset[key];
+      badge?.remove();
+    }, input.durationMs);
+    return { found: true, locator: input.locator, tag: element.tagName.toLowerCase(), match_count: 1, duration_ms: input.durationMs };
+  }, { locator: expression, label: label || null, retainExisting, durationMs: REPOSITORY_HIGHLIGHT_DURATION_MS }, { timeout: 3000 });
+};
 
 const clearRepositoryHighlights = async (page: Page) =>
   page.evaluate(() => {
@@ -3003,7 +2935,10 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
           return { message: "press input requires a key" };
         }
 
-        await page.keyboard.press(key);
+        const remoteInputId = randomUUID();
+        await page.evaluate((inputId) => { (window as typeof window & { __hellotestRecorderRemoteInputId?: string | null }).__hellotestRecorderRemoteInputId = inputId; }, remoteInputId);
+        try { await page.keyboard.press(key); }
+        finally { await page.evaluate(() => { (window as typeof window & { __hellotestRecorderRemoteInputId?: string | null }).__hellotestRecorderRemoteInputId = null; }).catch(() => undefined); }
         pushRecorderAction(session, {
           type: "press",
           locator: "keyboard",
@@ -3012,7 +2947,8 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
           url: page.url(),
           page_id: getRecorderPageId(page),
           page_title: await resolvePageTitle(page),
-          source: "remote-control"
+          source: "remote-control",
+          remote_input_id: remoteInputId
         });
       } else if (type === "scroll") {
         const deltaX = Number(body?.delta_x) || 0;
@@ -3108,11 +3044,14 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
       }
       touchSession(reusableSession);
 
-      if (startUrl) {
+      {
         const page = await resolveActivePage(reusableSession).catch(() => null);
         const currentUrl = page?.url() || "";
         const hasOpenDestination = Boolean(currentUrl && currentUrl !== "about:blank" && !currentUrl.startsWith("chrome://newtab"));
-        if (page && !hasOpenDestination) {
+        const entryUrl = hasOpenDestination ? normalizeUrl(currentUrl) : startUrl;
+        if (page && entryUrl) pushRecorderAction(reusableSession, { type: "navigation", locator: "location", text: entryUrl, url: entryUrl,
+          page_id: getRecorderPageId(page), page_title: null, source: "remote-control" });
+        if (page && !hasOpenDestination && startUrl) {
           void page.goto(startUrl, {
             waitUntil: "domcontentloaded",
             timeout: 60_000
@@ -3230,6 +3169,11 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
           url: normalizeText(payload.url) || sourcePage?.url() || null,
           page_id: getRecorderPageId(sourcePage),
           page_title: null,
+          frame_scope: source.frame && sourcePage && source.frame !== sourcePage.mainFrame() ? "child" : "main",
+          frame_url: source.frame && sourcePage && source.frame !== sourcePage.mainFrame() ? source.frame.url() : null,
+          click_count: typeof payload.click_count === "number" && Number.isSafeInteger(payload.click_count) ? payload.click_count : null,
+          remote_input_id: normalizeText(payload.remote_input_id),
+          keyboard_activation_id: normalizeText(payload.keyboard_activation_id),
           x: normalizePositiveNumber(payload.x),
           y: normalizePositiveNumber(payload.y),
           source: normalizeText(payload.source) === "page-recorder" ? "page-recorder" : "browser",
@@ -3245,6 +3189,8 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
       sessions.set(id, session);
 
       if (startUrl) {
+        pushRecorderAction(session, { type: "navigation", locator: "location", text: startUrl, url: startUrl,
+          page_id: getRecorderPageId(page), page_title: null, source: "remote-control" });
         void page.goto(startUrl, {
           waitUntil: "domcontentloaded",
           timeout: 60_000

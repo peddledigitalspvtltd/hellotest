@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {recordNativeSnapshotRecoveryObservation:record,createAutomationSnapshotTargetRecovery:create}=require('../../backend/lib/automationSnapshotTargetRecovery');
+const {recordNativeSnapshotRecoveryObservation:record,createAutomationSnapshotTargetRecovery:create}=require("../../backend/lib/browser/automationSnapshotTargetRecovery");
 let sequence=0;
 function snapshot(extra={}){const row={tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify({source:'playwright',observation_id:`snapshot-${++sequence}`,url:'https://app.example/employees',scope:'body',accessibility:'- heading "Employees"',elements:[],partial:true,...extra})}]}};record(row);return row;}
 function transition(){const row={tool:'browser_click',result:{content:[{type:'text',text:JSON.stringify({source:'playwright',action_outcome:'completed',url:'https://app.example/employees'})}]}};record(row);return row;}

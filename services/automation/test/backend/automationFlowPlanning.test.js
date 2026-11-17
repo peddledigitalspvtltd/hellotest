@@ -1,8 +1,8 @@
 const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeFlowPlan, planAutomationFlow, observeUpstreamEntry, projectFlowPlanningBrief } = require('../../backend/lib/automationFlowPlanning');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const { normalizeFlowPlan, planAutomationFlow, observeUpstreamEntry, projectFlowPlanningBrief } = require("../../backend/lib/build/automationFlowPlanning");
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 
 const flow = [{ action: 'Enter @t.email', expected_result: 'The supplied email appears', step_type: 'web' },
   { action: 'Continue', expected_result: 'The review page displays the email', step_type: 'web' }];

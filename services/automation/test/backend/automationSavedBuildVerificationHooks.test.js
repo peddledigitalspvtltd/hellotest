@@ -1,11 +1,12 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { createRequire } = require('node:module');
 const { parse } = require('acorn');
-const { createSavedBuildVerificationHooks } = require('../../backend/lib/automationSavedBuildVerificationHooks');
+const { createSavedBuildVerificationHooks } = require("../../backend/lib/build/automationSavedBuildVerificationHooks");
 const { verifySavedBuild } = require('../../backend/services/automationSavedBuildVerification.service');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
 
 function fixture(mode = 'verify_repair') {
   const source = compileRecordedProgram([
@@ -134,7 +135,7 @@ test('generate-only native builds do not evaluate verification permissions or re
 });
 
 test('both actual builder branches wire shared hooks and the upstream repair adapter bounds and traces its provider call', async () => {
-  const file = require.resolve('../../backend/services/aiAutomationBuilder.service'), source = fs.readFileSync(file, 'utf8');
+  const file = require.resolve('../../backend/services/aiAutomationBuilder.service'), source = implementationSource('builder/programGeneration');
   const factories = [], completions = [];
   const walk = node => {
     if (!node || typeof node !== 'object') return;

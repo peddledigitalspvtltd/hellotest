@@ -13,7 +13,7 @@ import {runAutomationVerificationCli} from '../../dist/lib/automationVerificatio
 import {compileRecordedProgram} from '../../dist/lib/automationVerificationProgram.js';
 
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const receipt=result=>JSON.parse(result.content.find(block=>block.type==='text').text);
 const success=async(browser,name,args={})=>{
  const result=await browser.call(name,args);

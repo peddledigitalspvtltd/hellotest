@@ -2,6 +2,7 @@ const { randomUUID, createHash } = require("node:crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const vectors = require("./knowledgeVectorStore.service");
 const { boundedRetrievalStage } = require("@hellotest/platform/backend/src/utils/knowledgeRetrievalTiming");
+const { claimFairQueueRow } = require("./knowledgeQueueFairness.service");
 
 const fingerprint = value => createHash("sha256").update(String(value)).digest("hex");
 const id = value => typeof value === "string" ? value.trim() : "";
@@ -136,11 +137,15 @@ async function processSource({ sourceId, projectId, signal } = {}) {
 async function processDue({ limit = 4, signal } = {}) {
   if (!vectors.isConfigured()) return [];
   await discoverPending();
-  const jobs = await db.prepare(`SELECT source_id, project_id FROM ai_knowledge_vector_jobs
-    WHERE next_attempt_at <= CURRENT_TIMESTAMP ORDER BY next_attempt_at, source_id LIMIT ?`).all(Math.max(1, Math.min(20, Number(limit) || 4)));
+  const count=Math.max(1,Math.min(20,Number(limit)||4));
   const outcomes = [];
-  for (const job of jobs) {
+  for (let index=0;index<count;index++) {
     assertActive(signal);
+    const job=await claimFairQueueRow({stage:"vector_projection",sql:`SELECT jobs.source_id,jobs.project_id FROM ai_knowledge_vector_jobs jobs
+      LEFT JOIN ai_knowledge_worker_project_fairness fairness ON fairness.queue_stage='vector_projection' AND fairness.project_id=jobs.project_id
+      WHERE jobs.status='queued' AND jobs.next_attempt_at<=CURRENT_TIMESTAMP
+      ORDER BY fairness.last_served_at ASC NULLS FIRST,jobs.next_attempt_at,jobs.source_id LIMIT 1 FOR UPDATE OF jobs SKIP LOCKED`});
+    if(!job)break;
     outcomes.push(await processSource({ sourceId: job.source_id, projectId: job.project_id, signal }));
   }
   return outcomes;

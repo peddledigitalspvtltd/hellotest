@@ -6,8 +6,8 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { buildFailureProgress } = require('../../../../services/automation/backend/lib/automationBuildFailureProgress.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { buildFailureProgress } = require("../../../../services/automation/backend/lib/build/automationBuildFailureProgress.js");
 const read = result => JSON.parse(result.content.find(part => part.type === 'text').text);
 
 async function fixture(t) {

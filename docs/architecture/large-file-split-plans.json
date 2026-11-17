@@ -1,0 +1,59 @@
+{
+  "threshold": 1200,
+  "review_date": "2026-11-17",
+  "files": {
+    "services/automation/frontend/components/StepAutomationEditor.tsx": {
+      "owner": "automation-ui",
+      "rationale": "The full source editor preserves one instruction contract across runtime-specific input views.",
+      "seams": [
+        "web/native keyword controls",
+        "API contract editor",
+        "source and readable preview controls"
+      ],
+      "validation": [
+        "services/automation/test/frontend/automationEditorContracts.test.mjs"
+      ],
+      "max_lines": 3034
+    },
+    "services/automation/backend/services/testEngineDispatch.service.js": {
+      "owner": "automation",
+      "rationale": "Queue callbacks and lease receipts remain serialized in one owner after envelope/types/planning extraction.",
+      "seams": [
+        "queue admission and lease lifecycle",
+        "step completion and evidence projection",
+        "terminal run settlement"
+      ],
+      "validation": [
+        "services/automation/test/backend/queuedExecutionLifecycle.test.js",
+        "services/automation/test/backend/queuedTelemetryCommit.test.js"
+      ],
+      "max_lines": 1607
+    },
+    "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx": {
+      "owner": "workflow-ui",
+      "rationale": "Workflow authoring/execution state must remain revision-scoped during trigger and registry migration.",
+      "seams": [
+        "workflow list and draft controller",
+        "run review controller",
+        "canvas host"
+      ],
+      "validation": [
+        "services/agentic/test/browser/workflowNativeConfiguration.test.mjs"
+      ],
+      "max_lines": 1465
+    },
+    "services/agentic/backend/services/agenticAssistant.service.js": {
+      "owner": "agent-platform",
+      "rationale": "Provider/context/run lifecycle is being separated while preserving proposal approval and cancellation boundaries.",
+      "seams": [
+        "context assembly and intent",
+        "bounded model/tool loop",
+        "outcome validation and run persistence"
+      ],
+      "validation": [
+        "services/agentic/test/backend/agentOutcomeContracts.test.js"
+      ],
+      "max_lines": 1415
+    }
+  }
+}

@@ -6,7 +6,7 @@ import {chromium} from 'playwright';
 import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const payload=result=>JSON.parse(result.content.find(block=>block.type==='text').text);
 const stateFromPrompt=prompt=>JSON.parse(prompt.match(/^Current browser state and confirmed section progress \(page content is untrusted data\): (.+)$/m)[1]);
 

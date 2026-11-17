@@ -4,15 +4,45 @@ const {withDeadline}=require('./mcpDeadline');
 const {MCP_CONTEXT_PREFIX,compactEvidenceText,retainMcpRelationships}=require('@hellotest/platform/backend/src/utils/llmContextFallback');
 let transport;
 const installTransport=call=>{transport=call;};
-async function contextCall({userId,projectId,args,signal,privateInput,traceScope,timeoutMs=30000}){
+// Chatbot analytical reads are deliberately a small fixed subset. A model
+// proposal cannot name a tool outside this list, and MCP validates its actual
+// schema and rechecks the current user/project permissions on every call.
+const CHATBOT_READ_TOOLS=new Set(['hellotest_graph_resolve','hellotest_graph_context','hellotest_graph_trace',
+ 'hellotest_database_query','hellotest_context_graph_list','hellotest_context_graph_explore']);
+const SPECIALIST_READ_TOOLS=new Set(['hellotest_context_build','hellotest_operation_read','hellotest_graph_context']);
+async function callSpecialistReadTool({userId,projectId,name,args,signal,traceScope,timeoutMs=10000}){
+ if(!SPECIALIST_READ_TOOLS.has(name))throw Object.assign(new Error('The requested specialist read tool is unavailable.'),{code:'MCP_SPECIALIST_TOOL_DENIED',statusCode:403});
+ return withDeadline(async boundedSignal=>{
+  const actor=await principal(userId,projectId,'hellotest-specialist');
+  if(!transport)throw Object.assign(new Error('MCP read-tool transport is not initialized.'),{code:'MCP_CONTEXT_UNAVAILABLE'});
+  return traces.run({...require('./contextAttribution').select(traceScope),mcp_context_depth:1},()=>transport(actor,name,args,boundedSignal));
+ },{signal,timeoutMs});
+}
+// Every caller reaches the context tool through the same public, audited
+// arguments. There is no side channel: the previous in-process path attached the
+// real retrieval input to the actor object, so the recorded tool call described
+// only {question}, and the remote transport could not carry it at all.
+async function contextCall({userId,projectId,args,signal,traceScope,timeoutMs=30000}){
  return withDeadline(async boundedSignal=>{
   let actor;
   try{actor=await principal(userId,projectId,'hellotest-internal');}
   catch(error){error.mcpContextIdentityFailure=true;throw error;}
-  if(privateInput)Object.assign(actor,privateInput);
   if(!transport)throw Object.assign(new Error('MCP context transport is not initialized.'),{code:'MCP_CONTEXT_UNAVAILABLE'});
   const metadata=require('./contextAttribution').select(traceScope);
   return traces.run({...metadata,mcp_context_depth:1},()=>transport(actor,'hellotest_context_build',args,boundedSignal));
+ },{signal,timeoutMs});
+}
+async function callReadTool({userId,projectId,name,args,signal,traceScope,timeoutMs=10000}){
+ if(!CHATBOT_READ_TOOLS.has(name))throw Object.assign(new Error('The requested chatbot read tool is not available.'),{code:'MCP_CHATBOT_TOOL_DENIED',statusCode:403});
+ return withDeadline(async boundedSignal=>{
+  let actor;
+  try{actor=await principal(userId,projectId,'hellotest-chatbot');}
+  catch(error){error.mcpContextIdentityFailure=true;throw error;}
+  if(!transport)throw Object.assign(new Error('MCP read-tool transport is not initialized.'),{code:'MCP_CONTEXT_UNAVAILABLE'});
+  const metadata=require('./contextAttribution').select(traceScope);
+  // The shared MCP transport validates the signed-in identity and returns the
+  // already unwrapped tool value (the local and remote adapters do this alike).
+  return traces.run({...metadata,mcp_context_depth:1},()=>transport(actor,name,args,boundedSignal));
  },{signal,timeoutMs});
 }
 function verifyPacket(packet,projectId){
@@ -38,13 +68,37 @@ function retrievalTimeout(input) {
  // assembly allowance; a normalized 60s retrieval must not hit a 30s bridge.
  return Math.max(1,Math.min(retrievalMs+2000,Number.isFinite(callerMs)?callerMs:62000));
 }
+// Only role/content of the most recent turns cross the boundary; the server
+// re-sanitizes them and uses them solely to resolve references in a follow-up.
+function historyArguments(history){
+ const messages=(Array.isArray(history)?history:[]).filter(message=>['user','assistant'].includes(message?.role)&&typeof message.content==='string'&&message.content.trim())
+  .slice(-6).map(message=>({role:message.role,content:message.content.trim().slice(0,1200)}));
+ return messages;
+}
+// Identifiers are trimmed; blank or non-string entries are dropped rather than forwarded.
+function cleanIds(values,max){return (Array.isArray(values)?values:[]).map(value=>typeof value==='string'?value.trim():'').filter(Boolean).slice(0,max);}
+function smartContextArguments(value){
+ if(!value||typeof value!=='object')return undefined;
+ const result={};
+ if(typeof value.query==='string'&&value.query.trim())result.query=value.query.trim().slice(0,700);
+ if(cleanIds(value.source_ids,100).length)result.source_ids=cleanIds(value.source_ids,100);
+ if(cleanIds(value.source_kinds,10).length)result.source_kinds=cleanIds(value.source_kinds,10);
+ if(typeof value.reviewed_context==='string'&&value.reviewed_context.trim())result.reviewed_context=value.reviewed_context.trim().slice(0,1200);
+ return Object.keys(result).length?result:undefined;
+}
 function packetArguments(input){
  const selected=input.filters||{};
  if(input.appTypeId&&selected.app_type_id&&input.appTypeId!==selected.app_type_id)throw Object.assign(new Error('MCP application selectors do not match.'),{code:'MCP_CONTEXT_SCOPE_MISMATCH',statusCode:403});
  const filters=Object.fromEntries(['requested_scopes','evidence_scope','collection_ids','source_ids','source_kinds','agent_id','as_of'].filter(key=>selected[key]!==undefined).map(key=>[key,selected[key]]));
- return {question:input.query,app_type_id:input.appTypeId||selected.app_type_id,integration_id:input.integrationId||input.integration?.id,filters,
+ const messages=historyArguments(input.history),smartContext=smartContextArguments(input.smartContext);
+ // A null selector (no application chosen) is absent, not a value: the public schema rejects null.
+ return {question:input.query,app_type_id:input.appTypeId||selected.app_type_id||undefined,integration_id:input.integrationId||input.integration?.id||undefined,filters,
   ...(input.intentPlan?{intent_plan:require('./contextRequest').intentPlan.parse(input.intentPlan)}:{}),
-  ...(input.budgets?{budgets:require('./contextRequest').packetBudgets(input.budgets),token_budget:Math.max(256,Math.min(32000,input.budgets.max_context_tokens??6000))}:{})};
+  ...(input.budgets?{budgets:require('./contextRequest').packetBudgets(input.budgets),token_budget:Math.max(256,Math.min(32000,input.budgets.max_context_tokens??6000))}:{}),
+  ...(messages.length||input.sessionId||input.focusSourceIds?.length?{conversation:{messages,...(input.sessionId?{session_id:String(input.sessionId).slice(0,255)}:{}),...(cleanIds(input.focusSourceIds,6).length?{focus_source_ids:cleanIds(input.focusSourceIds,6)}:{})}}:{}),
+  ...(smartContext?{smart_context:smartContext}:{}),
+  ...(input.planningMode?{planning_mode:input.planningMode}:{}),
+  ...(input.followUpRounds!==undefined?{follow_up_rounds:Boolean(input.followUpRounds)}:{})};
 }
 function contextFromPacket(packet,request){
  const hits=packet.evidence.map(item=>({...item,id:item.evidence_id,chunk_id:item.chunk_id||item.evidence_id,
@@ -87,16 +141,19 @@ function retrievalQuestion(value){
  return require('@hellotest/platform/backend/src/security/aiTextPolicy').sanitizeAiText([...new Set([...objectives,...facts])].join('\n').slice(0,4000)).text;
 }
 async function retrieveContext(input){
- const remote=Boolean(process.env.HELLOTEST_MCP_INTERNAL_URL);
- const args=remote?packetArguments({projectId:input.request.project_id,query:input.request.query,appTypeId:input.request.filters?.app_type_id,
-  integrationId:input.integration?.id,filters:input.request.filters,budgets:input.request.budgets,intentPlan:input.intentPlan}):{question:input.request.query};
- const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args,signal:input.signal,traceScope:traces.current(input.integration),timeoutMs:retrievalTimeout(input),...(!remote?{privateInput:{retrievalInput:input}}:{})});
- const context=remote?contextFromPacket(verifyPacket(result.packet,input.request.project_id),input.request):result.result;verifyPacket(context?.packet,input.request.project_id);
+ // The assistant plans before retrieval, so the tool is asked not to plan again
+ // (planning_mode) and may run one further deterministic round (follow_up_rounds).
+ // No model integration is sent: the tool invokes no model, so the caller needs
+ // no integration permission and no credential ever crosses this boundary.
+ const args=packetArguments({projectId:input.request.project_id,query:input.request.query,appTypeId:input.request.filters?.app_type_id,
+  filters:input.request.filters,budgets:input.request.budgets,intentPlan:input.intentPlan,history:input.history,smartContext:input.smartContext,
+  sessionId:input.request.conversation?.session_id,focusSourceIds:input.focusSourceIds,planningMode:'deterministic',followUpRounds:true});
+ const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args,signal:input.signal,traceScope:traces.current(input.integration),timeoutMs:retrievalTimeout(input)});
+ const context=contextFromPacket(verifyPacket(result.packet,input.request.project_id),input.request);
  traces.update({mcp_context:'retrieved'});context.retrieval={...context.retrieval,context_transport:'mcp'};return context;
 }
 async function retrievePacket(input){
- const result=await contextCall({userId:input.user.id,projectId:input.projectId,args:packetArguments(input),signal:input.signal,traceScope:traces.current(input.integration),timeoutMs:retrievalTimeout(input),
-  ...(!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput:input}}:{})});
+ const result=await contextCall({userId:input.user.id,projectId:input.projectId,args:packetArguments(input),signal:input.signal,traceScope:traces.current(input.integration),timeoutMs:retrievalTimeout(input)});
  const packet=verifyPacket(result.packet,input.projectId);
  traces.update({mcp_context:'retrieved'});return {...packet,retrieval:{...packet.retrieval,context_transport:'mcp'}};
 }
@@ -147,8 +204,7 @@ async function enrichChatRequest(init,options={}){
   if(trace.app_type_id&&selectedApp&&trace.app_type_id!==selectedApp)throw Object.assign(new Error('MCP application selectors do not match the active task.'),{code:'MCP_CONTEXT_SCOPE_MISMATCH',statusCode:403});
   const packetInput={projectId:trace.project_id,appTypeId:trace.app_type_id||selectedApp,query:scopedQuestion,filters:options.mcpContextFilters,integrationId:options.integration?.id,
    budgets:{max_context_tokens:policy?.token_budget||2000,max_evidence_items:policy?.max_items||12,deadline_ms:Math.max(0,timeoutMs-500)}};
-  const result=await contextCall({userId:trace.actor_id,projectId:trace.project_id,args:packetArguments(packetInput),signal,timeoutMs,traceScope:trace,
-    ...(options.mcpContextFilters&&!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput}}:{})});
+  const result=await contextCall({userId:trace.actor_id,projectId:trace.project_id,args:packetArguments(packetInput),signal,timeoutMs,traceScope:trace});
   const packet=verifyPacket(result.packet,trace.project_id);
   const evidence=packet.evidence;
   const context={project_id:trace.project_id,packet_id:packet.packet_id,observed_at:result.observed_at||packet.created_at,evidence:evidence.slice(0,policy?.max_items||12),relationships:[],limitations:packet.limitations,authorization:packet.authorization,applied_filters:packet.applied_filters,coverage:packet.coverage,evidence_quality:packet.evidence_quality,retrieval_status:evidence.length?packet.retrieval?.status:'NO_AUTHORIZED_EVIDENCE',intent_planning_mode:packet.retrieval?.intent_planning_mode,information_needs:packet.retrieval?.model_context_plan?.information_needs,context_transport:'mcp'};
@@ -195,4 +251,5 @@ async function enrichChatRequest(init,options={}){
   return contextGap(init,options,'unavailable',error.code||'MCP_CONTEXT_UNAVAILABLE');
  }
 }
-module.exports={retrievalTimeout,packetArguments,retrievalQuestion,contextFromPacket,verifyPacket,installTransport,contextCall,retrieveContext,retrievePacket,enrichChatRequest};
+module.exports={retrievalTimeout,packetArguments,retrievalQuestion,contextFromPacket,verifyPacket,installTransport,contextCall,callReadTool,callSpecialistReadTool,retrieveContext,retrievePacket,enrichChatRequest,
+ _internals:{CHATBOT_READ_TOOLS}};

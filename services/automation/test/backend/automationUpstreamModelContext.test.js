@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {buildWithUpstreamPlaywright,projectWorkflowBrief,projectNativePageResult,projectNativeModelContext}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright,projectWorkflowBrief,projectNativePageResult,projectNativeModelContext}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {assertInputBudget}=require('@hellotest/platform/backend/src/utils/llmRequestPolicy');
 
 const story={ref:'requirement:story',story_revision:'revision',content:{title:'Amazon guest product journey',description:'Product code 9000017248, Parker Vector roller ball pen.',
@@ -120,7 +120,7 @@ test('source handoff retains the current iframe snapshot, pinned Story and suppl
 });
 
 test('a source prompt exceeding the shared transport allowance fails without slicing primary facts or dispatching a model request',async()=>{
- const {generateUpstreamSectionSource}=require('../../backend/lib/automationUpstreamSectionSource');
+ const {generateUpstreamSectionSource}=require("../../backend/lib/upstream/automationUpstreamSectionSource");
  const brief='Pinned Story requirement: '+ 'Preserve this explicit product fact. '.repeat(3000);let modelCalls=0;
  await assert.rejects(generateUpstreamSectionSource({step,brief,emitted:'await page.goto("https://fixture.test/");',
   sourceContext:{latest_observation:{tool:'browser_verify_text_visible',result:{isError:false}},observations:[],delivery:{}},

@@ -10,14 +10,17 @@ function builderFunctions({markers=false}={}) {
   const module = { exports: {} };
   const database = { prepare: () => ({}) };
   new Function("require", "exports", "module", `${source}\nmodule.exports = { normalizeLlmBuild, buildPrompt, summarizeDataSetRows, summarizeVariables };`)((name) => {
+ if (typeof name === 'string' && name.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(name);
+ if (name.endsWith('/automationAuthoringAdmission.service') || name === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
     if (name.endsWith("/db") || name.endsWith("/obsDb")) return database;
     if (name.endsWith("/testStepAutomation")) return automationUtils;
     if (name.endsWith("/automationCaseType")) return require("../../../platform/backend/src/utils/automationCaseType");
-    if (name.endsWith("/automationRuntimeSpecialist")) return require("../../backend/lib/automationRuntimeSpecialist");
-    if (name.endsWith("/automationApiParameterContract")) return require("../../backend/lib/automationApiParameterContract");
-    if (name.endsWith("/automationGeneratedProgram")) return require("../../backend/lib/automationGeneratedProgram");
-    if (name.endsWith("/automationKnowledgeContext")) return require("../../backend/lib/automationKnowledgeContext");
-    if (name.endsWith("/automationGenerationGrounding")) return require("../../backend/lib/automationGenerationGrounding");
+    if (name.endsWith("/automationRuntimeSpecialist")) return require("../../backend/lib/build/automationRuntimeSpecialist");
+    if (name.endsWith("/automationApiParameterContract")) return require("../../backend/lib/build/automationApiParameterContract");
+    if (name.endsWith("/automationGeneratedProgram")) return require("../../backend/lib/build/automationGeneratedProgram");
+    if (name.endsWith("/automationKnowledgeContext")) return require("../../backend/lib/build/automationKnowledgeContext");
+    if (name.endsWith("/automationGenerationGrounding")) return require("../../backend/lib/build/automationGenerationGrounding");
     if (name.endsWith("/aiInstructionBlocks")) return markers?require("../../../platform/backend/src/utils/aiInstructionBlocks"):{aiInstructionBlock:(feature,key)=>require("../../../platform/shared/aiFeatureCatalog.json").find(item=>item.id===feature)?.defaults.instruction_blocks[key] || ""};
     if (name === "crypto") return require("node:crypto");
     return {};
@@ -115,7 +118,7 @@ test('API regeneration preserves existing assertions and captures needed by late
 
 test('completion feedback repairs invalid generated bodies and retains complete validated sections',async()=>{
  const {normalizeLlmBuild}=builderFunctions();
- const {completeAutomationBuild}=require('../../backend/lib/automationBuildCompletion');
+ const {completeAutomationBuild}=require("../../backend/lib/build/automationBuildCompletion");
  const steps=[{id:'open',step_order:1,step_type:'web',action:'Open page'},{id:'save',step_order:2,step_type:'web',action:'Save',expected_result:'Saved',automation_code:'await expect(page.locator("#status")).toHaveText("Saved");'}],requests=[];
  const result=await completeAutomationBuild({steps,validate:(payload,required)=>normalizeLlmBuild(payload,required,[],null),generate:async request=>{requests.push(request);return request.attempt===1?{steps:[{step_id:'open',automation_code:'await page.goto("https://app.test");'},{step_id:'save',automation_code:'// implemented'}]}:{steps:[{step_id:'save',automation_code:'test("save",async({page,expect})=>{await page.locator("#save").click();await expect(page.locator("#status")).toHaveText("Saved");});'}]};}});
  assert.equal(result.completion_attempts,2);assert.deepEqual(requests[1].feedback.required_sections.map(item=>item.step_id),['save']);assert.match(requests[1].feedback.validation_errors[0].message,/no executable/);assert.equal(result.updates[0].automation_code,'await page.goto("https://app.test");');assert.doesNotMatch(result.updates[1].automation_code,/^test\(/);assert.match(result.updates[1].automation_code,/toHaveText\("Saved"\)/);
@@ -161,10 +164,13 @@ test('final save rejects changed manual source expectations or link sets before 
   const database={transaction:callback=>callback,prepare:sql=>({get:async id=>{locks.push({sql,id});return {id,app_type_id:scenario==='app'?'other-app':'app',project_id:scenario==='project'?'other-project':'p'};},all:async()=>sql.includes('FROM automation_case_links')?(scenario==='links'?[{manual_test_case_id:'other'}]:[{manual_test_case_id:'manual'}]):[step],run:async()=>({changes:1})})};
   const module={exports:{}};
   new Function('require','exports','module',source+'\nexports.applyForTest=applyBuild;')((id)=>{
+ if (typeof id === 'string' && id.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(id);
+ if (id.endsWith('/automationAuthoringAdmission.service') || id === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
    if(id.endsWith('/db')||id.endsWith('/obsDb'))return database;
    if(id.endsWith('/testStepAutomation'))return automationUtils;
    if(id.endsWith('/automationReadiness.service'))return require('../../backend/services/automationReadiness.service');
-   if(id.endsWith('/automationBuildContext'))return {loadAutomationManualContext:async input=>{assert.equal(input.lock,true);return currentManual;},loadAutomationParameterContext:async input=>{assert.equal(input.lock,true);return {source_key:scenario==='parameters'?'changed':'original'};},manualContextKey:require('../../backend/lib/automationBuildContext').manualContextKey};
+   if(id.endsWith('/automationBuildContext'))return {loadAutomationManualContext:async input=>{assert.equal(input.lock,true);return currentManual;},loadAutomationParameterContext:async input=>{assert.equal(input.lock,true);return {source_key:scenario==='parameters'?'changed':'original'};},manualContextKey:require("../../backend/lib/build/automationBuildContext").manualContextKey};
    if(id.endsWith('/testStep.service'))return {updateTestStep:async(...args)=>writes.push(args)};
    if(id.endsWith('/automationBrowserParameters'))return {loadBrowserParameterResolver:async input=>{assert.equal(input.materialize,false);assert.equal(input.lock,true);return {inputSourceKey:scenario==='input_data'?'edited-selected-data':'original-inputs'};}};
    if(id==='crypto')return require('node:crypto');return {};
@@ -176,7 +182,7 @@ test('final save rejects changed manual source expectations or link sets before 
 });
 
 test('actual signup failure shape rejects an invented inbox and returns the missing mailbox prerequisite without pretending the OTP input checks email',async()=>{
- const {normalizeLlmBuild}=builderFunctions(),{navigationOrigins}=require('../../backend/lib/automationGenerationGrounding'),{completeAutomationBuild}=require('../../backend/lib/automationBuildCompletion');
+ const {normalizeLlmBuild}=builderFunctions(),{navigationOrigins}=require("../../backend/lib/build/automationGenerationGrounding"),{completeAutomationBuild}=require("../../backend/lib/build/automationBuildCompletion");
  const steps=Array.from({length:8},(_,index)=>({id:'step-'+(index+1),step_order:index+1,step_type:'web',action:index===5?'Check the email inbox for the verification code.':index===6?'Enter the verification code':'Signup action '+(index+1),expected_result:index===5?'Verification email is received':'Expected '+(index+1)}));
  const mappings=steps.map(step=>({step_id:step.id,automation_code:step.step_order===6?'await web.openTab("https://mail.example.com"); await page.getByRole("textbox", { name: "Email" }).fill("@t.email");':step.step_order===7?'await page.getByLabel("Verification code").fill("@t.verification_code"); await expect(page.getByText("Expected 7")).toBeVisible();':'await page.locator("#signup-'+step.step_order+'").click(); await expect(page.getByText("Expected '+step.step_order+'")).toBeVisible();'}));
  const requests=[],events=[],origins=navigationOrigins('https://app.hellotest.ai/');

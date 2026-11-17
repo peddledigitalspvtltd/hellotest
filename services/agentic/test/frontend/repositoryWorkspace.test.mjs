@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyInspectedFieldValidation, mergeInspectedFields, mergeRepositoryEntries, persistRepositoryScreenBundle, retainUnsavedInspectedFields } from "../../frontend/lib/repositoryWorkspace.ts";
+import { applyInspectedFieldValidation, mergeInspectedFields, mergeRepositoryEntries, persistRepositoryScreenBundle, retainUnsavedInspectedFields } from "../../../automation/frontend/lib/repositoryWorkspace.ts";
 
 test("saving one screen and its fields preserves other loaded screens", () => {
   assert.deepEqual(mergeRepositoryEntries([{ id: "existing" }, { id: "screen", name: "old" }], [{ id: "screen", name: "saved" }, { id: "field" }]), [

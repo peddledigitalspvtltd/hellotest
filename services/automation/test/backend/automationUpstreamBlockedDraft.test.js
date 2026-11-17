@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const startUrl='https://shop.test/product';
 const goto=`await page.goto(${JSON.stringify(startUrl)});`;

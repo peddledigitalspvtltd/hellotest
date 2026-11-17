@@ -12,7 +12,7 @@ const require = createRequire(new URL("../../../../testengine/backend/package.js
 const { chromium } = require("playwright");
 import { assertTypeScriptExportCompiles } from "./playwrightExportFixture.mjs";
 const root = new URL("../../../platform/frontend/", import.meta.url);
-const { normalizeGeneratedProgram } = createRequire(import.meta.url)("../../backend/lib/automationGeneratedProgram.js");
+const { normalizeGeneratedProgram } = createRequire(import.meta.url)("../../backend/lib/build/automationGeneratedProgram.js");
 
 test("standalone source executes imported test/function wrappers and local dependencies without HelloTest", { timeout: 90000 }, async () => {
   const server = createServer((req, res) => {

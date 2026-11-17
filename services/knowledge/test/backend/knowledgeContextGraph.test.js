@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { createContextGraph } = require('../../backend/services/knowledgeContextGraph.service');
+const originalSampleRate = process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE;
+process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE = '1';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const user = { id:'owner' }, projectId = 'project';
 function packet(extra = {}) {
@@ -14,12 +16,12 @@ function packet(extra = {}) {
     }],...extra };
 }
 function fixture() {
-  const traces = new Map(), events = new Map(), statements = [], writes = [], now='2026-11-02T00:00:00.000Z';
+  const traces = new Map(), payloads = new Map(), events = new Map(), statements = [], writes = [], now='2026-11-02T00:00:00.000Z';
   const state = {active:true,view:true,enabled:true,denySource:false,denyFragment:false,current:true,readCount:0,revokeDuringRead:false,denyLive:false,denyPermissions:new Set(),revokeDuringList:false};
   const all = async (sql,args) => {
     statements.push({sql,args});
     if(sql.includes('FROM ai_context_graph_events'))return [...events.values()].filter(e=>e.trace_id===args[0]&&e.project_id===args[1]&&e.actor_id===args[2]).sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at)).slice(0,31);
-    if(sql.includes('FROM ai_context_graph_traces')){if(state.revokeDuringList)state.view=false;return [...traces.values()].filter(row=>row.project_id===args[0]&&row.actor_id===args[1]).sort((a,b)=>b.id.localeCompare(a.id)).slice(0,args.at(-1));}
+    if(sql.includes('FROM ai_context_graph_traces')){if(state.revokeDuringList)state.view=false;return [...traces.values()].filter(row=>row.project_id===args[0]&&row.actor_id===args[1]).sort((a,b)=>b.id.localeCompare(a.id)).slice(0,args.at(-1)).map(row=>({...row,...payloads.get(row.id)}));}
     if(sql.includes('FROM ai_knowledge_chunks')) {
       assert.match(sql,/refs\.source_version = documents\.version::text/);assert.match(sql,/refs\.version_hash = documents\.checksum_sha256/);assert.match(sql,/fragment_acl/);
       return state.denyFragment?[]:args[0].map(ref=>({chunk_id:ref.chunk_id,document_id:ref.document_id,source_id:ref.source_id,version:Number(ref.source_version),checksum_sha256:ref.version_hash,is_current:state.current}));
@@ -32,15 +34,16 @@ function fixture() {
     if(sql.includes('FROM users'))return state.active?{id:user.id}:undefined;
     if(sql.includes('FROM app_types'))return {project_id:args[0]==='foreign-app'?'foreign':projectId};
     if(sql.startsWith('INSERT INTO ai_context_graph_traces')) {
-      const [id,project_id,actor_id,app_type_id,feature_id,context_packet_id,task_ref,session_id,trace_ref,query_hash,evidence_refs,coverage,selection_hash,selection]=args;
+      const [id,project_id,actor_id,app_type_id,feature_id,context_packet_id,task_ref,session_id,trace_ref,selection_hash,expires_at,retention_policy]=args;
       if([...traces.values()].some(t=>t.project_id===project_id&&t.actor_id===actor_id&&t.context_packet_id===context_packet_id&&t.feature_id===feature_id))return undefined;
-      const row={id,project_id,actor_id,app_type_id,feature_id,context_packet_id,task_ref,session_id,trace_ref,query_hash,evidence_refs,coverage,selection_hash,selection,recorded_at:now,cursor_recorded_at:now};traces.set(id,row);writes.push(row);return row;
+      const row={id,project_id,actor_id,app_type_id,feature_id,context_packet_id,task_ref,session_id,trace_ref,selection_hash,expires_at,retention_policy,recorded_at:now,cursor_recorded_at:now};traces.set(id,row);writes.push(row);return row;
     }
-    if(sql.includes('FROM ai_context_graph_traces'))return [...traces.values()].find(t=>sql.includes('context_packet_id = ?')?t.project_id===args[0]&&t.actor_id===args[1]&&t.context_packet_id===args[2]&&t.feature_id===args[3]:t.id===args[0]&&t.project_id===args[1]&&t.actor_id===args[2]&&(!args[3]||!t.app_type_id||t.app_type_id===args[3]));
+    if(sql.startsWith('INSERT INTO ai_context_graph_trace_payloads')) {const [query_hash,evidence_refs,coverage,selection,trace_id]=args;const trace=traces.get(trace_id);if(!trace)return undefined;const payload={trace_id,recorded_at:trace.recorded_at,query_hash,evidence_refs,coverage,selection};payloads.set(trace_id,payload);return {trace_id};}
+    if(sql.includes('FROM ai_context_graph_traces')){const row=[...traces.values()].find(t=>sql.includes('context_packet_id = ?')?t.project_id===args[0]&&t.actor_id===args[1]&&t.context_packet_id===args[2]&&t.feature_id===args[3]:t.id===args[0]&&t.project_id===args[1]&&t.actor_id===args[2]&&(!args[3]||!t.app_type_id||t.app_type_id===args[3]));return row?{...row,...payloads.get(row.id)}:undefined;}
     if(sql.startsWith('INSERT INTO ai_context_graph_events')) {
-      const [id,trace_id,project_id,actor_id,event_type,status,rationale,reference_id,occurred,payload_hash]=args,key=`${trace_id}:${id}`;
+      const [id,trace_id,project_id,actor_id,event_type,status,rationale,reference_id,metadata,occurred,payload_hash]=args,key=`${trace_id}:${id}`;
       if(events.has(key))return undefined;
-      const row={id,trace_id,project_id,actor_id,event_type,status,rationale,reference_id,occurred_at:occurred||now,recorded_at:now,payload_hash};events.set(key,row);writes.push(row);return row;
+      const row={id,trace_id,project_id,actor_id,event_type,status,rationale,reference_id,metadata,occurred_at:occurred||now,recorded_at:now,payload_hash};events.set(key,row);writes.push(row);return row;
     }
     if(sql.includes('FROM ai_context_graph_events'))return [...events.values()].find(e=>e.trace_id===args[0]&&e.id===args[1]&&e.project_id===args[2]&&e.actor_id===args[3]);
     throw Error(`Unexpected get ${sql}`);
@@ -51,15 +54,15 @@ function fixture() {
     flags:{getFeatureKeysForPermission:()=>[],areEnabled:async()=>state.enabled},
     authorization:{predicate:()=>({sql:'TRUE /* fragment_acl */',params:[]}),applicationContextPredicate:()=>"TRUE /* version-profile */",applicationRecordPredicate:()=>"TRUE /* native-exists */"},
     management:{allowedPermissions:async()=>['knowledge.view'],getNodes:async(_project,_actor,ids)=>{state.readCount++;if(state.revokeDuringRead&&state.readCount>1)return[];return state.denySource?[]:ids.map(id=>({id,source_id:id,entity_type:'text',title:'Authorized current source'}));}}});
-  return {graph,state,traces,events,statements,writes,record:extra=>graph.recordContext({projectId,user,packet:packet(),featureId:'ai.test_case.design',...extra})};
+  return {graph,state,traces,payloads,events,statements,writes,record:extra=>graph.recordContext({projectId,user,packet:packet(),featureId:'ai.test_case.design',...extra})};
 }
 
 test('context memory retains exact evidence selection and safe intent metadata without storing prompts or passages',async()=>{
-  const f=fixture(),receipt=await f.record({taskRef:'task-1',sessionId:'session-1'}),row=f.traces.get(receipt.trace_id);
-  assert.equal(receipt.status,'recorded');assert.equal(row.evidence_refs[0].version_hash,digest('version-1'));assert.equal(row.evidence_refs[0].chunk_id,'chunk-1');
-  assert.equal(row.selection.query_category,'project_analysis');assert.equal(row.selection.termination_reason,'evidence_sufficient');
-  assert.doesNotMatch(JSON.stringify(row),/PRIVATE_USER_QUESTION|PRIVATE_SOURCE_CONTENT|PRIVATE_STORED_TITLE|PRIVATE_CONTEXT_FOCUS|PRIVATE_RETRIEVAL_QUERY/);
-  assert.equal(row.query_hash,digest('PRIVATE_USER_QUESTION'));
+  const f=fixture(),receipt=await f.record({taskRef:'task-1',sessionId:'session-1'}),row=f.traces.get(receipt.trace_id),payload=f.payloads.get(receipt.trace_id);
+  assert.equal(receipt.status,'recorded');assert.equal(payload.evidence_refs[0].version_hash,digest('version-1'));assert.equal(payload.evidence_refs[0].chunk_id,'chunk-1');
+  assert.equal(payload.selection.query_category,'project_analysis');assert.equal(payload.selection.termination_reason,'evidence_sufficient');
+  assert.doesNotMatch(JSON.stringify({row,payload}),/PRIVATE_USER_QUESTION|PRIVATE_SOURCE_CONTENT|PRIVATE_STORED_TITLE|PRIVATE_CONTEXT_FOCUS|PRIVATE_RETRIEVAL_QUERY/);
+  assert.equal(payload.query_hash,digest('PRIVATE_USER_QUESTION'));assert.deepEqual(row.selection_hash, f.traces.get(receipt.trace_id).selection_hash);
   const same=await f.record({taskRef:'task-1',sessionId:'session-1'});assert.equal(same.trace_id,receipt.trace_id);assert.equal(f.traces.size,1);
   await assert.rejects(f.record({packet:packet({evidence:[{...packet().evidence[0],chunk_id:'changed-chunk'}]}),taskRef:'task-1',sessionId:'session-1'}),error=>error.code==='CONTEXT_GRAPH_SELECTION_CONFLICT');
   assert.equal(f.traces.size,1);
@@ -68,8 +71,8 @@ test('selection identity binds canonical applied filter metadata without retaini
   const f=fixture(),filters={collection_ids:['PRIVATE_COLLECTION'],source_ids:['PRIVATE_SOURCE_FILTER'],evidence_scope:{run_ids:['PRIVATE_RUN_FILTER'],story_ids:['PRIVATE_STORY_FILTER']}};
   const first=await f.record({packet:packet({applied_filters:filters})});
   const same=await f.record({packet:packet({applied_filters:{evidence_scope:{story_ids:['PRIVATE_STORY_FILTER'],run_ids:['PRIVATE_RUN_FILTER']},source_ids:['PRIVATE_SOURCE_FILTER'],collection_ids:['PRIVATE_COLLECTION']}})});
-  assert.equal(same.trace_id,first.trace_id);assert.match(f.traces.get(first.trace_id).selection.applied_filters_hash,/^[a-f0-9]{64}$/);
-  assert.doesNotMatch(JSON.stringify(f.traces.get(first.trace_id)),/PRIVATE_COLLECTION|PRIVATE_SOURCE_FILTER|PRIVATE_RUN_FILTER|PRIVATE_STORY_FILTER/);
+  assert.equal(same.trace_id,first.trace_id);assert.match(f.payloads.get(first.trace_id).selection.applied_filters_hash,/^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(f.payloads.get(first.trace_id)),/PRIVATE_COLLECTION|PRIVATE_SOURCE_FILTER|PRIVATE_RUN_FILTER|PRIVATE_STORY_FILTER/);
   for(const applied_filters of [{...filters,collection_ids:['different-collection']},{...filters,source_ids:['different-source']},{...filters,evidence_scope:{run_ids:['different-run']}}])
     await assert.rejects(f.record({packet:packet({applied_filters})}),error=>error.code==='CONTEXT_GRAPH_SELECTION_CONFLICT');
   assert.equal(f.traces.size,1);
@@ -79,7 +82,7 @@ test('context memory preserves the observed bounded retrieval strategy without m
     graph_expansion_reason:'selected_sources_or_collections',graph_tool_calls:0,graph_evidence_count:0,graph_relationship_count:0,
     model_reasoning:'PRIVATE_REASONING',tool_arguments:{password:'PRIVATE_SECRET'}};
   const input=packet({retrieval:{...packet().retrieval,retrieval_strategy:strategy}});
-  const receipt=await f.record({packet:input}),selection=f.traces.get(receipt.trace_id).selection;
+  const receipt=await f.record({packet:input}),selection=f.payloads.get(receipt.trace_id).selection;
   assert.deepEqual(selection.retrieval_strategy,{requested:'graph_expand',applied:'hybrid_evidence',graph_expansion_status:'skipped',
     graph_expansion_reason:'selected_sources_or_collections',graph_tool_calls:0,graph_evidence_count:0,graph_relationship_count:0});
   assert.doesNotMatch(JSON.stringify(selection),/PRIVATE_REASONING|PRIVATE_SECRET|tool_arguments/);
@@ -99,8 +102,8 @@ test('list and explore are owner-private, project-bound and respect revoked feat
   await assert.rejects(f.graph.list({projectId:'foreign',user}),error=>error.statusCode===403);
   f.state.view=false;await assert.rejects(f.graph.explore({projectId,user,traceId:receipt.trace_id}),error=>error.statusCode===403);
   f.state.view=true;f.state.enabled=false;await assert.rejects(f.graph.list({projectId,user}),error=>error.statusCode===403);
-  const query=f.statements.find(c=>c.sql.includes('ORDER BY recorded_at DESC,id DESC'));
-  assert.match(query.sql,/project_id = \? AND actor_id = \?/);
+  const query=f.statements.find(c=>c.sql.includes('ORDER BY traces.recorded_at DESC,traces.id DESC'));
+  assert.match(query.sql,/traces\.project_id = \? AND traces\.actor_id = \?/);
 });
 test('bounded cursors bind all filters and preserve exact ordering timestamps',async()=>{
   const f=fixture();await f.record();await f.record({packet:packet({context_packet_id:'packet-2'})});
@@ -160,8 +163,25 @@ test('truncated live snapshots cannot relax collaborators to only a core source 
   const receipt=await f.record({packet:packet({evidence:[raw]})});f.state.denyPermissions.add('attachment.view');
   const result=await f.graph.explore({projectId,user,traceId:receipt.trace_id});assert.equal(result.stats.unavailable_evidence_count,1);assert.ok(!result.nodes.some(node=>node.kind==='live_snapshot'));
 });
-test('retrieval memory never claims actual model consumption or source-based causality',async()=>{
+test('retrieval memory distinguishes selected, submitted and cited evidence without claiming source-based causality',async()=>{
   const f=fixture(),receipt=await f.record(),result=await f.graph.explore({projectId,user,traceId:receipt.trace_id});
   assert.equal(result.limitations.model_input_verified,false);assert.equal(result.limitations.stage,'retrieval_result');assert.ok(result.edges.some(edge=>edge.type==='RETRIEVED_EVIDENCE'));assert.ok(!result.edges.some(edge=>edge.type==='USED_EVIDENCE'||edge.type==='CAUSED_BY'));
+  await f.graph.recordDecision({projectId,user,contextTraceId:receipt.trace_id,event:{id:'submitted',type:'CONTEXT_SENT',status:'submitted',metadata:{evidence_ids:['evidence-1']}}});
+  await f.graph.recordDecision({projectId,user,contextTraceId:receipt.trace_id,event:{id:'cited',type:'CITATIONS_RECORDED',status:'recorded',metadata:{evidence_ids:['evidence-1']}}});
+  const observed=await f.graph.explore({projectId,user,traceId:receipt.trace_id});
+  assert.equal(observed.nodes.find(node=>node.kind==='context_packet').metadata.stage,'model_input');
+  assert.deepEqual(observed.timeline.find(item=>item.type==='CONTEXT_SENT').evidence_ids,['evidence-1']);
+  assert.deepEqual(observed.timeline.find(item=>item.type==='CITATIONS_RECORDED').evidence_ids,['evidence-1']);
+  assert.equal(observed.limitations.model_input_verified,false);
 });
-test.after(()=>require('@hellotest/platform/backend/src/db').close());
+test('trace sampling happens after request validation and returns an explicit non-persistent receipt',async()=>{
+  const f=fixture();process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE='0';
+  try {
+    const receipt=await f.record();assert.deepEqual(receipt,{trace_id:null,recorded_at:null,status:'sampled_out',sample_rate:0});assert.equal(f.writes.length,0);
+    await assert.rejects(f.record({packet:packet({project_id:'foreign'})}),error=>error.statusCode===403);
+    const controller=new AbortController();controller.abort();await assert.rejects(f.record({signal:controller.signal}));
+  } finally {
+    if(originalSampleRate===undefined)delete process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE;else process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE=originalSampleRate;
+  }
+});
+test.after(()=>{if(originalSampleRate===undefined)delete process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE;else process.env.HELLOTEST_CONTEXT_TRACE_SAMPLE_RATE=originalSampleRate;return require('@hellotest/platform/backend/src/db').close();});

@@ -1,5 +1,6 @@
 const { createHash } = require("crypto");
 const { config } = require("@hellotest/platform/backend/src/config");
+const db = require("@hellotest/platform/backend/src/db");
 
 const PUBLIC_SCOPE = "__public__";
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -149,6 +150,7 @@ const ensureCollection = async (dimensions, { signal } = {}) => {
     await Promise.all([
       createPayloadIndex(name, "project_id", "keyword", signal),
       createPayloadIndex(name, "allowed_scope", "keyword", signal),
+      createPayloadIndex(name, "acl_allow_principals", "keyword", signal),
       createPayloadIndex(name, "embedding_model", "keyword", signal),
       createPayloadIndex(name, "source_id", "keyword", signal),
       createPayloadIndex(name, "document_id", "keyword", signal),
@@ -183,6 +185,19 @@ const replaceDocument = async ({ projectId, source, documentId, chunks, vectors,
       || new Set(normalizedChunks.map(chunk => text(chunk.id, 255))).size !== normalizedChunks.length) {
     throw new Error("Qdrant projection requires exact project, source, document and unique chunk identities");
   }
+  // Qdrant is a candidate filter, never the authorization authority. Persist
+  // every explicit ALLOW identity at source/revision/fragment scope so the
+  // external index can avoid scanning a project-wide list of fragment IDs.
+  // PostgreSQL applies deny precedence and rechecks every returned fragment.
+  const bindings = await db.prepare(`SELECT document_id, chunk_id, principal_type, principal_id, effect
+    FROM ai_knowledge_security_bindings WHERE project_id = ? AND source_id = ?
+      AND (document_id IS NULL OR document_id = ?)
+      AND (chunk_id IS NULL OR chunk_id IN (${normalizedChunks.map(() => "?").join(",")}))`)
+    .all(normalizedProjectId, normalizedSourceId, text(documentId, 255), ...normalizedChunks.map(chunk => text(chunk.id, 255)));
+  const aclPrincipalsFor = chunkId => [...new Set(bindings.filter(binding => binding.effect === "ALLOW"
+    && (binding.document_id == null || binding.document_id === documentId)
+    && (binding.chunk_id == null || binding.chunk_id === chunkId))
+    .map(binding => `${text(binding.principal_type, 20)}:${text(binding.principal_id, 255)}`))].sort();
   const name = await ensureCollection(dimensions, { signal });
   // Document/chunk IDs identify immutable canonical revisions. Upserting the
   // same IDs is idempotent; deleting first destroys usable evidence on a failed
@@ -201,6 +216,7 @@ const replaceDocument = async ({ projectId, source, documentId, chunks, vectors,
         source_ref_id: text(source?.source_ref_id, 500) || null,
         app_type_id: text(source?.app_type_id, 255) || "__all__",
         allowed_scope: source?.required_permission ? [text(source.required_permission, 100)] : [PUBLIC_SCOPE],
+        acl_allow_principals: aclPrincipalsFor(chunk.id),
         embedding_model: text(embeddingModel, 255),
         is_current: true,
         chunk_index: Number(chunk.index ?? chunk.chunk_index ?? 0),
@@ -225,6 +241,16 @@ const verifyDocument = async ({ projectId, source, documentId, chunks, embedding
     throw new Error("Exact canonical document identities and dimensions are required for vector reconciliation");
   }
   const name = collectionName(dimensions);
+  const bindingRows = await db.prepare(`SELECT document_id, chunk_id, principal_type, principal_id
+    FROM ai_knowledge_security_bindings WHERE project_id = ? AND source_id = ? AND effect = 'ALLOW'
+      AND (document_id IS NULL OR document_id = ?)
+      AND (chunk_id IS NULL OR chunk_id IN (${chunks.map(() => "?").join(",")}))
+    ORDER BY document_id NULLS FIRST, chunk_id NULLS FIRST, principal_type, principal_id`)
+    .all(projectId, source.id, documentId, ...chunks.map(chunk => chunk.id));
+  const aclPrincipalsFor = chunkId => [...new Set(bindingRows.filter(binding =>
+    (binding.document_id == null || binding.document_id === documentId)
+      && (binding.chunk_id == null || binding.chunk_id === chunkId))
+    .map(binding => `${text(binding.principal_type, 20)}:${text(binding.principal_id, 255)}`))].sort();
   for (let start = 0; start < chunks.length; start += UPSERT_BATCH_SIZE) {
     const batch = chunks.slice(start, start + UPSERT_BATCH_SIZE);
     const response = await request(`/collections/${encodeURIComponent(name)}/points`, {
@@ -243,6 +269,7 @@ const verifyDocument = async ({ projectId, source, documentId, chunks, embedding
           || payload.embedding_model !== embeddingModel || payload.content_hash !== fingerprint(chunk.content)
           || !Array.isArray(payload.allowed_scope) || payload.allowed_scope.length !== 1
           || payload.allowed_scope[0] !== (text(source.required_permission, 100) || PUBLIC_SCOPE)
+          || JSON.stringify(payload.acl_allow_principals || []) !== JSON.stringify(aclPrincipalsFor(chunk.id))
           || payload.source_kind !== text(source.source_kind, 80)
           || payload.app_type_id !== (text(source.app_type_id, 255) || "__all__")
           || payload.source_ref_id !== (text(source.source_ref_id, 500) || null)
@@ -275,14 +302,23 @@ const reconcileDocument = async (args = {}) => {
   return { configured: true, indexed: chunks.length, repaired, dimensions: args.dimensions };
 };
 
-const search = async ({ projectId, queryVector, embeddingModel, allowedPermissions, authorizedChunkIds, sourceKinds, sourceIds, appTypeId, historical = false, limit = 250, signal } = {}) => {
+const aclPrincipalsFor = async ({ projectId, user } = {}) => {
+  if (!user?.id || !text(projectId, 255)) return [];
+  const roles = await db.prepare(`SELECT DISTINCT roles.id, roles.name FROM users
+    LEFT JOIN project_members members ON members.user_id = users.id AND members.project_id = ?
+    JOIN roles ON roles.id = users.default_role_id OR roles.id = members.role_id
+    WHERE users.id = ? AND users.status = 'active'`).all(projectId, user.id);
+  return [...new Set([
+    `PROJECT:${text(projectId, 255)}`, "EVERYONE:*", `USER:${text(user.id, 255)}`,
+    ...roles.flatMap(role => [`ROLE:${text(role.id, 255)}`, `ROLE:${text(role.name, 255)}`])
+  ])];
+};
+
+const search = async ({ projectId, queryVector, embeddingModel, allowedPermissions, aclPrincipals, user, sourceKinds, sourceIds, appTypeId, historical = false, limit = 250, signal } = {}) => {
   if (!isConfigured()) return { configured: false, hits: [], provider: "postgresql" };
-  // The canonical database resolves current ACLs before any similarity query.
-  // Stale vector payload permissions can only narrow this bounded live allowlist.
-  if (!Array.isArray(authorizedChunkIds)) throw new Error("Live authorized fragment IDs are required for vector retrieval");
-  if (authorizedChunkIds.length > 10_000) throw new Error("Authorized vector scope exceeds the bounded query limit");
-  const allowedIds = unique(authorizedChunkIds, 10_000);
-  if (!allowedIds.length) return { configured: true, hits: [], provider: "qdrant" };
+  const principalFilters = Array.isArray(aclPrincipals) ? unique(aclPrincipals, 1_000)
+    : await aclPrincipalsFor({ projectId, user });
+  if (!principalFilters.length) return { configured: true, hits: [], provider: "qdrant" };
   const vector = asArray(queryVector);
   if (signal?.aborted) throw signal.reason || new Error("Vector retrieval cancelled");
   if (vector.length < 8 || vector.length > 8_192 || !vector.every(Number.isFinite)) {
@@ -294,9 +330,9 @@ const search = async ({ projectId, queryVector, embeddingModel, allowedPermissio
   const must = [
     { key: "project_id", match: { value: text(projectId, 255) } },
     ...(!historical ? [{ key: "is_current", match: { value: true } }] : []),
-    { has_id: allowedIds },
     { key: "embedding_model", match: { value: text(embeddingModel, 255) } },
-    { key: "allowed_scope", match: { any: [PUBLIC_SCOPE, ...unique(allowedPermissions, 20)] } }
+    { key: "allowed_scope", match: { any: [PUBLIC_SCOPE, ...unique(allowedPermissions, 20)] } },
+    { key: "acl_allow_principals", match: { any: principalFilters } }
   ];
   const kinds = unique(sourceKinds, 20);
   const ids = unique(sourceIds, 100);
@@ -380,6 +416,7 @@ const deleteProject = async ({ projectId, signal } = {}) => {
 
 module.exports = {
   PUBLIC_SCOPE,
+  aclPrincipalsFor,
   deleteSource,
   deleteProject,
   getStatus,

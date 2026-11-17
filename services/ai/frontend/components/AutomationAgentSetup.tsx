@@ -1,6 +1,6 @@
 import "./AutomationAgentSetup.css";
-import { AgenticCommandComposer, HELLOTEST_AGENT_CATALOG } from "@hellotest/agentic/frontend/components/AgenticExperience";
-import { AgentEvidenceScope } from "@hellotest/agentic/frontend/components/AgentEvidenceScope";
+import { AgenticCommandComposer, HELLOTEST_AGENT_CATALOG } from "@hellotest/ai/agent-experience";
+import { AgentEvidenceScope } from "@hellotest/ai/evidence-scope";
 import type { SmartContextSelection } from "./SmartContextWorkbench";
 import type { ReactNode } from "react";
 export type AutomationAgentSelection = { scopes: string[]; inputs: Record<string,string>; smart: SmartContextSelection | null; integrationId: string };

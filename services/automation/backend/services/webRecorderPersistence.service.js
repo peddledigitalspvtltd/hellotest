@@ -1,5 +1,5 @@
 const invalid = (message) => Object.assign(new Error(message), { code: 'AUTOMATION_RECORDER_CASE_CHANGED', statusCode: 409 });
-const { recorderPlanFingerprint: snapshot } = require('../lib/automationRecorderPlan');
+const { recorderPlanFingerprint: snapshot } = require("../lib/recording/automationRecorderPlan");
 const { inferAutomationStepType } = require('@hellotest/platform/backend/src/utils/testStepAutomation');
 
 /** A full web recording replaces the web plan, including copied manual prose.

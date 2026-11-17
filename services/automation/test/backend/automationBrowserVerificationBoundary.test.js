@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { browserVerificationBoundary, recordBrowserCheck } = require('../../backend/lib/automationBrowserRecovery');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { browserVerificationBoundary, recordBrowserCheck } = require("../../backend/lib/browser/automationBrowserRecovery");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/profile', ...value }) }] });
 const failed = (code = 'BROWSER_ASSERTION_NOT_SATISFIED') => ({ isError: true, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', code, assertion_outcome: 'not_satisfied', action_outcome: 'not_attempted' }) }] });

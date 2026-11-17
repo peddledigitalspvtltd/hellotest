@@ -49,12 +49,13 @@ for (const featureId of featureIds) {
       if(detail)assert.equal(detail.draft.config.instruction_blocks[key], feature.defaults.instruction_blocks[key]);
     }
     const goal = runtime.config.instruction_blocks['automationBrowserAgent.goalReview'];
-    assert.match(goal, /persistent in-page message/);
-    assert.match(goal, /current accessibility, targets and validation feedback/);
-    assert.match(goal, /request read-only discovery/);
-    assert.match(goal, /Preserve explicit notification requirements, quoted literals and exact values/);
-    assert.match(goal, /without repeating the completed action/);
+    assert.match(goal, /every pinned clause\/literal on its authored subject/);
+    assert.match(goal, /fresh targets, attempted_check\/validation_feedback/);
+    assert.match(goal, /No unrelated\/later fill, replay or invented setup/);
     const review = runtime.config.instruction_blocks['automationBrowserAgent.semanticReview'];
+    assert.match(review, /confirmed assertion on a persistent message can support that same outcome/);
+    assert.match(review, /do not require a transient notification unless authored/);
+    assert.match(review, /Preserve exact literals, explicit notification requirements and every independent clause/);
     assert.match(review, /code-entry form alone does not prove a code was sent or delivered/);
     assert.match(review, /sent message does not prove inbox receipt/);
     configuration.validate(runtime.config, featureId);

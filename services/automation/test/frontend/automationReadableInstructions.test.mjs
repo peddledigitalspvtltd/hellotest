@@ -117,3 +117,10 @@ test('contains polls preserve scoped expected data while arbitrary, mutated and 
   'await expect.poll(async () => (await page.locator("#email").isVisible()) && ((await page.locator("#other").innerText()).replace(/\\s+/g," ").trim() === "Saved")).toBe(true);'
  ]){const customRow=read(custom,context)[0];assert.equal(customRow.label,'Run custom code poll');assert.equal(customRow.kind,'custom');assert.match(text(customRow),/review Source/);}
 });
+
+test('native verification instructions expose focus, editability, counts and all attribute arguments, including soft negation',()=>{
+ const rows=read('await expect.soft(page.getByLabel("Email")).not.toBeFocused(); await expect(page.getByLabel("Email")).toBeEditable(); await expect(page.locator("li")).toHaveCount(0); await expect(page.locator("input")).toHaveAttribute("aria-invalid", "false");');
+ assert.deepEqual(rows.map(row=>row.label),['Verify focused (soft) (not)','Verify editable','Verify count','Verify attribute']);
+ assert.deepEqual(rows[2].args,['li','0']);
+ assert.deepEqual(rows[3].args,['input','aria-invalid','false']);
+});

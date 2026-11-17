@@ -166,7 +166,7 @@ function sanitizeAiEvidence(value) {
   catch { return sanitizeAiText(value); }
   const ids = new Map();
   const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const identityField = /^(?:id|(?:project|app_type|story|requirement|test_case|execution|run|result|snapshot_step|step|release|sprint|iteration|suite|entity|target|source_ref)_ids?)$/;
+  const identityField = /^(?:id|(?:project|app_type|story|requirement|test_case|execution|run|result|snapshot_step|step|release|sprint|iteration|suite|entity|target|source_ref|source|chunk|document|evidence)_ids?)$/;
   const mask = (item, field = '', depth = 0) => {
     if (depth > 30) return '[Depth limit]';
     if (typeof item === 'string' && identityField.test(field) && canonicalUuid.test(item)) {

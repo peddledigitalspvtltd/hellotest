@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {runAutomationBrowserAgent,compactBrowserObservations}=require('../../backend/lib/automationBrowserAgent');
-const {browserPromptContext}=require('../../backend/lib/automationBrowserContext');
+const {runAutomationBrowserAgent,compactBrowserObservations}=require("../../backend/lib/browser/automationBrowserAgent");
+const {browserPromptContext}=require("../../backend/lib/browser/automationBrowserContext");
 
 const receipt=(value,isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',...value})}]});
 const tools=['browser_navigate','browser_snapshot','browser_fill','browser_click','browser_assert'].map(name=>({name}));
@@ -85,7 +85,7 @@ test('a snapshot from the previous URL is explicitly stale when the new page cap
 });
 
 test('failed same-URL navigation invalidates old controls and earlier expected-result evidence',()=>{
- const {interactiveEvidenceFeedback}=require('../../backend/lib/automationInteractiveEvidence');
+ const {interactiveEvidenceFeedback}=require("../../backend/lib/browser/automationInteractiveEvidence");
  const observations=[{tool:'browser_snapshot',execution_step_id:'signup',result:receipt({url:'https://app.test/signup',elements:[{tag:'input',locator_candidates:['#email']}]})},{tool:'browser_assert',execution_step_id:'signup',result:receipt({assertion_outcome:'satisfied'})},{tool:'browser_navigate',execution_step_id:'signup',result:receipt({code:'BROWSER_NAVIGATION_FAILED',url:'https://app.test/signup',action_outcome:'not_attempted'},true)}];
  assert.equal(browserPromptContext(observations,'signup').current.snapshot_available,false);
  for(const expected_result of ['Signup visible','']){

@@ -4,10 +4,10 @@ const appTypeService = require("@hellotest/platform/backend/public/applicationAc
 const projectService = require("@hellotest/platform/backend/public/projectAccess");
 const requirementService = require("@hellotest/manual/backend/services/requirement.service");
 const requirementDesignService = require("@hellotest/manual/backend/services/requirementDesign.service");
-const aiTestCaseGenerationService = require("@hellotest/ai/backend/services/aiTestCaseGeneration.service");
-const aiCaseAuthoringService = require("@hellotest/ai/backend/services/aiCaseAuthoring.service");
-const aiAutomationBuilderService = require("@hellotest/automation/backend/services/aiAutomationBuilder.service");
-const automationGeneratorService = require("@hellotest/automation/backend/services/automationGenerator.service");
+const aiTestCaseGenerationService = require("@hellotest/ai/services/aiTestCaseGeneration");
+const aiCaseAuthoringService = require("@hellotest/ai/services/aiCaseAuthoring");
+const aiAutomationBuilderService = require("@hellotest/automation/build");
+const automationGeneratorService = require("@hellotest/automation/generator");
 const batchProcessService = require("../services/batchProcess.service");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const testCaseVersionService = require("../services/testCaseVersion.service");
@@ -890,7 +890,7 @@ module.exports = async function (fastify) {
     }
     await projectService.getProject(transaction.project_id, req.user.id);
     for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:transaction.project_id})(req);
-    return require("@hellotest/automation/backend/services/automationAgentActivity.service").activity(transaction,req.query);
+    return require("@hellotest/automation/activity").activity(transaction,req.query);
   });
 
   fastify.post("/test-cases/automation/jobs/:transactionId/cancel", async (req) => {
@@ -908,7 +908,7 @@ module.exports = async function (fastify) {
     const app=await appTypeService.getAppType(req.query.app_type_id);
     await projectService.getProject(app.project_id,req.user.id);
     for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:app.project_id})(req);
-    return require("@hellotest/automation/backend/services/automationAgentActivity.service").latest({projectId:app.project_id,appTypeId:app.id,caseId:req.query.test_case_id});
+    return require("@hellotest/automation/activity").latest({projectId:app.project_id,appTypeId:app.id,caseId:req.query.test_case_id});
   });
 
   fastify.get("/test-cases/automation/agent-activities",async(req)=>{
@@ -917,7 +917,7 @@ module.exports = async function (fastify) {
     const app=await appTypeService.getAppType(req.query.app_type_id);
     await projectService.getProject(app.project_id,req.user.id);
     for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:app.project_id})(req);
-    return require("@hellotest/automation/backend/services/automationAgentActivity.service").history({projectId:app.project_id,appTypeId:app.id,caseId:req.query.test_case_id},req.query);
+    return require("@hellotest/automation/activity").history({projectId:app.project_id,appTypeId:app.id,caseId:req.query.test_case_id},req.query);
   });
 
   fastify.get("/test-cases/automation/jobs/:transactionId/screenshots/:artifactId",async(req)=>{
@@ -926,7 +926,7 @@ module.exports = async function (fastify) {
     if(transaction.category!=="automation_build"||!transaction.project_id)throw Object.assign(new Error("Automation build not found"),{statusCode:404});
     await projectService.getProject(transaction.project_id,req.user.id);
     for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:transaction.project_id})(req);
-    return require("@hellotest/automation/backend/services/automationAgentActivity.service").screenshot(transaction,req.params.artifactId);
+    return require("@hellotest/automation/activity").screenshot(transaction,req.params.artifactId);
   });
 
   // Generated drafts and browser observations are content, not ordinary job metadata.
@@ -942,7 +942,7 @@ module.exports = async function (fastify) {
         await fastify.requirePermission(code, { projectId: transaction.project_id })(req);
       }
       if (reader === "buildData") await fastify.requirePermission("data.view", { projectId: transaction.project_id })(req);
-      return require("@hellotest/automation/backend/services/automationAgentActivity.service")[reader](transaction, req.params.artifactId);
+      return require("@hellotest/automation/activity")[reader](transaction, req.params.artifactId);
   };
   fastify.get("/test-cases/automation/jobs/:transactionId/previews/:artifactId", readAutomationActivityContent("preview"));
   fastify.get("/test-cases/automation/jobs/:transactionId/evidence/:artifactId", readAutomationActivityContent("evidence"));
@@ -953,7 +953,7 @@ module.exports = async function (fastify) {
     const transaction = await workspaceTransactionService.getTransaction(req.params.transactionId);
     if (transaction.category !== "automation_build" || !transaction.project_id) throw Object.assign(new Error("Automation build not found"), { statusCode: 404 });
     await projectService.getProject(transaction.project_id, req.user.id);
-    for (const code of require("@hellotest/automation/backend/services/automationRetainedSourcePreview.service").permissions) {
+    for (const code of require("@hellotest/automation/retained-source").permissions) {
       await fastify.requirePermission(code, { projectId: transaction.project_id })(req);
     }
     const body = req.body || {};
@@ -962,7 +962,7 @@ module.exports = async function (fastify) {
     const controller = new AbortController(), abort = () => controller.abort();
     req.raw?.once("aborted", abort);
     try {
-      return await require("@hellotest/automation/backend/services/automationRetainedSourcePreview.service").previewRetainedSource({ transactionId: transaction.id, input: body, user: req.user, signal: controller.signal });
+      return await require("@hellotest/automation/retained-source").previewRetainedSource({ transactionId: transaction.id, input: body, user: req.user, signal: controller.signal });
     } finally { req.raw?.removeListener("aborted", abort); }
   });
 
@@ -1174,7 +1174,7 @@ module.exports = async function (fastify) {
     await ensureTestCaseDataSetAccess(fastify,req,projectId,req.body?.test_data_set_id);
     if(req.body?.test_suite_id)await fastify.requirePermission("suite.view",{projectId})(req);
     reply.header('Cache-Control','no-store');
-    return require('@hellotest/automation/backend/services/automationBuildParameterPlan.service').load({
+    return require('@hellotest/automation/build-parameters').load({
       caseId:testCase.id,projectId,userId:req.user.id,
       test_environment_id:req.body?.test_environment_id,
       test_configuration_id:req.body?.test_configuration_id,

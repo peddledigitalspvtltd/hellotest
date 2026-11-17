@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { captureAutomationBrowserSnapshot, registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { AutomationObservedSubjects } from '../../dist/lib/automationObservedSubjects.js';
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const { inspectExecutablePlan } = require('../../../../services/automation/backend/services/automationReadiness.service.js');
 const layout = '<div></div>'.repeat(2500);
 const form = '<form id="employee-dialog" role="dialog" aria-label="Employee details" style="position:fixed;left:200px;top:100px;background:white;padding:20px"><label>First Name<input id="first-name" oninput="fetch(\'/input\',{method:\'POST\'})"></label><label>Last Name<input id="last-name" oninput="fetch(\'/input\',{method:\'POST\'})"></label></form>';

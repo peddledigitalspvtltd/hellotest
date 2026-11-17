@@ -3,7 +3,9 @@ const { defineRoute } = require("@hellotest/platform/backend/src/routes/routeDef
 module.exports = {
   id: "agentic",
   routes: [
+    defineRoute("agentic", "agentic", "agentActivity.routes.js"),
     defineRoute("agentic", "agentic", "agenticWorkflows.routes.js"),
+    defineRoute("agentic", "agentic", "workflowTriggers.routes.js"),
     defineRoute("agentic", "agentic", "workflowModelCalls.routes.js"),
     defineRoute("agentic", "agentic", "repositoryAgents.routes.js"),
     defineRoute("agentic", "agentic", "repositoryInspection.routes.js"),

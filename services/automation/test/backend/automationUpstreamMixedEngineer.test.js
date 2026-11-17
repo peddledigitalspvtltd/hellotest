@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const expressionProgram=source=>'// @hellotest-parameter-bindings expressions-v1\n'+source;
-const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const {validateGeneratedApiRequest}=require('../../../platform/backend/src/utils/testStepAutomation');
 const startUrl='https://application.test/';

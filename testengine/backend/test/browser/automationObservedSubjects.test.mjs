@@ -9,10 +9,10 @@ import { resolveRepositoryLocator } from '../../dist/lib/repositoryLocator.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { recordedLocatorSource, compileRecordedProgram } = require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const { createBrowserParameterResolver } = require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
-const { projectModelSnapshot, resolveModelToolRequest } = require('../../../../services/automation/backend/lib/automationBrowserModelTargets.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { recordedLocatorSource, compileRecordedProgram } = require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const { createBrowserParameterResolver } = require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
+const { projectModelSnapshot, resolveModelToolRequest } = require("../../../../services/automation/backend/lib/browser/automationBrowserModelTargets.js");
 const payload = result => JSON.parse(result.content.find(block => block.type === 'text').text);
 const privateValue = 'OWNED_SUBJECT_PRIVATE_VALUE';
 const record = (name = 'Record A', id = 'record-a') => `<!doctype html><title>Observed records</title><main>

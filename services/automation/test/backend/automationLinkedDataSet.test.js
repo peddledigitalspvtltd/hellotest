@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 function fixture({own=false,manual=true,dataAllowed=true,caseAllowed=true,foreign=false}={}){
- const reads=[],module={exports:{}},local=require('node:module').createRequire(require.resolve('../../backend/lib/automationBrowserParameters'));
+ const reads=[],module={exports:{}},local=require('node:module').createRequire(require.resolve("../../backend/lib/parameters/automationBrowserParameters"));
  const dataset=id=>({id,name:id,mode:'key_value',rows:[{key:'t.email',value:'{{yopmail:linked}}'},{key:'t.name',value:'Linked Reader'},{key:'t.secret_alias',value:'protected-dataset-value',is_secret:true}]});
- new Function('require','module',fs.readFileSync(require.resolve('../../backend/lib/automationBrowserParameters'),'utf8'))(id=>{
+ new Function('require','module',fs.readFileSync(require.resolve("../../backend/lib/parameters/automationBrowserParameters"),'utf8'))(id=>{
   if(id.endsWith('/db'))return {prepare:sql=>({
    all:async(...args)=>{
     if(sql.includes('FROM test_suites suite JOIN app_types app')){assert.deepEqual(args,['app','project',null,'automation']);return [];}

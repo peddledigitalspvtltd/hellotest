@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .ai-llm-select {
   display: grid;
   min-width: 0;
@@ -14,11 +16,11 @@
   min-height: 40px;
   padding: 8px 10px;
   color: inherit;
-  background: var(--surface-color, #faf9ff);
-  border: 1px solid var(--border-color, #c3c6d6);
+  background: var(--surface-color, var(--ui-surface));
+  border: 1px solid var(--border-color, var(--ui-border));
   border-radius: 5px;
   font: inherit;
 }
 
-.ai-llm-select > select:focus-visible { outline: 2px solid #075bd8; outline-offset: 2px; }
+.ai-llm-select > select:focus-visible { outline: 2px solid var(--ui-blue-border); outline-offset: 2px; }
 .ai-llm-select > select:disabled { cursor: not-allowed; opacity: .6; }

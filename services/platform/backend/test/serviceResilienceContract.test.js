@@ -153,6 +153,24 @@ test("circuit breaking fails fast and a bulkhead rejects excess work", async () 
   await first;
 });
 
+test("an open LLM circuit retains the upstream throttle status for an actionable public message", async () => {
+  const options = {
+    dependency: "llm-provider",
+    failureThreshold: 1,
+    maxAttempts: 1,
+    resetTimeoutMs: 60_000,
+    fetchImpl: async () => new Response('{"error":{"code":"insufficient_quota"}}', { status: 429 })
+  };
+  const first = await resilientHttpRequest("https://provider.test/chat/completions", {}, options);
+  assert.equal(first.status, 429);
+  await assert.rejects(resilientHttpRequest("https://provider.test/chat/completions", {}, options), error => {
+    assert.equal(error.code, SERVICE_ERROR_CODES.CIRCUIT_OPEN);
+    assert.equal(error.upstreamStatus, 429);
+    assert.match(error.publicMessage, /rate limits, usage and billing/);
+    return true;
+  });
+});
+
 test("the global error boundary publishes stable codes and never leaks 5xx details", async () => {
   const app = Fastify({ logger: false });
   await app.register(errorHandlerPlugin);

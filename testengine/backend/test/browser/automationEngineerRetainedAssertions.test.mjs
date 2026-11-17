@@ -6,12 +6,12 @@ import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { createRetainedAssertionContract } = require('../../../../services/automation/backend/lib/automationRetainedAssertions.js');
-const { compileRecordedProgram } = require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const { recordedSectionRequests } = require('../../../../services/automation/backend/lib/automationBrowserRecording.js');
-const { deriveProgramTools } = require('../../../../services/automation/backend/lib/automationProgramTools.js');
-const { preserveGeneratedAssertions } = require('../../../../services/automation/backend/lib/automationGeneratedProgram.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { createRetainedAssertionContract } = require("../../../../services/automation/backend/lib/browser/automationRetainedAssertions.js");
+const { compileRecordedProgram } = require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const { recordedSectionRequests } = require("../../../../services/automation/backend/lib/browser/automationBrowserRecording.js");
+const { deriveProgramTools } = require("../../../../services/automation/backend/lib/build/automationProgramTools.js");
+const { preserveGeneratedAssertions } = require("../../../../services/automation/backend/lib/build/automationGeneratedProgram.js");
 
 const stepId = 'retained-account-page';
 const formLocator = 'getByTestId("account-form-heading")';

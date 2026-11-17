@@ -11,10 +11,13 @@
     "./backend/plugin": "./backend/plugin.js",
     "./backend/server": "./backend/mcpServer.js",
     "./backend/auth": "./backend/auth.js",
+    "./backend/oauth": "./backend/oauth.js",
     "./backend/gateway": "./backend/gateway.js",
-    "./backend/contextGraph": "./backend/contextGraph.js",
+    "./backend/contextTraceTools": "./backend/contextTraceTools.js",
+    "./backend/knowledgeGraphTools": "./backend/knowledgeGraphTools.js",
     "./backend/registry": "./backend/registry.js",
-    "./backend/schema": "./backend/mcpSchema.js"
+    "./backend/schema": "./backend/mcpSchema.js",
+    "./backend/remote": "./backend/remote.js"
   },
   "scripts": {
     "test": "node --test test/backend/*.test.js"

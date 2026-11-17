@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {recordedSectionRequests}=require('../../backend/lib/automationBrowserRecording');
-const {browserObservationDeadline,progressEvent}=require('../../backend/lib/automationProgressDiagnostics');
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {recordedSectionRequests}=require("../../backend/lib/browser/automationBrowserRecording");
+const {browserObservationDeadline,progressEvent}=require("../../backend/lib/build/automationProgressDiagnostics");
 const receipt=(value,isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',...value})}]});
 
 test('a completed click followed by a native snapshot deadline retains its phase and stops before screenshot,404or replay',async()=>{

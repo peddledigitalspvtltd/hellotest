@@ -1,0 +1,44 @@
+{
+  "name": "@hellotest/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Versioned portable contracts and runtime policies with no service dependencies",
+  "files": [
+    "agents",
+    "runtime",
+    "engine",
+    "workflow",
+    "package.json",
+    "evidence"
+  ],
+  "exports": {
+    "./agents": {
+      "types": "./agents/index.d.ts",
+      "default": "./agents/index.js"
+    },
+    "./agents/*": "./agents/*.js",
+    "./runtime/retry": "./runtime/generationRetry.js",
+    "./runtime/lease": "./runtime/queueLease.js",
+    "./engine": {
+      "types": "./engine/index.d.ts",
+      "default": "./engine/index.js"
+    },
+    "./workflow": {
+      "types": "./workflow/index.d.ts",
+      "default": "./workflow/index.js"
+    },
+    "./agents/workflowSpecialists.json": "./agents/workflowSpecialists.json",
+    "./agents/contextPolicies.json": "./agents/contextPolicies.json",
+    "./evidence": {
+      "types": "./evidence/index.d.ts",
+      "default": "./evidence/index.js"
+    },
+    "./agents/evidenceScopeFields.json": "./agents/evidenceScopeFields.json"
+  },
+  "hellotest": {
+    "id": "contracts",
+    "kind": "infrastructure",
+    "requires": [],
+    "features": []
+  }
+}

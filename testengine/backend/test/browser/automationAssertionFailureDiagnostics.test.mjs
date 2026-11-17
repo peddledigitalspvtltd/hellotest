@@ -6,7 +6,7 @@ import {chromium} from 'playwright';
 import {captureAutomationUrlAssertionDiagnostics,registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const receipt=result=>JSON.parse(result.content.find(block=>block.type==='text').text);
 const expectedKeys=['authentication_form_visible','document_busy','document_state','same_origin','visible_alert_count'];
 const clean={same_origin:true,document_state:'complete',authentication_form_visible:true,document_busy:false,visible_alert_count:1};

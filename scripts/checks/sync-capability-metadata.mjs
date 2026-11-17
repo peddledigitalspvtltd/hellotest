@@ -22,7 +22,15 @@ for(const name of ordered) {
 // Keep feature ordering stable for compatibility artifacts and readable changes.
 next.feature_owners=Object.fromEntries(Object.keys(next.feature_owners).sort().map(key=>[key,next.feature_owners[key]]));
 const output=JSON.stringify(next,null,2)+'\n';
+const catalogFile=resolve(root,'services/catalog.json');
+const catalog=JSON.parse(readFileSync(catalogFile,'utf8'));
+for(const service of catalog.services.filter(service=>service.profile)) {
+ if(!next.dependencies[service.profile])throw new Error(`Unknown catalog capability: ${service.profile}`);
+ service.requires=next.dependencies[service.profile];
+}
+const catalogOutput=JSON.stringify(catalog,null,2)+'\n';
 if(process.argv.includes('--check')) {
  if(readFileSync(file,'utf8')!==output)throw new Error('Capability metadata is stale. Run npm run generate:capabilities.');
+ if(readFileSync(catalogFile,'utf8')!==catalogOutput)throw new Error('Capability catalog dependencies are stale. Run npm run generate:capabilities.');
  console.log('Capability deployment/feature metadata matches package declarations.');
-} else {writeFileSync(file,output);console.log('Updated generated capability metadata.');}
+} else {writeFileSync(file,output);writeFileSync(catalogFile,catalogOutput);console.log('Updated generated capability metadata and catalog dependencies.');}

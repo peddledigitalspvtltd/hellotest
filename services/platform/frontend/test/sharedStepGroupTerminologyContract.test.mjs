@@ -1,3 +1,4 @@
+import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -11,7 +12,7 @@ test("Shared Step Group product copy is canonical across primary UI surfaces", a
     readSource("../src/platform/lib/localization.ts"),
     readSource("../../../testing/frontend/pages/SharedStepsPage.tsx"),
     readSource("../../../testing/frontend/pages/TestCasesPage.tsx"),
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
     readSource("../../../testing/frontend/pages/DesignPage.tsx"),
     readSource("../../../testing/frontend/pages/ExecutionsPage.tsx"),
     readSource("../pages/SettingsPage.tsx")

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconCheck, IconCircle, IconSparkles } from "@tabler/icons-react";
-import type { AgenticProcessingSnapshot } from "@hellotest/agentic/frontend/components/AgenticExperience";
+import type { AgenticProcessingSnapshot } from "@hellotest/ai/agent-experience";
 import "./AiGenerationProgress.css";
 
 export function AiGenerationProgress({ modelLabel = "Configured model", onCancel, processing }: { modelLabel?: string; onCancel?: () => void; processing?: AgenticProcessingSnapshot }) {

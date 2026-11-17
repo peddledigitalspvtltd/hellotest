@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
@@ -28,8 +29,8 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     api.testCases.buildAutomationBatch=async input=>{window.calls.push({kind:'build',id:input.test_case_ids[0],input});return {transaction_id:'build-job'};};
     api.testCases.startRecorderSession=async(id,input)=>{window.calls.push({kind:'record-start',id,input});return {id:'record-session',status:'running',recorder_mode:input.recorder_mode,actions:[{index:1,type:'fill',text:'Customer name',value:'Alice',url:'https://checkout.test/'+('long-path/').repeat(12),locator:'[data-testid="'+('customer-account-').repeat(10)+'"]'},{index:2,type:'fill',text:'Password',value:'fixture-only-password',locator:'input[type="password"]'},{index:3,type:'fill',text:'Region',locator:'#region',value:'West'}],network:[{index:1,method:'POST',status:200,url:'https://checkout.test/api/'+('checkout/').repeat(12)+'?access_token=recorder-query-private',content_type:'application/json; charset=utf-8'}]};};
     api.testCases.finishRecorderSession=async(id,sessionId,input)=>{window.calls.push({kind:'record-finish',id,sessionId,input});if(window.failRecording)throw new Error('Recording save temporarily unavailable');return {test_case_id:id,generated_step_count:0,learned_locator_count:0,idempotent_replay:true};};
-    api.executions.createLocalRun=async input=>{window.calls.push({kind:'local',input});if(window.failRun)throw new Error('Local Test Engine unavailable');return {id:'local-run'};};
-    api.executions.create=async input=>{window.calls.push({kind:'remote',input});return {id:'remote-run'};};
+    api.executions.createLocalRun=async input=>{window.calls.push({kind:'local',input});if(window.failRun)throw new Error('Local Test Engine unavailable');return {id:'local-run',started:true,automated_case_count:1,local_run_count:1,execution_mode:'local'};};
+    api.executions.create=async input=>{window.calls.push({kind:'remote',input});return {id:'remote-run',started:true,automated_case_count:1,queued_for_engine_count:1,execution_mode:'remote'};};
     api.executions.start=async()=>{throw new Error('Duplicate start must never be called');};api.executions.get=async id=>({id,project_id:'p',app_type_id:'a',status:'running'});
     const client=new QueryClient`);
   const name = 'automation-studio-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
@@ -41,7 +42,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     page = await browser.newPage({viewport:{width:1440,height:1000}});
     page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(15000);
     const errors = [];page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', route => { errors.push('Unexpected API: ' + route.request().url());return route.abort(); });
+    await page.route('**/api/**', async route => {if (await fulfillAutomationFixtureRequest(page, route)) return; errors.push('Unexpected API: ' + route.request().url());return route.abort(); });
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
     await page.getByRole('tab',{name:/^Plan/}).click();
     await expect(page.getByRole('tab',{name:/^Plan/})).toHaveAttribute('aria-selected','true');
@@ -228,6 +229,21 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await page.setViewportSize({width:390,height:844});
     assert.ok(await create.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'creation modal fits phone');
     await create.screenshot({path:screenshotRoot+'/studio-create-mobile.png'});
+    await page.setViewportSize({width:1440,height:1000});
+    await create.getByLabel('Automation case type',{exact:true}).selectOption('api');
+    const intake=create.getByRole('region',{name:'API source intake',exact:true});
+    await intake.getByLabel('API source',{exact:true}).fill('curl https://api.test/items\ncurl -X POST https://api.test/items -H "Content-Type: application/json" --data-raw \'{"name":"Example"}\'');
+    await intake.getByRole('button',{name:'Review requests',exact:true}).click();
+    await intake.locator('select').last().selectOption('replace');
+    await intake.getByRole('button',{name:'Use 2 API request steps',exact:true}).click();
+    await expect(create.getByRole('button',{name:'Create API case',exact:true})).toBeEnabled();
+    await expect(create.getByLabel('Draft step 1 action',{exact:true})).toHaveValue(/GET/);
+    await expect(create.getByLabel('Draft step 2 action',{exact:true})).toHaveValue(/POST/);
+    await expect(create.getByLabel('Build instructions (optional)',{exact:true})).toHaveCount(0);
+    await create.screenshot({path:screenshotRoot+'/studio-api-intake-desktop.png'});
+    await page.setViewportSize({width:390,height:844});
+    assert.ok(await create.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'API source journey review fits a phone');
+    await create.screenshot({path:screenshotRoot+'/studio-api-intake-mobile.png'});
     await page.keyboard.press('Escape');await expect(create).toBeHidden();
     assert.deepEqual(errors,[]);
   } catch(error) { throw new Error(`${error.message}\n${await page?.locator('body').innerText().catch(()=> '')}`,{cause:error}); }

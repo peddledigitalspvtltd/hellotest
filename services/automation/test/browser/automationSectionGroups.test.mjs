@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm } from 'node:fs/promises';
@@ -23,7 +24,7 @@ test('automation section groups review selection, shared/local conversion and un
     await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
     browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
     const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',error=>errors.push(error.message));
-    await page.route('**/api/**',route=>{errors.push('Unexpected API');return route.abort();});page.setDefaultTimeout(10000);
+    await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API');return route.abort();});page.setDefaultTimeout(10000);
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);await page.getByRole('tab',{name:/^Plan/}).click();
     await page.getByRole('checkbox',{name:'Select step 1',exact:true}).check();await page.getByRole('checkbox',{name:'Select step 3',exact:true}).check();
     await page.getByRole('button',{name:'Group Selected Sections',exact:true}).click();let dialog=page.getByRole('dialog',{name:'Group Selected Sections',exact:true});

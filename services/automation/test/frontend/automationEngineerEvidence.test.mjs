@@ -9,7 +9,7 @@ const localRequire=createRequire(import.meta.url);
 const platformRequire=createRequire(new URL('../../../platform/frontend/package.json',import.meta.url));
 const {createElement}=platformRequire('react');
 const {renderToStaticMarkup}=platformRequire('react-dom/server');
-const {browserEvidence}=localRequire('../../backend/lib/automationWorkspacePreview');
+const {browserEvidence}=localRequire("../../backend/lib/build/automationWorkspacePreview");
 const component=readFileSync(new URL('../../frontend/components/AutomationEngineerWorkspace.tsx',import.meta.url),'utf8');
 const compiled=ts.transpileModule(component,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 
@@ -88,9 +88,9 @@ test('a stopped workspace retains saved sections and page evidence without showi
 });
 
 test('linked manual rows select their native section preview and observation after a durable saved event',()=>{
-  const {groundedManualCoverage}=localRequire('../../backend/lib/automationBuildCompletion');
-  const {reduceActivityProgress}=localRequire('../../backend/lib/automationActivityProgress');
-  const {sectionPreview}=localRequire('../../backend/lib/automationWorkspacePreview');
+  const {groundedManualCoverage}=localRequire("../../backend/lib/build/automationBuildCompletion");
+  const {reduceActivityProgress}=localRequire("../../backend/lib/build/automationActivityProgress");
+  const {sectionPreview}=localRequire("../../backend/lib/build/automationWorkspacePreview");
   const section={id:'auto-login',step_order:1,step_type:'web',action:'Open Login',expected_result:'Login is visible'};
   const manual={...section,id:'manual-login'};
   const lineage=groundedManualCoverage([section],[{id:'manual-case',steps:[manual]}]);

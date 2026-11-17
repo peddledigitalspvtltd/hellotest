@@ -44,6 +44,7 @@ const createApp = ({
     "./runtime/serviceProfile": { routeEnabled: () => platform },
     "@fastify/cors": noopPlugin,
     "@fastify/multipart": noopPlugin,
+    "@hellotest/mcp/backend/plugin": noopPlugin,
     "./routes": noopPlugin
   };
   const appModule = { exports: {} };

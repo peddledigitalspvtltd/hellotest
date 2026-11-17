@@ -1,0 +1,63 @@
+# Optional local development runtime. Compose this after the local-run base and
+# docker-compose.agentic-durable.yml; production keeps its external Temporal.
+services:
+  temporal-dev:
+    image: temporalio/temporal:1.10.1@sha256:b228dadf9cdb6c7c02a1394b89dd76f827aac9760e458fce42f0899a10141225
+    profiles: [local-durable]
+    init: true
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --ui-ip
+      - 0.0.0.0
+      - --port
+      - "7233"
+      - --ui-port
+      - "8233"
+      - --namespace
+      - ${TEMPORAL_NAMESPACE:-default}
+      - --db-filename
+      - /home/temporal/hellotest-development.db
+    ports:
+      - "127.0.0.1:${HELLOTEST_LOCAL_TEMPORAL_PORT:-7233}:7233"
+      - "127.0.0.1:${HELLOTEST_LOCAL_TEMPORAL_UI_PORT:-8233}:8233"
+    volumes:
+      - hellotest-local-temporal-data:/home/temporal
+    healthcheck:
+      test: [CMD, temporal, operator, cluster, health, --address, "127.0.0.1:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+  api:
+    environment:
+      TEMPORAL_ADDRESS: temporal-dev:7233
+      TEMPORAL_TLS: "false"
+      TEMPORAL_API_KEY: ""
+  agentic-durable:
+    profiles: [local-durable]
+    build:
+      context: ..
+    environment:
+      # Match the existing local API runtime while preserving its encryption key.
+      # The production worker image/overlay retains NODE_ENV=production.
+      NODE_ENV: development
+      APP_MODE: local
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
+      HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
+      HELLOTEST_LOCAL_RUN_ENGINE_URL: ${HELLOTEST_LOCAL_RUN_ENGINE_URL:-http://host.docker.internal:4313}
+      HELLOTEST_LOCAL_CALLBACK_BASE_URL: ${HELLOTEST_LOCAL_CALLBACK_BASE_URL:-${HELLOTEST_PUBLIC_API_BASE_URL:-http://localhost:8080}}
+      TEMPORAL_ADDRESS: temporal-dev:7233
+      TEMPORAL_TLS: "false"
+      TEMPORAL_API_KEY: ""
+    depends_on:
+      temporal-dev:
+        condition: service_healthy
+volumes:
+  hellotest-local-temporal-data:

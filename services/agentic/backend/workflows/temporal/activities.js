@@ -1,25 +1,14 @@
-const { createHash } = require('node:crypto');
 const { Context } = require('@temporalio/activity');
 const { ApplicationFailure } = require('@temporalio/common');
 const db = require('@hellotest/platform/backend/src/db');
 const execution = require('@hellotest/knowledge/backend/services/knowledgeExecution.service');
 const events = require('../runtimeEvents');
 const runtime = () => require('../../services/agenticWorkflowExecution.service')._internals;
-const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const invalid = message => ApplicationFailure.nonRetryable(message, 'AGENT_RECEIPT_INVALID');
 function checkIdentity(runId) {
   if (Context.current().info.workflowExecution.workflowId !== require('./control').workflowId(runId)) throw invalid('Workflow identity does not match its run.');
 }
-function summary(result, digest) {
-  return { node_id: result.node_id, kind: result.node_type, status: result.status, result_hash: digest,
-    matched: result.node_type === 'condition' ? result.output?.matched : undefined,
-    ...(result.output?.routes ? { routes: Object.fromEntries(Object.entries(result.output.routes).map(([key, items]) => [key, items.length > 0])) } : {}),
-    ...(result.output?.loop_mode === 'workflow' ? { loop_mode: 'workflow' } : {}),
-    ...(result.node_type === 'dataOperation' ? { output: { item_count: result.output?.item_count } } : {}),
-    fatal: Boolean(result.fatal), error_code: result.error_details?.code,
-    needs_review: result.output?.readiness?.status === 'insufficient_evidence',
-    needs_attention: result.output?.verification?.status === 'needs_input' };
-}
+const {summary,digest}=require('../nodeReceipts');
 async function restore(runId, receipts) {
   checkIdentity(runId);
   const run = await runtime().store.get(runId);
@@ -52,9 +41,6 @@ async function restore(runId, receipts) {
     batches: sum.batches + (item.output?.execution_usage?.batches || 0), node_executions: sum.node_executions + (item.output?.execution_usage?.node_executions || 0) }), { batches: 0, node_executions: 0 });
   return run;
 }
-const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
-  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-const digest = value => hash(canonical(value));
 async function record(run, result, requestHash) {
   const encoded = JSON.parse(JSON.stringify(result));
   const resultHash = digest(encoded);
@@ -80,7 +66,7 @@ async function executeReviewNode({ runId, nodeId, shouldRun, receipts }) {
   const run = await restore(runId, receipts);
   const node = run.workflow_snapshot.nodes.find(item => item.id === nodeId);
   const bodies = require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph').loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges);
-  const version2 = run.workflow_snapshot.runtime_contract.scheduler_version === 2;
+  const version2 = run.workflow_snapshot.runtime_contract.scheduler_version >= 2;
   if (!node || (!version2 && run.workflow_snapshot.execution_order[receipts.length] !== nodeId)
     || (version2 && (Object.values(bodies).some(ids => ids.includes(nodeId)) || receipts.some(item => item.node_id === nodeId)
       || require('../workflowScheduling').orderedEdges(run.workflow_snapshot.edges, nodeId).some(edge => !require('../workflowScheduling').terminal(run.node_results.find(item => item.node_id === edge.source)))))) throw invalid('Node dependencies do not match the saved workflow.');

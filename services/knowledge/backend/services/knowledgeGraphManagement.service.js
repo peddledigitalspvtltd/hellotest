@@ -9,9 +9,9 @@ const projectAccess = require('@hellotest/platform/backend/public/projectAccess'
 const authorization = require('./knowledgeAuthorization.service');
 const execution = require('./knowledgeExecution.service');
 const { PERMISSIONS } = require('./knowledgeGraphContracts');
+const { CURATABLE_RELATION_TYPES: RELATIONS } = require('./knowledgeOntology');
 const { fingerprint, sanitizeAiText } = require('@hellotest/platform/backend/src/security/aiTextPolicy');
 
-const RELATIONS = Object.freeze(['TESTS', 'EXECUTED_IN', 'HAS_DEFECT', 'RELATED_TO', 'DEPENDS_ON', 'DERIVED_FROM', 'USES', 'PART_OF']);
 const fail = (message, statusCode = 400, code = 'KNOWLEDGE_GRAPH_INVALID') => Object.assign(new Error(message), { statusCode, code, publicMessage: message });
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 function strict(input, keys) {

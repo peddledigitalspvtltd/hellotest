@@ -1,4 +1,6 @@
-import agentContextPolicies from "@hellotest/platform/shared/agentContextPolicies.json";
+import { AgentActivityDisclosure } from "@hellotest/ai/agent-activity";
+import { useRepositoryReview } from "./useRepositoryReview";
+import agentContextPolicies from "@hellotest/contracts/agents/contextPolicies.json";
 import { AgentContextSources } from "../components/AgentContextSources";
 import { AgentEvidenceScope } from '../components/AgentEvidenceScope';
 import { AiLlmSelect } from '@hellotest/ai/frontend/components/AiLlmSelect';
@@ -91,13 +93,16 @@ function RunBadge({ status }: { status: string }) {
 }
 
 export function RepositoryAgentCatalog({ onOpen }: { onOpen: (agent: RepositoryAgentType) => void }) {
+  const runtime = useQuery({ queryKey: ["repository-agent-catalog"], queryFn: ({ signal }) => agenticApi.repositoryAgents.catalog({ signal }), staleTime: 60000, retry: 1 });
+  const available = runtime.data?.runtime?.available !== false && runtime.data?.capabilities?.repository_analysis !== false;
   return <section className="repository-agent-catalog" aria-labelledby="repository-agent-catalog-title">
     <div className="repository-agent-section-heading">
       <div><span className="repository-agent-eyebrow">Build from your repository</span><h2 id="repository-agent-catalog-title">Source in. Reviewable assets out.</h2></div>
       <p>Four focused agents turn repository evidence into usable quality assets. Choose an outcome to get started.</p>
     </div>
     <div className="repository-agent-cards">
-      {REPOSITORY_AGENTS.map((agent) => <article className={`repository-agent-card accent-${agent.accent}`} key={agent.id}>
+      {!available ? <p role="status">{runtime.data?.runtime.detail || "Repository analysis is unavailable. Install the Python analysis runtime to enable these builders."}</p> : null}
+      {(available ? REPOSITORY_AGENTS : []).map((agent) => <article className={`repository-agent-card accent-${agent.accent}`} key={agent.id}>
         <header><span className="repository-agent-symbol">{agent.icon}</span><span className="repository-agent-output-label">{agent.outputLabel}</span></header>
         <div><h3>{agent.name}</h3><p>{agent.description}</p></div>
         <footer><span><IconFileCode size={14} aria-hidden="true" /> ZIP or GitHub</span><button className="ghost-button compact" type="button" onClick={() => onOpen(agent.id)} aria-label={`Open ${agent.name}`}>Open agent <IconArrowRight size={15} aria-hidden="true" /></button></footer>
@@ -177,26 +182,27 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   const agent = REPOSITORY_AGENTS.find((item) => item.id === agentType)!;
   const canView = enabled && hasPermission(session, "agentic_workflow.view", projectId);
   const canRun = enabled && hasPermission(session, "agentic_workflow.run", projectId);
-  const [sourceType, setSourceType] = useState<"zip" | "github">("zip");
-  const [file, setFile] = useState<File | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [repositoryUrl, setRepositoryUrl] = useState("");
-  const [ref, setRef] = useState("");
-  const [integrationId, setIntegrationId] = useState("");
-  const [message, setMessage] = useState("");
-  const [messageTone, setMessageTone] = useState<"success" | "error">("error");
-  const [messageArea, setMessageArea] = useState<"source" | "review">("source");
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyPage, setHistoryPage] = useState(1);
-  const [group, setGroup] = useState<FindingGroup>(DEFAULT_GROUPS[agentType]);
-  const [search, setSearch] = useState("");
-  const [publicationFilter, setPublicationFilter] = useState<PublicationFilter>("all");
-  const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [moduleId, setModuleId] = useState("");
-  const [automationStartUrl, setAutomationStartUrl] = useState("");
-  const [downloading, setDownloading] = useState("");
-  const [publishReceipt, setPublishReceipt] = useState<RepositoryAgentPublishResult | null>(null);
+  const { sourceType, setSourceType, file, setFile, dragActive, setDragActive, repositoryUrl, setRepositoryUrl, ref, setRef, integrationId, setIntegrationId, message, setMessage, messageTone, setMessageTone, messageArea, setMessageArea, historyOpen, setHistoryOpen, historyPage, setHistoryPage, group, setGroup, search, setSearch, publicationFilter, setPublicationFilter, page, setPage, selected, setSelected, moduleId, setModuleId, automationStartUrl, setAutomationStartUrl, downloading, setDownloading, publishReceipt, setPublishReceipt, dispatch: dispatchReview } = useRepositoryReview(DEFAULT_GROUPS[agentType]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  useEffect(() => { dispatchReview({ type: "scope.changed", group: DEFAULT_GROUPS[agentType] }); }, [projectId, appTypeId, agentType, session?.user.id]);
   const mounted = useRef(true);
   const mutationController = useRef(new AbortController());
   const launchKey = useRef({ signature: "", id: "" });
@@ -270,9 +276,9 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   ] as const).filter(([key]) => typeof summary[key] === "number");
   const maxBytes = catalog.data?.limits.max_archive_bytes || 1024 * 1024 * 1024;
   const requiresApplication = agentType !== "repository_knowledge";
-  const canStart = canRun && Boolean(projectId) && (!requiresApplication || Boolean(appTypeId)) && catalog.data?.runtime.available === true;
+  const canStart = canRun && Boolean(projectId) && (!requiresApplication || Boolean(appTypeId)) && catalog.data?.runtime?.available === true && catalog.data?.capabilities?.repository_analysis !== false;
 
-  useEffect(() => { setSelected(new Set()); setSearch(""); setPublicationFilter("all"); setPage(1); setModuleId(""); setAutomationStartUrl(""); }, [runId, effectiveGroup]);
+  useEffect(() => { dispatchReview({ type: "run.changed" }); }, [runId, effectiveGroup]);
 
   const reportError = (error: unknown, area: "source" | "review" = "source") => {
     if (!mounted.current || mutationController.current.signal.aborted) return;
@@ -369,7 +375,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
         </section></div> : null}
     <div className="repository-agent-workspace-grid">
       {!runId ? <aside className="repository-agent-source-column" aria-label="Repository source">
-        <form className="repository-agent-source-card" onSubmit={submit}>
+        {catalog.data?.runtime?.available === false || catalog.data?.capabilities?.repository_analysis === false ? <section className="repository-agent-source-card"><h3>Repository analysis unavailable</h3><p role="status">{catalog.data.runtime.detail || "The Python analysis runtime is unavailable."}</p><button type="button" className="ghost-button compact" onClick={() => void catalog.refetch()}>Check availability</button></section> : <form className="repository-agent-source-card" onSubmit={submit}>
           <header><span className="repository-agent-symbol">{agent.icon}</span><div><span className="repository-agent-eyebrow">01 · Source</span><h2>Choose your repository</h2></div></header>
           <p>{agent.description}</p>
           <label>Review focus<textarea maxLength={2000} rows={3} disabled={start.isPending} value={reviewFocus} onChange={event => setReviewFocus(event.target.value)} placeholder="Describe the outcome or boundaries to prioritize" /></label>
@@ -402,12 +408,12 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
             {githubProfiles.isError ? <small className="repository-agent-error">Connections could not be loaded. <button className="text-button" type="button" onClick={() => void githubProfiles.refetch()}>Try again</button></small> : <small>Private repositories require a saved connection with access to this repository.</small>}
           </div>}
           <div className="repository-agent-scope"><IconDatabase size={15} aria-hidden="true" /><div><span>Publish destination</span><strong>{scopeLabel || "Select a project"}</strong></div></div>
-          {catalog.isError ? <div className="repository-agent-inline-note is-error">Agent availability could not be checked. <button className="text-button" type="button" onClick={() => void catalog.refetch()}>Check again</button></div> : catalog.data?.runtime.available === false ? <p className="repository-agent-inline-note is-error">{catalog.data.runtime.detail || "The repository analysis runtime is unavailable."}</p> : null}
+          {catalog.isError ? <div className="repository-agent-inline-note is-error">Agent availability could not be checked. <button className="text-button" type="button" onClick={() => void catalog.refetch()}>Check again</button></div> : null}
           {requiresApplication && !appTypeId ? <p className="repository-agent-inline-note">Select an application to generate assets for this agent.</p> : null}
           {!canRun ? <p className="repository-agent-inline-note">Your role can review runs. Starting an analysis requires permission to run agents.</p> : null}
           <button type="submit" className="primary-button repository-agent-start" disabled={!canStart || busy || (sourceType === "zip" ? !file : !repositoryUrl.trim())}>{start.isPending ? <><LoadingState label="Preparing analysis" /> Preparing analysis…</> : <><IconArrowRight size={17} aria-hidden="true" /> Analyze repository</>}</button>
           <small className="repository-agent-source-note">{agent.outcome}</small>
-        </form>
+        </form>}
 
       </aside> : null}
       <section className="repository-agent-output" aria-label="Repository agent analysis">
@@ -460,5 +466,6 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
         </>}
       </section>
     </div>
+    <AgentActivityDisclosure projectId={projectId} appTypeId={appTypeId} system="repository" initialSourceRunId={runId} renderDetail={activity => <button type="button" className="ghost-button compact" onClick={() => { const type = activity.agent_id.replace(/^repository[.:]/, ''); onOpen(isRepositoryAgentType(type) ? type : agentType, activity.source_run_id); }}>Open repository run</button>} />
   </div>;
 }

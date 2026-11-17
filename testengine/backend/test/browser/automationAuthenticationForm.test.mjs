@@ -6,7 +6,7 @@ import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../dist/lib/testEngineSecurity.js';
 
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const read=result=>JSON.parse(result.content.find(part=>part.type==='text').text);
 const login=`<!doctype html><title>Account sign in</title><main><h1>Sign in</h1><form method="post" action="/session">
   <label>Username<input name="username" autocomplete="username"></label>

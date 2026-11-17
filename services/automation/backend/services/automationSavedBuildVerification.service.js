@@ -2,8 +2,8 @@ const {
   prepareVerificationSections,
   runVerificationPipeline,
   fingerprint
-} = require('../lib/automationVerificationPipeline');
-const { isCriticalAutomationError, reportDiagnosticFailure } = require('../lib/automationProgressDiagnostics');
+} = require("../lib/verification/automationVerificationPipeline");
+const { isCriticalAutomationError, reportDiagnosticFailure } = require("../lib/build/automationProgressDiagnostics");
 const { storedAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 
 const caseFields = Object.freeze([

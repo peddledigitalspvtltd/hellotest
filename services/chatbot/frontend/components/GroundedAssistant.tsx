@@ -54,8 +54,9 @@ import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
 import { KnowledgeContextProvenance } from "./KnowledgeContextProvenance";
 import { KnowledgeSourceDetail } from "@hellotest/knowledge/frontend/components/KnowledgeSourceDetail";
 import { knowledgeAnswerGrounding, knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
-import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
+import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeAnswerDelta, type KnowledgeAnswerSources, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
 import { KnowledgeTurnProgress } from "./KnowledgeTurnProgress";
+import { KnowledgeActiveAnswer, type KnowledgeActiveAnswerDelivery } from "./KnowledgeActiveAnswer";
 import { assistantConversationMarkdown, assistantMessageMarkdown, findAssistantConversations } from "../lib/assistantExperience";
 import "./GroundedAssistant.css";
 
@@ -174,6 +175,7 @@ export function GroundedAssistant() {
   const [retryTurns, setRetryTurns] = useState<Record<string, AssistantRetryTurn>>({});
   const [turnNotices, setTurnNotices] = useState<Record<string, KnowledgeTurnNotice>>({});
   const [progressEvents, setProgressEvents] = useState<KnowledgeRetrievalEvent[]>([]);
+  const [answerDelivery, setAnswerDelivery] = useState<KnowledgeActiveAnswerDelivery | null>(null);
   const [requestStartedAt, setRequestStartedAt] = useState<number | null>(null);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [sessionError, setSessionError] = useState("");
@@ -198,6 +200,32 @@ export function GroundedAssistant() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const scopeGenerationRef = useRef(0);
+  const deliveryFrameRef = useRef<number | null>(null);
+  const pendingProgressRef = useRef<KnowledgeRetrievalEvent[]>([]);
+  const pendingAnswerDeliveryRef = useRef<KnowledgeActiveAnswerDelivery | null>(null);
+  const flushAssistantFrame = () => {
+    deliveryFrameRef.current = null;
+    const events = pendingProgressRef.current.splice(0);
+    if (events.length) setProgressEvents(current => events.reduce(appendKnowledgeProgressEvent, current));
+    const delivery = pendingAnswerDeliveryRef.current;
+    if (delivery) setAnswerDelivery({ ...delivery, citations: [...delivery.citations] });
+  };
+  const scheduleAssistantFrame = () => {
+    if (deliveryFrameRef.current === null) deliveryFrameRef.current = requestAnimationFrame(flushAssistantFrame);
+  };
+  const queueProgressEvent = (event: KnowledgeRetrievalEvent) => {
+    pendingProgressRef.current.push(event);
+    scheduleAssistantFrame();
+  };
+  const clearAnswerDelivery = () => {
+    pendingAnswerDeliveryRef.current = null;
+    setAnswerDelivery(null);
+  };
+  useEffect(() => () => {
+    if (deliveryFrameRef.current !== null) cancelAnimationFrame(deliveryFrameRef.current);
+    pendingProgressRef.current = [];
+    pendingAnswerDeliveryRef.current = null;
+  }, []);
   const dialogRef = useDialogFocus<HTMLElement>({ active: isOpen, onClose: () => {
     if (contextControlRef.current?.open) {
       contextControlRef.current.open = false;
@@ -259,7 +287,7 @@ export function GroundedAssistant() {
       }, { signal })
   });
   const sendMessageMutation = useMutation({
-    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void }) =>
+    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress, onAnswerDelta, onAnswerSources }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void; onAnswerDelta: (delta: KnowledgeAnswerDelta) => void; onAnswerSources: (sources: KnowledgeAnswerSources) => void }) =>
       chatbotApi.assistant.streamMessage(id, {
         message,
         client_turn_id: clientTurnId,
@@ -268,7 +296,7 @@ export function GroundedAssistant() {
         filters,
         response_mode: responseMode,
         smart_context: smartContext
-      }, { signal, onProgress })
+      }, { signal, onProgress, onAnswerDelta, onAnswerSources })
   });
   const downloadCitationMutation = useMutation({
     mutationFn: async (citation: KnowledgeCitation) => ({
@@ -311,6 +339,9 @@ export function GroundedAssistant() {
     setKnowledgeAsOf("");
     setActiveRequestIntegrationId("");
     setProgressEvents([]);
+    pendingProgressRef.current = [];
+    pendingAnswerDeliveryRef.current = null;
+    setAnswerDelivery(null);
     setSessionError("");
     setSelectedCitation(null);
     setIsRestoringSession(false);
@@ -465,6 +496,9 @@ export function GroundedAssistant() {
     setActiveRequestIntegrationId(requestIntegrationId);
     setRequestStartedAt(Date.now());
     setProgressEvents([]);
+    pendingProgressRef.current = [];
+    pendingAnswerDeliveryRef.current = null;
+    setAnswerDelivery(null);
     followConversationRef.current = true;
     setShowLatest(false);
     const isStale = () => controller.signal.aborted || requestGeneration !== scopeGenerationRef.current;
@@ -528,22 +562,38 @@ export function GroundedAssistant() {
         signal: controller.signal,
         onProgress: (progress) => {
           if (isStale()) return;
-          setProgressEvents((current) => appendKnowledgeProgressEvent(current, progress));
+          queueProgressEvent(progress);
+        },
+        onAnswerSources: (sources) => {
+          if (isStale()) return;
+          pendingAnswerDeliveryRef.current = { answerId: sources.answer_id, text: "", citations: sources.citations,
+            sectionIndex: 0, sectionCount: 1 };
+          scheduleAssistantFrame();
+        },
+        onAnswerDelta: (delta) => {
+          if (isStale()) return;
+          const current = pendingAnswerDeliveryRef.current;
+          if (!current || current.answerId !== delta.answer_id) return;
+          current.text += delta.text;
+          current.sectionIndex = delta.section_index ?? current.sectionIndex;
+          current.sectionCount = delta.section_count ?? current.sectionCount;
+          scheduleAssistantFrame();
         }
       }), {
         signal: controller.signal,
         maxConnectionRetries: 1,
         onReconnecting: () => {
           if (isStale()) return;
-          setProgressEvents((current) => [...current, { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "CONNECTION_RECOVERY", status: "IN_PROGRESS", message: "Checking the original turn after a connection interruption. Your question will not be duplicated." }]);
+          queueProgressEvent({ contract_type: "RetrievalEvent", contract_version: "1.0", stage: "CONNECTION_RECOVERY", status: "IN_PROGRESS", message: "Checking the original turn after a connection interruption. Your question will not be duplicated." });
         },
         onPending: () => {
           if (isStale()) return;
-          setProgressEvents((current) => [...current.filter((item) => item.stage !== "WAITING_FOR_TURN"), { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "WAITING_FOR_TURN", status: "PENDING", message: "This turn is already being prepared. Checking for its answer without sending a duplicate question." }]);
+          queueProgressEvent({ contract_type: "RetrievalEvent", contract_version: "1.0", stage: "WAITING_FOR_TURN", status: "PENDING", message: "This turn is already being prepared. Checking for its answer without sending a duplicate question." });
         }
       });
       if (requestGeneration !== scopeGenerationRef.current) return;
       if (controller.signal.aborted) throw new DOMException("Answer stopped", "AbortError");
+      clearAnswerDelivery();
       const answer = { ...normalizeAnswer(response), scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters } };
       setMessages((current) => [...current, answer]);
       if (answer.grounding_status === "provider_unavailable") {
@@ -561,6 +611,7 @@ export function GroundedAssistant() {
       void queryClient.invalidateQueries({ queryKey: ["settings", "workspace-preferences", "ai-prompts"] });
     } catch (error) {
       if (requestGeneration !== scopeGenerationRef.current) return;
+      clearAnswerDelivery();
       const cancelled = controller.signal.aborted;
       const errorMessageId = `assistant-error-${Date.now()}`;
       const notice = knowledgeTurnNotice(error, cancelled);
@@ -838,6 +889,8 @@ export function GroundedAssistant() {
                           <span>{contextRouteLabel(message.retrieval.context_route?.query_category || message.retrieval.context_route?.input_type)}</span>
                           {message.retrieval.query_class ? <span>{contextRouteLabel(message.retrieval.query_class)} query</span> : null}
                           {message.retrieval.context_route?.answer_depth ? <span>{message.retrieval.context_route.answer_depth} answer</span> : null}
+                          {message.retrieval.context_route?.route_confidence ? <span>Intent confidence: {message.retrieval.context_route.route_confidence}</span> : null}
+                          {message.retrieval.context_route?.scope_widened ? <span>Broader evidence checked because intent was uncertain</span> : null}
                           {message.retrieval.evidence_sufficiency ? <span>Evidence {message.retrieval.evidence_sufficiency.status}</span> : null}
                           {message.retrieval.context_packet?.coverage ? <span>{message.retrieval.context_packet.coverage.source_count || 0} authorized sources · {message.retrieval.context_packet.coverage.context_tokens_estimated || 0} context tokens</span> : null}
                           {message.retrieval.answer_contract?.grounding ? <span>{message.retrieval.answer_contract.grounding.supported_claim_count || 0} grounded claims · {message.retrieval.answer_contract.grounding.unsupported_claim_count || 0} rejected</span> : null}
@@ -870,6 +923,7 @@ export function GroundedAssistant() {
               );
             })}
 
+            {answerDelivery && (answerDelivery.text || answerDelivery.citations.length) ? <KnowledgeActiveAnswer delivery={answerDelivery} /> : null}
             {isSending && requestStartedAt !== null ? <KnowledgeTurnProgress events={progressEvents} opening={createSessionMutation.isPending} startedAt={requestStartedAt} /> : null}
 
             {citationDownloadError ? <div className="grounded-assistant-download-error" role="alert">{citationDownloadError}</div> : null}

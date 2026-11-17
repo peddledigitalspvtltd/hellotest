@@ -13,7 +13,9 @@ const {
   materializeTemplateValue
 } = require("../src/utils/testDataGenerators");
 
-const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+const readSource = (relativePath) => /\/(testEngineDispatch|aiAutomationBuilder)\.service\.js$/.test(relativePath)
+  ? require("./helpers/sourceFile").readOwnedAutomationSource(path.basename(relativePath, ".js"))
+  : readFile(path.join(__dirname, relativePath), "utf8");
 
 const deepFreeze = (value) => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -134,7 +136,8 @@ test("dispatch expands each Test Case by its own associated Data Set rows and sn
   assert.match(schema, /execution_case_snapshots[\s\S]*test_data_set_snapshot/);
   assert.match(schema, /data_set_source TEXT CHECK\(data_set_source IS NULL OR data_set_source IN \('run','suite','test_case'\)\)/);
   assert.match(bootstrap, /execution_case_snapshots_data_set_source_check/);
-  assert.match(execution, /test_case_data_sets/);
+  const dataSetOwner=await readSource("../../../testing/backend/services/effectiveCaseDataSets.service.js");
+  assert.match(dataSetOwner, /test_case_data_sets/);
   assert.match(execution, /attachCaseDataSetSnapshots/);
   assert.match(execution, /composeScopedTestData\(\{ hierarchical: true/);
   assert.match(execution, /data_set_source: effective\.source/);

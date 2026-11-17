@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { completeAutomationBuild } = require('../../backend/lib/automationBuildCompletion');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { createRecordedSectionContract, recordedContractMetadata } = require('../../backend/lib/automationRecordedContract');
+const { completeAutomationBuild } = require("../../backend/lib/build/automationBuildCompletion");
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { createRecordedSectionContract, recordedContractMetadata } = require("../../backend/lib/browser/automationRecordedContract");
 
 function fixture(id = 'one', linked = false) {
   const step = { id, step_order: id === 'one' ? 1 : 2, step_type: 'web', action: 'Enter @t.name', expected_result: 'The name retains @t.name' };

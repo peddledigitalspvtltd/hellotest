@@ -238,39 +238,23 @@ function buildGeneratedApiCode(step: StepAutomationLike, request: StepApiRequest
     ...comments,
     `const ${responseVar} = await api.request(${buildApiRequestLiteral(request)});`,
     ...captureLines,
-    ...(validationLines.length ? validationLines : [`expect(${responseVar}.status).toBe(200);`]),
+    ...validationLines,
     `// ${stepLabel}`
   ].join("\n");
 }
 
-function buildGeneratedUiCode(step: StepAutomationLike, stepType: TestStepType) {
-  const scope = stepType === "android" ? "android" : stepType === "ios" ? "ios" : "web";
-  const title = normalizeText(step.action) || `Step ${step.step_order || 1}`;
-  const expected = normalizeText(step.expected_result);
+export type StepAutomationReviewIssue = {
+  code: 'api_contract_required' | 'locator_mapping_required' | 'native_selector_mapping_required';
+  kind: 'request_review' | 'repository_review'; runtime: TestStepType; severity: 'blocking'; message: string;
+};
 
-  if (scope === "web") {
-    return [
-      `// Playwright-style HelloTest runtime: page, expect, web, params, and capture are provided by the engine.`,
-      `await web.step(${quoteJsString(title)}, async () => {`,
-      `  // TODO: replace the locator with an Object Repository field or stable Playwright locator.`,
-      `  // Example: await page.locator("Login.Email").fill("@t.email");`,
-      `  // Example: await expect(page.locator("Login.Submit")).toBeVisible();`,
-      normalizeText(step.action) ? `  // Action: ${normalizeText(step.action)}` : "",
-      expected ? `  // Expected: ${expected}` : "",
-      "});"
-    ].filter(Boolean).join("\n");
-  }
-
-  return [
-    `// Appium/WebdriverIO runtime: driver is the active ${scope === "ios" ? "iOS" : "Android"} session.`,
-    `await ${scope}.step(${quoteJsString(title)}, async () => {`,
-    `  // TODO: replace the selector with an accessibility id, UiAutomator selector, XPath, or stable native locator.`,
-    `  // Example: const element = await driver.$("~Login");`,
-    `  // Example: await element.click();`,
-    normalizeText(step.action) ? `  // Action: ${normalizeText(step.action)}` : "",
-    expected ? `  // Expected: ${expected}` : "",
-    "});"
-  ].filter(Boolean).join("\n");
+/** Review metadata stays outside executable source. An unmapped step has no
+ * invented selector or successful no-op program. */
+export function stepAutomationReviewIssues(step: StepAutomationLike): StepAutomationReviewIssue[] {
+  if (normalizeAutomationCode(step.automation_code)) return [];
+  const runtime = normalizeStepType(step.step_type);
+  if (runtime === 'api') return normalizeApiRequest(step.api_request)?.url ? [] : [{code:'api_contract_required',kind:'request_review',runtime,severity:'blocking',message:'Configure this API request before running.'}];
+  return [{code:runtime === 'web' ? 'locator_mapping_required' : 'native_selector_mapping_required',kind:'repository_review',runtime,severity:'blocking',message:runtime === 'web' ? 'Map the recorded or authored action to a validated Object Repository field, or build its instructions with Automation Engineer.' : 'Map this native action to a recorded or authored selector. Browser MCP cannot inspect a native app.'}];
 }
 
 export function resolveStepAutomationCode(step: StepAutomationLike) {
@@ -282,10 +266,11 @@ export function resolveStepAutomationCode(step: StepAutomationLike) {
   }
 
   if (stepType === "api") {
-    return buildGeneratedApiCode(step, ensureApiRequest(step.api_request));
+    const request = normalizeApiRequest(step.api_request);
+    return request?.url ? buildGeneratedApiCode(step, request) : "";
   }
 
-  return buildGeneratedUiCode(step, stepType);
+  return "";
 }
 
 export function buildGroupAutomationCode(name: string, steps: Array<StepAutomationLike | SharedStepGroupStep>) {

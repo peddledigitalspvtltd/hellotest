@@ -1,9 +1,9 @@
 const z = require('zod');
 
 const id = z.string().min(1).max(255);
-const sourceKinds=['requirement','test_case','execution','bug','knowledge_item','file','text','chat','url','product_help'];
+const sourceKinds=require('@hellotest/knowledge/backend/services/knowledgeOntology').RETRIEVAL_SOURCE_KINDS;
 const evidenceScope = z.object(Object.fromEntries(
- require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key)
+ require('@hellotest/contracts/agents/evidenceScopeFields.json').map(field => field.key)
   .map(field => [field, id.optional()])
 )).strict();
 const filters = z.object({
@@ -38,6 +38,23 @@ const intentPlan = z.object({
  stop_if_sufficient:z.boolean().optional()
 }).strict().refine(value=>(value.retrieval_strategy||value.queries?.length||value.search_queries?.length||value.source_kinds?.length||value.information_needs?.length),'Provide at least one retrieval hint.');
 
+// Conversation and Smart Context used to travel beside the tool call on the
+// actor object, so the audited call did not describe what ran and the remote
+// transport silently lost them. They are ordinary, bounded, public inputs now:
+// the in-process and remote transports send exactly the same arguments.
+const conversation = z.object({
+ messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(1200) }).strict()).max(6)
+  .describe('The most recent turns, oldest first, used only to resolve references such as "it" or "those" in a follow-up question.'),
+ session_id: id.optional(),
+ focus_source_ids: z.array(id).max(6).optional().describe('Knowledge sources cited in the recent turns. They seed the graph walk for a follow-up and are re-authorized on every call; they never grant access.')
+}).strict();
+const smartContext = z.object({
+ query: z.string().min(1).max(700).optional().describe('A reviewed, narrower search phrase the user approved.'),
+ source_ids: z.array(id).max(100).optional(),
+ source_kinds: z.array(z.enum(sourceKinds)).max(10).optional(),
+ reviewed_context: z.string().min(1).max(1200).optional().describe('Reviewed focus guidance. It narrows ranking and never grants access.')
+}).strict();
+
 function packetBudgets(input = {}) {
  return Object.fromEntries(Object.entries(budgetLimits).filter(([key]) => input[key] !== undefined)
   .map(([key,max]) => {
@@ -56,7 +73,11 @@ const contextSchema = z.object({
  source_ids: z.array(id).max(100).optional().describe('Exact indexed source IDs. When filters.source_ids is also supplied, only their intersection is searched. Omit for the permitted source set.'),
  filters: filters.optional(),
  budgets: budgets.optional(),
- intent_plan:intentPlan.optional()
+ intent_plan:intentPlan.optional(),
+ conversation: conversation.optional(),
+ smart_context: smartContext.optional(),
+ planning_mode: z.enum(['deterministic', 'model']).optional().describe('deterministic (default) uses the bounded rule-based plan or the supplied intent_plan and invokes no model. model lets the server plan the question with integration_id.'),
+ follow_up_rounds: z.boolean().optional().describe('Allow one further deterministic retrieval round when the first is not sufficient. Defaults to true when a model-planned or supplied intent_plan is present.')
 }).strict();
 
 const evidenceOutput = z.object({
@@ -91,4 +112,4 @@ function requestTimeoutMs(body) {
  return contextRequestBudget(body.params.arguments) + 2000;
 }
 
-module.exports = { contextSchema, contextOutputSchema, contextRequestBudget, requestTimeoutMs, packetBudgets, intentPlan };
+module.exports = { contextSchema, contextOutputSchema, contextRequestBudget, requestTimeoutMs, packetBudgets, intentPlan, conversation, smartContext };

@@ -1,10 +1,12 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .artifact-assurance-workspace {
   container-name: artifact-assurance;
   container-type: inline-size;
   display: grid;
   gap: 16px;
   min-width: 0;
-  color: var(--text-primary, #172b4d);
+  color: var(--text-primary, var(--ui-text));
 }
 
 .artifact-assurance-live {
@@ -26,11 +28,11 @@
   align-items: stretch;
   min-width: 0;
   padding: 18px;
-  border: 1px solid var(--line, #c7d1e0);
-  border-top: 3px solid #172b4d;
+  border: 1px solid var(--line, var(--ui-border));
+  border-top: 3px solid var(--ui-border-emphasis);
   border-radius: 10px;
-  background: var(--panel-strong, #fff);
-  box-shadow: 0 4px 14px rgba(9, 30, 66, 0.06);
+  background: var(--panel-strong, var(--ui-surface));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--ui-blue-strong) 6%, transparent);
 }
 
 .artifact-assurance-overall-score {
@@ -40,12 +42,12 @@
   min-height: 112px;
   padding: 15px;
   border-radius: 8px;
-  background: #172b4d;
-  color: #fff;
+  background: var(--ui-inverse-surface);
+  color: var(--ui-on-solid);
 }
 
-.artifact-assurance-overall-score.strong { background: #0f6b4f; }
-.artifact-assurance-overall-score.needs-attention { background: #9a4c00; }
+.artifact-assurance-overall-score.strong { background: var(--ui-green-strong); }
+.artifact-assurance-overall-score.needs-attention { background: var(--ui-orange-strong); }
 
 .artifact-assurance-overall-score strong {
   font: 700 2.65rem/0.95 var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
@@ -55,7 +57,7 @@
 .artifact-assurance-overall-score > span {
   align-self: end;
   padding: 0 0 3px 4px;
-  color: rgba(255, 255, 255, 0.74);
+  color: color-mix(in srgb, var(--ui-on-solid) 74%, transparent);
   font-size: 0.77rem;
   font-weight: 700;
 }
@@ -64,7 +66,7 @@
   grid-column: 1 / -1;
   align-self: end;
   margin-top: 10px;
-  color: rgba(255, 255, 255, 0.84);
+  color: color-mix(in srgb, var(--ui-on-solid) 84%, transparent);
   font-size: 0.7rem;
   font-weight: 650;
   line-height: 1.25;
@@ -81,7 +83,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #0c66e4;
+  color: var(--ui-blue-text);
   font-size: 0.69rem;
   font-weight: 750;
   letter-spacing: 0.055em;
@@ -107,7 +109,7 @@
 .artifact-assurance-insights h3,
 .artifact-assurance-dimension-title {
   margin: 0;
-  color: var(--text-primary, #172b4d);
+  color: var(--text-primary, var(--ui-text));
   font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif);
 }
 
@@ -127,7 +129,7 @@
 .artifact-assurance-methodology p,
 .artifact-assurance-methodology li {
   margin: 0;
-  color: var(--text-secondary, #626f86);
+  color: var(--text-secondary, var(--ui-text-muted));
   font-size: 0.75rem;
   line-height: 1.45;
 }
@@ -144,19 +146,19 @@
 .artifact-assurance-review-badge {
   align-self: flex-end;
   padding: 4px 9px;
-  border: 1px solid #f5cd47;
+  border: 1px solid var(--ui-amber-border);
   border-radius: 999px;
-  background: #fff7d6;
-  color: #7f5f01;
+  background: var(--ui-amber-surface);
+  color: var(--ui-amber-text);
   font-size: 0.67rem;
   font-weight: 750;
   line-height: 1.4;
 }
 
 .artifact-assurance-review-badge.human-reviewed {
-  border-color: #7ee2b8;
-  background: #dcfff1;
-  color: #216e4e;
+  border-color: var(--ui-green-border);
+  background: var(--ui-green-surface);
+  color: var(--ui-green-text);
 }
 
 .artifact-assurance-analyze-button,
@@ -176,20 +178,20 @@
 }
 
 .artifact-assurance-analyze-button {
-  border: 1px solid #172b4d;
-  background: #172b4d;
-  color: #fff;
-  box-shadow: 0 2px 5px rgba(9, 30, 66, 0.16);
+  border: 1px solid var(--ui-border-emphasis);
+  background: var(--ui-inverse-surface);
+  color: var(--ui-on-solid);
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--ui-blue-strong) 16%, transparent);
 }
 
 .artifact-assurance-impact-button {
-  border: 1px solid var(--line, #b7c7e6);
-  background: var(--panel-strong, #fff);
-  color: var(--text-primary, #172b4d);
+  border: 1px solid var(--line, var(--ui-border));
+  background: var(--panel-strong, var(--ui-surface));
+  color: var(--text-primary, var(--ui-text));
 }
 
-.artifact-assurance-analyze-button:hover:not(:disabled) { background: #0c66e4; border-color: #0c66e4; }
-.artifact-assurance-impact-button:hover:not(:disabled) { background: var(--panel, #f4f6f9); }
+.artifact-assurance-analyze-button:hover:not(:disabled) { background: var(--ui-blue-solid); border-color: var(--ui-blue-border); }
+.artifact-assurance-impact-button:hover:not(:disabled) { background: var(--panel, var(--ui-surface-subtle)); }
 .artifact-assurance-analyze-button:disabled,
 .artifact-assurance-impact-button:disabled { cursor: not-allowed; opacity: 0.58; }
 
@@ -197,17 +199,17 @@
 .artifact-assurance-impact-button:focus-visible,
 .artifact-assurance-dimension summary:focus-visible,
 .artifact-assurance-methodology summary:focus-visible {
-  outline: 3px solid rgba(12, 102, 228, 0.38);
+  outline: 3px solid color-mix(in srgb, var(--ui-blue-border) 38%, transparent);
   outline-offset: 2px;
 }
 
 .artifact-assurance-error {
   margin: 0;
   padding: 9px 11px;
-  border: 1px solid #ffbdad;
+  border: 1px solid var(--ui-red-border);
   border-radius: 7px;
-  background: #ffebe6;
-  color: #ae2a19;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-red-text);
   font-size: 0.75rem;
 }
 
@@ -215,10 +217,10 @@
 .artifact-assurance-baseline-note {
   margin: 0;
   padding: 9px 11px;
-  border: 1px solid #f5cd47;
+  border: 1px solid var(--ui-amber-border);
   border-radius: 7px;
-  background: #fff7d6;
-  color: #7f5f01;
+  background: var(--ui-amber-surface);
+  color: var(--ui-amber-text);
   font-size: 0.75rem;
   line-height: 1.4;
 }
@@ -233,10 +235,10 @@
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--line, #c7d1e0);
+  border: 1px solid var(--line, var(--ui-border));
   border-radius: 9px;
-  background: var(--panel-strong, #fff);
-  box-shadow: 0 2px 7px rgba(9, 30, 66, 0.04);
+  background: var(--panel-strong, var(--ui-surface));
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--ui-blue-strong) 4%, transparent);
 }
 
 .artifact-assurance-dimension > .artifact-assurance-dimension-info {
@@ -267,7 +269,7 @@
 .artifact-assurance-dimension-score {
   display: flex;
   align-items: baseline;
-  color: var(--text-primary, #172b4d);
+  color: var(--text-primary, var(--ui-text));
 }
 
 .artifact-assurance-dimension-score strong {
@@ -277,7 +279,7 @@
 
 .artifact-assurance-dimension-score span {
   margin-left: 3px;
-  color: var(--text-secondary, #626f86);
+  color: var(--text-secondary, var(--ui-text-muted));
   font-size: 0.66rem;
   font-weight: 650;
 }
@@ -285,14 +287,14 @@
 .artifact-assurance-dimension-status {
   padding: 3px 7px;
   border-radius: 999px;
-  background: #e9f2ff;
-  color: #0c66e4;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-blue-text);
   font-size: 0.64rem;
   font-weight: 750;
 }
 
-.artifact-assurance-dimension.strong .artifact-assurance-dimension-status { background: #dcfff1; color: #216e4e; }
-.artifact-assurance-dimension.needs-attention .artifact-assurance-dimension-status { background: #fff7d6; color: #7f5f01; }
+.artifact-assurance-dimension.strong .artifact-assurance-dimension-status { background: var(--ui-green-surface); color: var(--ui-green-text); }
+.artifact-assurance-dimension.needs-attention .artifact-assurance-dimension-status { background: var(--ui-amber-surface); color: var(--ui-amber-text); }
 
 .artifact-assurance-dimension-title {
   font-size: 0.88rem;
@@ -311,18 +313,18 @@
   height: 5px;
   overflow: hidden;
   border-radius: 999px;
-  background: #dfe1e6;
+  background: var(--ui-surface-muted);
 }
 
 .artifact-assurance-meter > span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #0c66e4;
+  background: var(--ui-blue-solid);
 }
 
-.artifact-assurance-dimension.strong .artifact-assurance-meter > span { background: #22a06b; }
-.artifact-assurance-dimension.needs-attention .artifact-assurance-meter > span { background: #e2b203; }
+.artifact-assurance-dimension.strong .artifact-assurance-meter > span { background: var(--ui-green-solid); }
+.artifact-assurance-dimension.needs-attention .artifact-assurance-meter > span { background: var(--ui-amber-solid); }
 
 .artifact-assurance-disclosure-label {
   display: flex;
@@ -330,7 +332,7 @@
   justify-content: flex-end;
   gap: 4px;
   align-self: end;
-  color: #0c66e4;
+  color: var(--ui-blue-text);
   font-size: 0.67rem;
   font-weight: 700;
 }
@@ -342,7 +344,7 @@
   display: grid;
   gap: 10px;
   padding: 0 14px 14px;
-  border-top: 1px solid var(--line, #dcdfe4);
+  border-top: 1px solid var(--line, var(--ui-border));
 }
 
 .artifact-assurance-frameworks {
@@ -355,8 +357,8 @@
 .artifact-assurance-frameworks span {
   padding: 3px 7px;
   border-radius: 5px;
-  background: var(--panel, #f1f4f8);
-  color: var(--text-secondary, #44546f);
+  background: var(--panel, var(--ui-surface-subtle));
+  color: var(--text-secondary, var(--ui-text-muted));
   font-size: 0.68rem;
   font-weight: 700;
 }
@@ -366,7 +368,7 @@
   gap: 5px;
   margin: 0;
   padding-left: 17px;
-  color: var(--text-secondary, #626f86);
+  color: var(--text-secondary, var(--ui-text-muted));
   font-size: 0.72rem;
   line-height: 1.4;
 }
@@ -378,18 +380,18 @@
 .artifact-assurance-dimension-detail > p {
   margin: 0;
   padding: 8px 9px;
-  border-left: 3px solid #0c66e4;
-  background: #f4f7fc;
-  color: var(--text-secondary, #44546f);
+  border-left: 3px solid var(--ui-blue-border);
+  background: var(--ui-surface);
+  color: var(--text-secondary, var(--ui-text-muted));
   font-size: 0.72rem;
   line-height: 1.4;
 }
 
 .artifact-assurance-insights {
   overflow: hidden;
-  border: 1px solid var(--line, #c7d1e0);
+  border: 1px solid var(--line, var(--ui-border));
   border-radius: 9px;
-  background: var(--panel-strong, #fff);
+  background: var(--panel-strong, var(--ui-surface));
 }
 
 .artifact-assurance-insights > header {
@@ -398,11 +400,11 @@
   justify-content: space-between;
   gap: 12px;
   padding: 13px 15px;
-  border-bottom: 1px solid var(--line, #dcdfe4);
+  border-bottom: 1px solid var(--line, var(--ui-border));
 }
 
 .artifact-assurance-insights > header > div { display: grid; gap: 2px; }
-.artifact-assurance-insights > header span { color: var(--text-secondary, #626f86); font-size: 0.65rem; }
+.artifact-assurance-insights > header span { color: var(--text-secondary, var(--ui-text-muted)); font-size: 0.65rem; }
 .artifact-assurance-insights h3 { font-size: 0.91rem; }
 
 .artifact-assurance-insights ol {
@@ -419,7 +421,7 @@
   padding: 12px 15px;
 }
 
-.artifact-assurance-insights li + li { border-top: 1px solid var(--line, #ebedf0); }
+.artifact-assurance-insights li + li { border-top: 1px solid var(--line, var(--ui-border)); }
 
 .artifact-assurance-insight-index {
   display: grid;
@@ -427,8 +429,8 @@
   height: 25px;
   place-items: center;
   border-radius: 6px;
-  background: #e9f2ff;
-  color: #0c66e4;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-blue-text);
   font-size: 0.68rem;
   font-weight: 800;
 }
@@ -444,24 +446,24 @@
 
 .artifact-assurance-insight-title strong { font-size: 0.77rem; }
 .artifact-assurance-insight-title span { padding: 2px 6px; border-radius: 999px; font-size: 0.65rem; font-weight: 800; text-transform: uppercase; }
-.artifact-assurance-insight-title span.high { background: #ffebe6; color: #ae2a19; }
-.artifact-assurance-insight-title span.medium { background: #fff7d6; color: #7f5f01; }
-.artifact-assurance-insight-title span.opportunity { background: #e9f2ff; color: #0c66e4; }
+.artifact-assurance-insight-title span.high { background: var(--ui-surface-subtle); color: var(--ui-red-text); }
+.artifact-assurance-insight-title span.medium { background: var(--ui-amber-surface); color: var(--ui-amber-text); }
+.artifact-assurance-insight-title span.opportunity { background: var(--ui-surface-subtle); color: var(--ui-blue-text); }
 
 .artifact-assurance-insight-evidence {
-  color: var(--text-secondary, #626f86);
+  color: var(--text-secondary, var(--ui-text-muted));
   font-size: 0.69rem;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-.artifact-assurance-insight-action { color: var(--text-primary, #172b4d) !important; }
+.artifact-assurance-insight-action { color: var(--text-primary, var(--ui-text)) !important; }
 .artifact-assurance-no-insights { padding: 14px 15px; }
 
 .artifact-assurance-methodology {
-  border: 1px solid var(--line, #c7d1e0);
+  border: 1px solid var(--line, var(--ui-border));
   border-radius: 8px;
-  background: var(--panel-strong, #fff);
+  background: var(--panel-strong, var(--ui-surface));
 }
 
 .artifact-assurance-methodology summary {
@@ -477,15 +479,15 @@
 
 .artifact-assurance-methodology summary::-webkit-details-marker { display: none; }
 .artifact-assurance-methodology summary > span { font-size: 0.72rem; font-weight: 750; }
-.artifact-assurance-methodology summary > small { overflow: hidden; color: var(--text-secondary, #626f86); font-size: 0.65rem; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-assurance-methodology summary > svg { color: var(--text-secondary, #626f86); transition: transform 160ms ease; }
+.artifact-assurance-methodology summary > small { overflow: hidden; color: var(--text-secondary, var(--ui-text-muted)); font-size: 0.65rem; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-assurance-methodology summary > svg { color: var(--text-secondary, var(--ui-text-muted)); transition: transform 160ms ease; }
 .artifact-assurance-methodology[open] summary > svg { transform: rotate(180deg); }
 
 .artifact-assurance-methodology > div {
   display: grid;
   gap: 7px;
   padding: 11px 12px 12px;
-  border-top: 1px solid var(--line, #dcdfe4);
+  border-top: 1px solid var(--line, var(--ui-border));
 }
 
 .artifact-assurance-methodology ul { display: grid; gap: 4px; margin: 0; padding-left: 17px; }
@@ -521,17 +523,17 @@
 :root[data-theme="dark"] .artifact-assurance-insights,
 :root[data-theme="dark"] .artifact-assurance-methodology,
 :root[data-theme="dark"] .artifact-assurance-impact-button {
-  border-color: var(--line, #314466);
-  background: var(--panel-strong, #0d1f3e);
+  border-color: var(--line, var(--ui-border-emphasis));
+  background: var(--panel-strong, var(--ui-blue-strong));
 }
 
-:root[data-theme="dark"] .artifact-assurance-overview { border-top-color: #85b8ff; }
-:root[data-theme="dark"] .artifact-assurance-meter { background: rgba(169, 189, 219, 0.2); }
-:root[data-theme="dark"] .artifact-assurance-frameworks span { background: var(--panel, #10284e); }
-:root[data-theme="dark"] .artifact-assurance-dimension-detail > p { background: rgba(12, 102, 228, 0.12); }
+:root[data-theme="dark"] .artifact-assurance-overview { border-top-color: var(--ui-blue-border); }
+:root[data-theme="dark"] .artifact-assurance-meter { background: color-mix(in srgb, var(--ui-surface-inset) 20%, transparent); }
+:root[data-theme="dark"] .artifact-assurance-frameworks span { background: var(--panel, var(--ui-blue-strong)); }
+:root[data-theme="dark"] .artifact-assurance-dimension-detail > p { background: color-mix(in srgb, var(--ui-blue-solid) 12%, transparent); }
 
-.artifact-assurance-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line, #e0e6f0); padding-bottom: 10px; margin-bottom: 18px; }
-.artifact-assurance-tabs button { border: 1px solid transparent; border-radius: 9px; padding: 10px 16px; background: transparent; color: var(--text-secondary, #64748b); font: inherit; font-weight: 600; cursor: pointer; }
-.artifact-assurance-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--accent, #6554df) 10%, transparent); color: var(--text-primary, #172033); border-color: color-mix(in srgb, var(--accent, #6554df) 25%, transparent); }
-.artifact-assurance-tabs button:focus-visible { outline: 2px solid var(--accent, #6554df); outline-offset: 2px; }
+.artifact-assurance-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line, var(--ui-border)); padding-bottom: 10px; margin-bottom: 18px; }
+.artifact-assurance-tabs button { border: 1px solid transparent; border-radius: 9px; padding: 10px 16px; background: transparent; color: var(--text-secondary, var(--ui-text-muted)); font: inherit; font-weight: 600; cursor: pointer; }
+.artifact-assurance-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--accent, var(--ui-blue-solid)) 10%, transparent); color: var(--text-primary, var(--ui-text)); border-color: color-mix(in srgb, var(--accent, var(--ui-blue-border)) 25%, transparent); }
+.artifact-assurance-tabs button:focus-visible { outline: 2px solid var(--accent, var(--ui-blue-border)); outline-offset: 2px; }
 .artifact-assurance-workspace [hidden] { display: none; }

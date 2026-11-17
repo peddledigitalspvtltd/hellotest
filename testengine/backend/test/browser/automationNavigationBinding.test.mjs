@@ -10,9 +10,9 @@ import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../dist/lib/testEngineSecurity.js';
 import {createWebRunSession} from '../../dist/lib/webEngine.js';
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
-const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const {recordedSectionRequests}=require('../../../../services/automation/backend/lib/automationBrowserRecording');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
+const {createBrowserParameterResolver}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters");
+const {recordedSectionRequests}=require("../../../../services/automation/backend/lib/browser/automationBrowserRecording");
 
 test('real MCP bootstrap saves an original navigation reference and the same source replays against two edited absolute URLs',{timeout:90000},async t=>{
   const root=await mkdtemp(path.join(tmpdir(),'qaira-navigation-binding-'));

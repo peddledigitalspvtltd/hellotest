@@ -10,6 +10,6 @@ const runtime=layer==='backend'?'services/platform/backend':'services/platform/f
 const owners=readdirSync(resolve(root,'services'),{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name);
 const directories=[`${runtime}/test`,...owners.map(owner=>`services/${owner}/test/${layer}`)];
 const files=directories.flatMap(directory=>existsSync(resolve(root,directory))?readdirSync(resolve(root,directory)).filter(file=>file.endsWith(layer==='backend'?'.test.js':'.test.mjs')).map(file=>resolve(root,directory,file)):[]);
-const result=spawnSync(process.execPath,['--test',...files],{cwd:resolve(root,runtime),stdio:'inherit'});
+const result=spawnSync(process.execPath,['--test',...files],{cwd:resolve(root,runtime),stdio:'inherit',env:{...process.env,NODE_ENV:process.env.NODE_ENV||'test'}});
 if(result.error)throw result.error;
 process.exit(result.status??1);

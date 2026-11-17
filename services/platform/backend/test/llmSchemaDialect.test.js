@@ -6,7 +6,7 @@ const policy=require('../src/utils/llmRequestPolicy');
 // Original tools/list response from the pinned @playwright/mcp 0.0.84 runtime.
 // Keep the upstream schemas intact, including their declared 2020-12 dialect.
 const catalog=require('./fixtures/upstreamPlaywrightMcpTools.v0.0.84.json');
-const {toolsForPolicy}=require('../../../automation/backend/lib/automationUpstreamEngineer');
+const {toolsForPolicy}=require("../../../automation/backend/lib/upstream/automationUpstreamEngineer");
 const functionTools=tools=>tools.map(tool=>({type:'function',function:{name:tool.name,description:tool.description,parameters:tool.inputSchema}}));
 const payload=tools=>({model:'gpt-5',messages:[{role:'user',content:'Use the native tools for the current observed form. Return final outcomes as JSON.'}],tools:functionTools(tools),tool_choice:'auto'});
 const init=body=>({method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});

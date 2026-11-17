@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {navigationOrigins,validateNavigationGrounding,scopeRepositoryToTarget,buildNavigationOrigins}=require('../../backend/lib/automationGenerationGrounding');
+const {navigationOrigins,validateNavigationGrounding,scopeRepositoryToTarget,buildNavigationOrigins}=require("../../backend/lib/build/automationGenerationGrounding");
 test('generated navigation must use supplied or observed origins rather than invented external mailboxes',()=>{
  const origins=navigationOrigins('https://app.hellotest.ai/',{user_guidance:'Use https://inbox.test/account for email evidence.'},[{result:{content:[{type:'text',text:'{"url":"https://observed.test/"}'}]}}]);
  for(const code of ['await web.openTab("https://mail.example.com");','const inbox="https://mail.example.com";await page.goto(inbox);','await playwrightPage.goto(`https://mail.example.com`);'])assert.throws(()=>validateNavigationGrounding(code,origins),error=>error.code==='AUTOMATION_UNGROUNDED_NAVIGATION');

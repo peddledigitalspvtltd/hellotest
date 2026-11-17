@@ -1,7 +1,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { createRetainedAssertionContract } = require('../../backend/lib/automationRetainedAssertions');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { createRetainedAssertionContract } = require("../../backend/lib/browser/automationRetainedAssertions");
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
 const url = 'https://fixture.test/dashboard';
 const click = { name: 'browser_click', arguments: { locator: '#login' } };
 const checks = [{ name: 'browser_assert', arguments: { assertion: 'url', value: url } }, { name: 'browser_assert', arguments: { assertion: 'visible', locator: '#logout' } }];

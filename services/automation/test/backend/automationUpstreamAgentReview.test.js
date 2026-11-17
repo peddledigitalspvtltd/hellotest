@@ -2,8 +2,8 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {createRequire}=require('node:module');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {runUpstreamBrowserReview}=require('../../backend/lib/automationUpstreamEngineer');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {runUpstreamBrowserReview}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const utils=require('../../../platform/backend/src/utils/testStepAutomation');
 const tools=[
  {name:'browser_navigate',inputSchema:{type:'object',properties:{url:{type:'string'}},required:['url']}},
@@ -17,7 +17,7 @@ function fixture({password='PRIVATE-native-password'}={}){
  const initialized=[],calls=[],legacy=[],denied=new Set(),testCase={id:'case',project_id:'project',app_type_id:'app',app_type_kind:'web',automation_start_url:'https://application.test/'};
  const steps=[{id:'step',step_order:1,step_type:'web',action:'Enter @t.username and @t.password',expected_result:'The login form accepts its inputs'}];
  const resolver=createBrowserParameterResolver({testCase,steps,caseValues:{'t.username':'reader@example.test','t.password':password},privateParameterNames:['t.password'],materialize:false});
- const fakeRequire=name=>name==='../lib/automationBrowserAgent'?{connectAutomationBrowser:async options=>{legacy.push(options);return {tools,call:async()=>({content:[]}),close:async()=>{}};}}:name==='../lib/automationBrowserParameters'?{loadBrowserParameterResolver:async()=>resolver}:name==='../lib/automationUpstreamMcpClient'?{connectUpstreamPlaywright:async options=>{initialized.push(options);return {tools,call:async(name,args)=>{calls.push({name,args});return {content:[{type:'text',text:'Native evidence PRIVATE-native-password'}]};},close:async()=>{}};}}:local(name);
+ const fakeRequire=name=>name==='../lib/browser/automationBrowserAgent'?{connectAutomationBrowser:async options=>{legacy.push(options);return {tools,call:async()=>({content:[]}),close:async()=>{}};}}:name==='../lib/parameters/automationBrowserParameters'?{loadBrowserParameterResolver:async()=>resolver}:name==='../lib/upstream/automationUpstreamMcpClient'?{connectUpstreamPlaywright:async options=>{initialized.push(options);return {tools,call:async(name,args)=>{calls.push({name,args});return {content:[{type:'text',text:'Native evidence PRIVATE-native-password'}]};},close:async()=>{}};}}:local(name);
  const context={require:fakeRequire,exports:{},selectCaseWithScope:{get:async()=>testCase},selectStepsForCase:{all:async()=>steps},
   getOptionalEvidenceAccess:async(_user,_project,keys)=>Object.fromEntries(keys.map(key=>[key,!denied.has(key)])),
   resolveAutomationCaseSteps:require('../../../platform/backend/src/utils/automationCaseType').resolveAutomationCaseSteps,normalizeTestStepType:utils.normalizeTestStepType,
@@ -60,7 +60,7 @@ test('reviewed empty private inputs stay blank at native typing and verification
  assert.equal(f.calls.at(-1).args.text,'');
  await session.browser.call('browser_verify_value',{type:'textbox',element:'Password',target:'native-password',value:env});
  assert.equal(f.calls.at(-1).args.value,'');
- const {bindUpstreamSourceParameters}=require('../../backend/lib/automationUpstreamSourceBindings');
+ const {bindUpstreamSourceParameters}=require("../../backend/lib/upstream/automationUpstreamSourceBindings");
  const source=bindUpstreamSourceParameters({source:'await page.getByLabel("Password").fill("");await expect(page.getByLabel("Password")).toHaveValue("");',parameterValues:bindings.parameterValues,secretBindings:bindings.secretBindings,privateNames:f.resolver.privateParameterNames}).source;
  assert.match(source,/fill\("@t\.password"\)/);assert.match(source,/toHaveValue\("@t\.password"\)/);
  assert.doesNotMatch(JSON.stringify({...bindings,secrets:undefined}),/PRIVATE-native-password/);
@@ -71,6 +71,25 @@ test('native generic review directly exposes its discovered tools and returns th
  const result=await runUpstreamBrowserReview({browser:{tools:[tools[1]],call:async(name,args)=>{calls.push({name,args});return {content:[{type:'text',text:'Native accessibility snapshot'}]};}},prompt:'Review the selected case',deadlineMs:Date.now()+1000,
   complete:async prompt=>{const request=JSON.parse(prompt);requests.push(request);return requests.length===1?{tool_calls:[{name:'browser_snapshot',arguments:{}}]}:final;}});
  assert.equal(result,final);assert.deepEqual(calls,[{name:'browser_snapshot',args:{}}]);assert.deepEqual(requests[0].tools,[tools[1]]);assert.equal(requests[1].observations[0].tool,'browser_snapshot');
+});
+
+test('native review does not accept a final response or tool dispatch after cancellation',async()=>{
+ const controller=new AbortController();let calls=0;
+ await assert.rejects(runUpstreamBrowserReview({browser:{tools:[tools[1]],call:async()=>{calls++;return {content:[]};}},
+  prompt:'Review',signal:controller.signal,deadlineMs:Date.now()+1000,
+  complete:async()=>{controller.abort();return {headline:'Late model response'};}}),{name:'AbortError'});
+ assert.equal(calls,0);
+ const duringProgress=new AbortController();
+ await assert.rejects(runUpstreamBrowserReview({browser:{tools:[tools[1]],call:async()=>{calls++;return {content:[]};}},
+  prompt:'Review',signal:duringProgress.signal,deadlineMs:Date.now()+1000,
+  complete:async()=>({tool_calls:[{name:'browser_snapshot',arguments:{}}]}),onProgress:async()=>duringProgress.abort()}),{name:'AbortError'});
+ assert.equal(calls,0);
+});
+
+test('native review rejects a final model response that outlives its wall-clock deadline',async t=>{
+ let clock=1000;t.mock.method(Date,'now',()=>clock);
+ await assert.rejects(runUpstreamBrowserReview({browser:{tools:[tools[1]],call:async()=>assert.fail('No dispatch after the deadline')},
+  prompt:'Review',deadlineMs:2000,complete:async()=>{clock=2001;return {headline:'Late result'};}}),{code:'AUTOMATION_BUILD_DEADLINE'});
 });
 
 test('native generic review never retries uncertain actions or a transport acknowledgement',async()=>{

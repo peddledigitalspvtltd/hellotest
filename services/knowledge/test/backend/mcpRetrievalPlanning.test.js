@@ -10,7 +10,7 @@ function fixture(){
  const calls=[];
  const mocked={
   '@hellotest/platform/backend/src/db':{prepare:()=>({get:async()=>({count:0})})},
-  './knowledgeRag.service':{},'@hellotest/ai/backend/services/aiContextOrchestrator.service':{},
+  './knowledgeRag.service':{},'@hellotest/ai/services/aiContextOrchestrator':{},
   './knowledgeAuthorization.service':{},
   './knowledgeIntentPlanning.service':{normalizePlan:realPlanning.normalizePlan,planIntent:async()=>assert.fail('Public reads must not make a generative intent-planning call.')},
   './knowledgeContextEngine.service':{retrieve:async input=>{calls.push(input);return {packet:{project_id:input.request.project_id,evidence:[],retrieval:{}},retrieval:{context_packet:{},retrieval_round_count:0}};}}

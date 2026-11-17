@@ -47,7 +47,7 @@ test('whole-case PostgreSQL edits preserve referenced step identities, source an
     await cases.updateTestCase(manual.id, { expected_revision: 1, updated_by: author,
       steps: [{ id: manualBefore.id, expected_result: after.expected_result }] });
     assert.equal((await steps.getTestSteps({ test_case_id: manual.id }))[0].id, manualBefore.id);
-    const { groundedManualCoverage } = require('../../../automation/backend/lib/automationBuildCompletion');
+    const { groundedManualCoverage } = require("../../../automation/backend/lib/build/automationBuildCompletion");
     const coverage = groundedManualCoverage([after], [{ id: manual.id, steps: await steps.getTestSteps({ test_case_id: manual.id }) }]);
     assert.deepEqual(coverage.unmappedManualStepIds, []);
     const versionCount = (await db.prepare('SELECT count(*)::int AS count FROM test_case_versions WHERE test_case_id=?').get(automation.id)).count;

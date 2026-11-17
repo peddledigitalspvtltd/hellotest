@@ -13,15 +13,6 @@
   ],
   "exports": {
     "./backend": "./backend/service.manifest.js",
-    "./backend/services/aiBugDraft.service": "./backend/services/aiBugDraft.service.js",
-    "./backend/services/aiBugTriage.service": "./backend/services/aiBugTriage.service.js",
-    "./backend/services/aiCaseAuthoring.service": "./backend/services/aiCaseAuthoring.service.js",
-    "./backend/services/aiContextOrchestrator.service": "./backend/services/aiContextOrchestrator.service.js",
-    "./backend/services/aiTestCaseGeneration.service": "./backend/services/aiTestCaseGeneration.service.js",
-    "./backend/services/aiTestDataGeneration.service": "./backend/services/aiTestDataGeneration.service.js",
-    "./backend/services/richTextAi.service": "./backend/services/richTextAi.service.js",
-    "./backend/services/storyReadiness.service": "./backend/services/storyReadiness.service.js",
-    "./backend/services/storyGherkin.service": "./backend/services/storyGherkin.service.js",
     "./backend/workers": "./backend/workers.js",
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",
@@ -53,14 +44,8 @@
     "./frontend/lib/smartContext": "./frontend/lib/smartContext.ts",
     "./package.json": "./package.json",
     "./ui": "./frontend/entry.ts",
-    "./backend/services/qualityEvidence.service": "./backend/services/qualityEvidence.service.js",
     "./frontend/components/QualityEvidencePanel": "./frontend/components/QualityEvidencePanel.tsx",
     "./frontend/components/AiLifecycleReview": "./frontend/components/AiLifecycleReview.tsx",
-    "./backend/services/structuredReview.service": "./backend/services/structuredReview.service.js",
-    "./backend/services/qualityRecordSchema": "./backend/services/qualityRecordSchema.js",
-    "./backend/services/qualityGraphChanges": "./backend/services/qualityGraphChanges.js",
-    "./backend/services/automationRepair.service": "./backend/services/automationRepair.service.js",
-    "./frontend/components/AutomationRepairReview": "./frontend/components/AutomationRepairReview.tsx",
     "./frontend/components/AiTestCaseStepTable": "./frontend/components/AiTestCaseStepTable.tsx",
     "./frontend/components/AgenticAuthoringCanvas.css": "./frontend/components/AgenticAuthoringCanvas.css",
     "./frontend/components/AiTestCaseDraftFields": "./frontend/components/AiTestCaseDraftFields.tsx",
@@ -68,7 +53,28 @@
     "./frontend/components/AutomationAgentSetup": "./frontend/components/AutomationAgentSetup.tsx",
     "./frontend/components/AiReferenceImages": "./frontend/components/AiReferenceImages.tsx",
     "./shared/artifactAssurance": "./shared/artifactAssurance.mjs",
-    "./backend/services/artifactAssurance.service": "./backend/services/artifactAssurance.service.js"
+    "./review-client": "./frontend/lib/agentReviewClient.ts",
+    "./frontend/lib/assistantProgressStream": "./frontend/lib/assistantProgressStream.ts",
+    "./frontend/components/QualityEvidencePanel.css": "./frontend/components/QualityEvidencePanel.css",
+    "./agent-experience": "./frontend/components/AgentExperiencePrimitives.tsx",
+    "./agent-experience.css": "./frontend/components/AgentExperiencePrimitives.css",
+    "./evidence-scope": "./frontend/components/AgentEvidenceScope.tsx",
+    "./agent-activity": "./frontend/components/AgentActivity.tsx",
+    "./agent-activity.css": "./frontend/components/AgentActivity.css",
+    "./services/aiBugDraft": "./backend/services/aiBugDraft.service.js",
+    "./services/aiBugTriage": "./backend/services/aiBugTriage.service.js",
+    "./services/aiCaseAuthoring": "./backend/services/aiCaseAuthoring.service.js",
+    "./services/aiContextOrchestrator": "./backend/services/aiContextOrchestrator.service.js",
+    "./services/aiTestCaseGeneration": "./backend/services/aiTestCaseGeneration.service.js",
+    "./services/aiTestDataGeneration": "./backend/services/aiTestDataGeneration.service.js",
+    "./services/richTextAi": "./backend/services/richTextAi.service.js",
+    "./services/storyReadiness": "./backend/services/storyReadiness.service.js",
+    "./services/storyGherkin": "./backend/services/storyGherkin.service.js",
+    "./services/qualityEvidence": "./backend/services/qualityEvidence.service.js",
+    "./services/structuredReview": "./backend/services/structuredReview.service.js",
+    "./services/qualityRecordSchema": "./backend/services/qualityRecordSchema.js",
+    "./services/qualityGraphChanges": "./backend/services/qualityGraphChanges.js",
+    "./services/artifactAssurance": "./backend/services/artifactAssurance.service.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs ai",
@@ -97,7 +103,6 @@
     ]
   },
   "dependencies": {
-    "@hellotest/agentic": "^1.0.0",
     "@hellotest/integration": "^1.0.0",
     "@hellotest/knowledge": "^1.0.0",
     "@hellotest/manual": "^1.0.0",
@@ -105,6 +110,6 @@
     "@hellotest/testing": "^1.0.0",
     "acorn": "8.18.0",
     "@hellotest/trace": "^1.0.0",
-    "@hellotest/automation": "^1.0.0"
+    "@hellotest/contracts": "^1.0.0"
   }
 }

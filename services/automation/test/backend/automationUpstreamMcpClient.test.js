@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {connectUpstreamPlaywright,trustedBrowserContextEvidence}=require('../../backend/lib/automationUpstreamMcpClient');
+const {connectUpstreamPlaywright,trustedBrowserContextEvidence}=require("../../backend/lib/upstream/automationUpstreamMcpClient");
 const tools=[{name:'browser_fill_form',description:'Fill native form fields',annotations:{readOnlyHint:false},inputSchema:{type:'object',properties:{fields:{type:'array',items:{type:'object',properties:{ref:{type:'string'},value:{type:'string'}}}}},required:['fields'],additionalProperties:false}}];
 const nativeResult={content:[{type:'text',text:'### Result\nFilled the form\n### Ran Playwright code\n```js\nawait page.getByRole(\'textbox\', { name: \'Name\' }).fill(\'Ada\');\n```'},{type:'image',mimeType:'image/png',data:'aW1hZ2U='}],isError:false,_meta:{native:'untouched'}};
 const integration={base_url:'https://engine.test/',config:{shared_secret:'upstream-testengine-fixture-secret'}};
@@ -45,7 +45,7 @@ test('unknown, attached, preauthenticated or nonempty lifecycle claims never gra
 });
 
 test('a measured initial fresh fixture plus native guest UI grounds the first section without new tabs, but never satisfies a later reset',async t=>{
-  const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+  const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
   const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
   const startUrl='https://application.test/',goto=`await page.goto(${JSON.stringify(startUrl)});`;
   const guest='await expect(page.getByRole("link",{name:"Hello, sign in",exact:true})).toBeVisible();';
@@ -136,7 +136,7 @@ test('invalid, mismatched and error-result UI previews never reach the case call
 test('optional UI callback failure preserves confirmed native results while revoked authority still stops the call without replay',async t=>{
   const preview={tool:'browser_fill_form',content:[{type:'image',mimeType:'image/jpeg',data:Buffer.from([255,216,255,1]).toString('base64')}]};
   for(const kind of ['optional-store','permission','abort','lease'])await t.test(kind,async t=>{
-    const f=engine(t,{preview}),diagnostics=require('../../backend/lib/automationProgressDiagnostics');
+    const f=engine(t,{preview}),diagnostics=require("../../backend/lib/build/automationProgressDiagnostics");
     const report=t.mock.method(diagnostics,'reportDiagnosticFailure',()=>{});
     const error=kind==='permission'?Object.assign(new Error('Access revoked'),{statusCode:403}):kind==='abort'?Object.assign(new Error('Cancelled'),{name:'AbortError'}):kind==='lease'?Object.assign(new Error('Lease lost'),{code:'BATCH_LEASE_LOST'}):new Error('Optional UI unavailable');
     const browser=await connectUpstreamPlaywright({integration,startUrl:'https://application.test/',capturePreview:true,onPreview:()=>{throw error;}});

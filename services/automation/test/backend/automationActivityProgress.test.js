@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {reduceActivityProgress:reduce}=require('../../backend/lib/automationActivityProgress');
+const {reduceActivityProgress:reduce}=require("../../backend/lib/build/automationActivityProgress");
 test('strict progression completes only from a durable section receipt and propagates to linked manual work',()=>{
  let state=reduce({}, {phase:'automation.agent.plan',details:{test_case_id:'case',progression_policy:'performed_generated_saved',steps:[{step_id:'one'},{step_id:'two'}],manual_steps:[{manual_step_id:'manual-one'}],manual_coverage:[{manual_step_id:'manual-one',section_step_id:'one'}]}});
  assert.equal(state.progression_policy,'performed_generated_saved');

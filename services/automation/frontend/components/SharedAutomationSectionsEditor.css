@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .shared-automation-sections-editor > .automation-plan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .shared-automation-sections-editor .automation-plan-summary { min-width: 0; }
 

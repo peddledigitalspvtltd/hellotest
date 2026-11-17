@@ -19,7 +19,7 @@ it, JSON and source analysis work and YAML reports an explicit limitation. No
 other third-party Python dependency is required.
 
 ```text
-python3 agents/semantic_compiler/compile.py --input input.json --output result.json
+python3 services/agentic/backend/runtime/semantic_compiler/compile.py --input input.json --output result.json
 ```
 
 Input selects `agent_type` (`object_repository`, `api_tests`,
@@ -76,8 +76,8 @@ instructions are not emitted in progress logs.
   excerpts and 120 component groups. All results remain below 6 MB. The Node
   control plane also bounds execution time and isolates job storage by project.
 
-Run focused verification from `services/platform/backend`:
+Run focused verification from the repository root:
 
 ```text
-python3 -m unittest discover -s agents/semantic_compiler/tests -v
+python3 -m unittest discover -s services/agentic/backend/runtime/semantic_compiler/tests -v
 ```

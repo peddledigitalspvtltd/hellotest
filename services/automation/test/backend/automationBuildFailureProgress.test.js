@@ -1,9 +1,10 @@
+const {implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { buildFailureProgress } = require('../../backend/lib/automationBuildFailureProgress');
-const { browserBootstrapFailure } = require('../../backend/lib/automationBrowserBootstrapFailure');
-const { reduceActivityProgress } = require('../../backend/lib/automationActivityProgress');
+const { buildFailureProgress } = require("../../backend/lib/build/automationBuildFailureProgress");
+const { browserBootstrapFailure } = require("../../backend/lib/browser/automationBrowserBootstrapFailure");
+const { reduceActivityProgress } = require("../../backend/lib/build/automationActivityProgress");
 
 test('repeated unobserved targets receive actionable safe browser diagnostics while invalid flow context stays context',()=>{
  const stalled=Object.assign(new Error('Private selector #password-internal and provider response'),{code:'AUTOMATION_BROWSER_TARGET_PROPOSAL_STALLED',saved_sections:2,active_step_id:'active',details:{locator:'#password-internal'}});
@@ -109,13 +110,13 @@ test('a typed browser budget failure after successful model calls retains its re
 
 test('the real single-case outcome retains code compatibility and exposes startup error_code and failure_stage', async () => {
   const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-  const single = source.slice(source.indexOf('exports.buildAutomationForCase ='), source.indexOf('exports.buildAutomationBatch ='));
+  const single = implementationFunctionSource('aiAutomationBuilder.service','buildAutomationForCase');
   const updates = [], exported = {};
   const error = Object.assign(new Error('Browser could not start'), { code: 'AUTOMATION_BROWSER_STARTUP_FAILED', failure_stage: 'browser_startup',
     saved_sections: 0, automation_test_case_id: 'automation' });
   const workspace = { createTransaction: async () => ({ id: 'activity' }), updateTransaction: async (id, data) => { updates.push(data); return { id }; } };
-  new Function('exports', 'buildFeature', 'normalizeText', 'selectCaseWithScope', 'workspaceTransactionService', 'buildCaseCore', 'appendEvent', single)(
-    exported, value => value, value => value || null, { get: async () => ({ id: 'automation', title: 'Journey', app_type_id: 'app', project_id: 'project' }) },
+  new Function('require', 'exports', 'buildFeature', 'normalizeText', 'selectCaseWithScope', 'workspaceTransactionService', 'buildCaseCore', 'appendEvent', single)(
+    name=>{assert.equal(name,'./automationAuthoringAdmission.service');return {withBuild:async(_input,reserve)=>reserve()};}, exported, value => value, value => value || null, { get: async () => ({ id: 'automation', title: 'Journey', app_type_id: 'app', project_id: 'project' }) },
     workspace, async () => { throw error; }, async () => {}
   );
   await assert.rejects(exported.buildAutomationForCase({ test_case_id: 'automation', created_by: 'author' }), value => value === error);
@@ -133,7 +134,7 @@ test('the real single-case outcome persists the upstream engine and driver from 
   const result={test_case_id:'automation',title:'Mixed journey',generated_step_count:2,build_engine:'upstream-playwright-v1',browser_evidence:{transport:'upstream_playwright_mcp'},verification_status:'unverified'};
   const workspace={createTransaction:async()=>({id:'activity'}),updateTransaction:async(id,data)=>{updates.push(data);return {id};}};
   new Function('require','exports','buildFeature','normalizeText','selectCaseWithScope','workspaceTransactionService','buildCaseCore','appendEvent',single)(
-    name=>{assert.equal(name,'../lib/automationBuildPipelineOptions');return require('../../backend/lib/automationBuildPipelineOptions');},exported,value=>value,value=>value||null,
+    name=>{if(name.endsWith('/automationAuthoringAdmission.service'))return {withBuild:async(_input,reserve)=>reserve()};assert.equal(name,'../lib/build/automationBuildPipelineOptions');return require("../../backend/lib/build/automationBuildPipelineOptions");},exported,value=>value,value=>value||null,
     {get:async()=>({id:'automation',title:'Mixed journey',project_id:'project',app_type_id:'app'})},workspace,async()=>result,async()=>{}
   );
   const built=await exported.buildAutomationForCase({test_case_id:'automation',created_by:'actor'});
@@ -145,8 +146,8 @@ test('the real single-case outcome persists the upstream engine and driver from 
 
 test('real single and batch outcomes retain HTTP 502 without copying the browser payload or admitting a worker retry', async () => {
   const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
-  const single = source.slice(source.indexOf('exports.buildAutomationForCase ='), source.indexOf('exports.buildAutomationBatch ='));
-  const batch = source.slice(source.indexOf('exports.buildAutomationBatch ='), source.indexOf('exports.listLearningCache ='));
+  const single = implementationFunctionSource('aiAutomationBuilder.service','buildAutomationForCase');
+  const batch = implementationFunctionSource('aiAutomationBuilder.service','buildAutomationBatch');
   const error = browserBootstrapFailure({ isError: true, content: [{ type: 'text', text: JSON.stringify({ code: 'BROWSER_NAVIGATION_FAILED', http_status: 502,
     action_outcome: 'completed', retry_safe: false, message: 'raw https://private.example/path?token=fixture-secret' }) }] });
   Object.assign(error, { failure_stage: 'browser', automation_test_case_id: 'automation', saved_sections: 0 });
@@ -155,9 +156,9 @@ test('real single and batch outcomes retain HTTP 502 without copying the browser
   const context = { exports: exported, buildFeature: value => value, normalizeText: value => value || null,
     normalizeIdList: value => value, DEFAULT_BATCH_FAILURE_THRESHOLD: 3,
     selectCaseWithScope: { get: async () => ({ id: 'automation', title: 'Journey', app_type_id: 'app', project_id: 'project', app_type_kind: 'web' }) },
-    workspaceTransactionService: workspace, buildCaseCore: async () => { throw error; },
+    workspaceTransactionService: workspace, selectStepsForCase:{all:async()=>[]},normalizeAutomationStartUrl:value=>value,requiresAutomationStartUrl:()=>false,buildCaseCore: async () => { throw error; },
     appendEvent: async (id, event) => { events.push(event); }, updateTransaction: workspace.updateTransaction,
-    require: name => { assert.equal(name, './automationBuildTargets.service'); return require('../../backend/services/automationBuildTargets.service'); }
+    require: name => { if(name.endsWith('/automationAuthoringAdmission.service'))return {withBuild:async(_input,reserve)=>reserve()};assert.equal(name, './automationBuildTargets.service'); return require('../../backend/services/automationBuildTargets.service'); }
   };
   new Function(...Object.keys(context), single + '\n' + batch)(...Object.values(context));
   await assert.rejects(exported.buildAutomationForCase({ test_case_id: 'automation', created_by: 'author' }), value => value === error);

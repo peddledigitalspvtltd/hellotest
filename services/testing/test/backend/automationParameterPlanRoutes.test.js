@@ -13,7 +13,7 @@ async function appFixture(t){
  return{app,checks,get dataAllowed(){return dataAllowed;},setDataAllowed:value=>dataAllowed=value,setSuiteAllowed:value=>suiteAllowed=value};
 }
 test('parameter preview checks project/build/data access and returns only the governed plan',async t=>{
- const f=await appFixture(t),plans=require('@hellotest/automation/backend/services/automationBuildParameterPlan.service');let reads=0;
+ const f=await appFixture(t),plans=require('@hellotest/automation/build-parameters');let reads=0;
  t.mock.method(plans,'load',async input=>{if(!f.dataAllowed)throw Object.assign(new Error('Test data access required'),{statusCode:403});reads++;assert.equal(input.projectId,'project');assert.equal(input.caseId,'case');assert.equal(input.userId,'author');assert.equal(input.testCase,undefined);assert.equal(input.expectedKey,undefined);assert.equal(input.test_environment_id,'env');return{test_case_id:'case',parameter_values:{'t.name':'Reader'},private_parameter_references:['t.password'],missing_parameter_references:['r.optional'],parameter_plan_key:'receipt'};});
  const response=await f.app.inject({method:'POST',url:'/test-cases/case/automation/parameter-plan',payload:{test_environment_id:'env',testCase:{id:'other-case',project_id:'project'},expectedKey:'untrusted-extra-property'}});
  assert.equal(response.statusCode,200);assert.equal(response.json().parameter_values['t.name'],'Reader');assert.equal(reads,1);
@@ -21,7 +21,7 @@ test('parameter preview checks project/build/data access and returns only the go
  f.setDataAllowed(false);const denied=await f.app.inject({method:'POST',url:'/test-cases/case/automation/parameter-plan',payload:{}});assert.equal(denied.statusCode,403);assert.equal(reads,1);
 });
 test('single direct and queued builds retain explicit empty and scoped reviewed inputs with their source receipt',async t=>{
- const f=await appFixture(t),builder=require('@hellotest/automation/backend/services/aiAutomationBuilder.service'),generator=require('@hellotest/automation/backend/services/automationGenerator.service'),received=[];
+ const f=await appFixture(t),builder=require('@hellotest/automation/build'),generator=require('@hellotest/automation/generator'),received=[];
  t.mock.method(builder,'buildAutomationForCase',async input=>{received.push(input);return{accepted:true};});t.mock.method(generator,'queueGeneratorJob',async input=>{received.push(input);return{accepted:true};});
  const payload={parameter_values:{'t.name':'Reader','r.optional':''},parameter_plan_key:'reviewed-source',allow_browser_actions:true};
  for(const suffix of ['build','generator-jobs']){
@@ -30,7 +30,7 @@ test('single direct and queued builds retain explicit empty and scoped reviewed 
  assert.equal(received.length,2);for(const input of received){assert.deepEqual(input.parameter_values,payload.parameter_values);assert.equal(input.parameter_plan_key,'reviewed-source');assert.equal(input.created_by,'author');}
 });
 test('selected suite survives preview, direct and durable routes with suite access checked before domain work',async t=>{
- const f=await appFixture(t),plans=require('@hellotest/automation/backend/services/automationBuildParameterPlan.service'),builder=require('@hellotest/automation/backend/services/aiAutomationBuilder.service'),generator=require('@hellotest/automation/backend/services/automationGenerator.service'),received=[];
+ const f=await appFixture(t),plans=require('@hellotest/automation/build-parameters'),builder=require('@hellotest/automation/build'),generator=require('@hellotest/automation/generator'),received=[];
  t.mock.method(plans,'load',async input=>{received.push(input);return{test_case_id:'case',test_suite_id:input.test_suite_id,parameter_plan_key:'reviewed'};});
  t.mock.method(builder,'buildAutomationForCase',async input=>{received.push(input);return{accepted:true};});
  t.mock.method(generator,'queueGeneratorJob',async input=>{received.push(input);return{accepted:true};});

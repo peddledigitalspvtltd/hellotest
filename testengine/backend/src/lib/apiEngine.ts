@@ -9,6 +9,8 @@ import type {
 import { compare, evaluateExtendedApiAssertion } from "./apiAssertions.js";
 import { readJsonPathValue } from "./apiJsonPath.js";
 import { apiRequestTimeoutMs } from "./apiRequestTimeout.js";
+import { ApiResponseLimitError, apiResponsePreview, readApiResponseBody } from "./apiResponseBody.js";
+import { createExecutionOutputRedactor } from "./executionOutputRedaction.js";
 import { automationStepOptions } from "./automationStepOptions.js";
 import {
   buildInitialContext,
@@ -47,6 +49,7 @@ type ApiResponsePreview = {
     body_text: string;
     body_json: unknown;
     duration_ms: number;
+    body_error?: string;
   };
 };
 
@@ -142,7 +145,7 @@ const resolveApiRequest = (
     if(!ref || !credential)throw new Error('Configure the API authentication credential_reference in authorized test data before execution.');
   }
   if(resolved.url?.startsWith('/') && envelope.environment?.base_url)resolved.url=new URL(resolved.url,envelope.environment.base_url).href;
-  return {...resolved,resolved_credential:credential};
+  return {...resolved,resolved_credential:credential,runtime_values:context.values};
 };
 
 const mapResponseHeaders = (response: Response) =>
@@ -278,8 +281,9 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
 
     if (kind === "header") {
       const headerName = String(target || "content-type").toLowerCase();
-      const actual = preview.response.headers[headerName] || "";
-      const passed = compare(actual,expected || "",validation.operator);
+      const present = Object.prototype.hasOwnProperty.call(preview.response.headers, headerName);
+      const actual = present ? preview.response.headers[headerName] : null;
+      const passed = present && compare(actual,expected || "",validation.operator);
 
       return {
         kind,
@@ -287,7 +291,7 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
         target: headerName,
         expected: expected || "",
         actual,
-        summary: passed
+        summary: !present ? `The response is missing header ${headerName}.` : passed
           ? `Header matched ${headerName}.`
           : `Expected "${expected || ""}", received "${actual || "(empty)"}".`
       };
@@ -445,6 +449,7 @@ const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_crede
   const url=target.toString();
   const startedAt = Date.now();
   let response: Response;
+  const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))]) : AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms));
 
   try {
     response = await fetch(url, {
@@ -452,7 +457,7 @@ const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_crede
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : serializeApiBody(request, headers),
       redirect: request.follow_redirects===false?"manual":"follow",
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))]) : AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
+      signal: requestSignal
     });
   } catch (error) {
     if (signal?.aborted) throw new Error("Local execution was cancelled.");
@@ -463,7 +468,14 @@ const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_crede
     throw new Error(error instanceof Error ? error.message : "Unable to run API request");
   }
 
-  const bodyText = await response.text();
+  let bodyText = "", bodyError: string | undefined;
+  try { bodyText = await readApiResponseBody(response, requestSignal); }
+  catch (error) {
+    if (!(error instanceof ApiResponseLimitError)) throw error;
+    // The server may already have completed a mutation. Retain its HTTP
+    // metadata and report a failed receipt without retrying or trusting a prefix.
+    bodyError = error.message;
+  }
   const contentType = response.headers.get("content-type");
 
   const reportedUrl=new URL(url);
@@ -486,8 +498,9 @@ const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_crede
       headers: mapResponseHeaders(response),
       content_type: contentType,
       body_text: bodyText,
-      body_json: parseResponseJson(bodyText, contentType),
-      duration_ms: Date.now() - startedAt
+      body_json: bodyError ? null : parseResponseJson(bodyText, contentType),
+      duration_ms: Date.now() - startedAt,
+      ...(bodyError ? { body_error: bodyError } : {})
     }
   };
 };
@@ -501,13 +514,25 @@ export async function executeApiStepInEngine(
   const stepTimeout = automationStepOptions(step).timeoutMs;
   const request = resolveApiRequest(stepTimeout && step.api_request ? { ...step.api_request, timeout_ms: stepTimeout } : step.api_request, envelope, capturedValues, step);
   const preview = await runResolvedApiRequest(request, signal);
-  const assertions = evaluateApiAssertions(preview, request.validations || []);
-  const captures = extractCaptures(request, preview);
+  const assertions: ReturnType<typeof evaluateApiAssertions> = preview.response.body_error
+    ? [{kind:"response_body",passed:false,target:null,expected:"Complete response body",actual:null,summary:preview.response.body_error}]
+    : evaluateApiAssertions(preview, request.validations || []);
+  const captures = preview.response.body_error ? {} : extractCaptures(request, preview);
   const captureSource=preview.response.body_json ?? preview.response.body_text;
-  for(const capture of request.captures || [])if(!readJsonPathValue(captureSource,capture.path||'$').found)assertions.push({kind:'json_path',passed:false,target:capture.path||'$',expected:`Capture ${capture.parameter}`,actual:null,summary:`Required response capture ${capture.parameter} was not found at ${capture.path}.`});
+  if(!preview.response.body_error)for(const capture of request.captures || [])if(!readJsonPathValue(captureSource,capture.path||'$').found)assertions.push({kind:'json_path',passed:false,target:capture.path||'$',expected:`Capture ${capture.parameter}`,actual:null,summary:`Required response capture ${capture.parameter} was not found at ${capture.path}.`});
   const firstFailure = assertions.find((assertion) => !assertion.passed);
   const passed = assertions.every((assertion) => assertion.passed);
   const captureLines = Object.entries(captures).map(([key, value]) => `Captured ${key} = ${stringifyValue(value)}`);
+  const diagnosticResponse = preview.response.body_error
+    ? {body:"",body_truncated:true,body_retained_bytes:0}
+    : apiResponsePreview(preview.response.body_text);
+  // Generated SVG diagnostics are text encoded as an image, so sanitize before
+  // encoding. The public output redactor intentionally leaves binary images intact.
+  const evidence = createExecutionOutputRedactor(envelope, () => [{values:{ ...request.runtime_values, ...captures }}])({
+    status: passed ? "passed" as const : "failed" as const,
+    title: request.url || "API step", url: preview.request.url, method: preview.request.method,
+    responseStatus: `${preview.response.status} ${preview.response.status_text}`.trim(), captureLines
+  });
 
   return {
     status: passed ? "passed" : "failed",
@@ -526,8 +551,8 @@ export async function executeApiStepInEngine(
         status: preview.response.status,
         status_text: preview.response.status_text,
         headers: preview.response.headers,
-        body: preview.response.body_text,
-        json: preview.response.body_json
+        ...diagnosticResponse,
+        json: diagnosticResponse.body_truncated ? null : preview.response.body_json
       },
       captures,
       assertions: assertions.map<HelloTestExecutionApiAssertion>((assertion) => ({
@@ -535,19 +560,13 @@ export async function executeApiStepInEngine(
         passed: assertion.passed,
         target: assertion.target,
         expected: assertion.expected,
-        actual: assertion.actual
+        actual: typeof assertion.actual === "string" && Buffer.byteLength(assertion.actual, "utf8") > 8192
+          ? `${apiResponsePreview(assertion.actual, 8192).body}\n[Assertion diagnostic truncated; evaluation used the complete response.]` : assertion.actual
       }))
     },
     captures,
     evidence: {
-      dataUrl: buildApiEvidenceDataUrl({
-        status: passed ? "passed" : "failed",
-        title: request.url || "API step",
-        url: preview.request.url,
-        method: preview.request.method,
-        responseStatus: `${preview.response.status} ${preview.response.status_text}`.trim(),
-        captureLines
-      }),
+      dataUrl: buildApiEvidenceDataUrl(evidence),
       fileName: `api-step-${passed ? "passed" : "failed"}.svg`,
       mimeType: "image/svg+xml"
     }

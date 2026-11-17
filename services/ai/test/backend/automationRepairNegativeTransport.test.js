@@ -1,20 +1,21 @@
+const {implementationFunctionSource}=require('../../../automation/test/helpers/implementationSource');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
-const rules=require('../../backend/services/automationRepairRules');
+const rules=require('../../../automation/backend/services/automationRepairRules');
 const dispatch=fs.readFileSync(require.resolve('../../../automation/backend/services/testEngineDispatch.service'),'utf8');
 
 function envelopeBuilder(){
  const part=(start,end)=>dispatch.slice(dispatch.indexOf(start),dispatch.indexOf(end,dispatch.indexOf(start)));
  const normalizeText=value=>value==null?null:String(value).trim();
- const dependencies={executionWithCaseEnvironment:require('../../../automation/backend/lib/automationExecutionEnvironment').executionWithCaseEnvironment,require:require('node:module').createRequire(require.resolve('../../../automation/backend/services/testEngineDispatch.service')),normalizeText,normalizeJsonValue:(value,fallback)=>value??fallback,normalizeInteger:(value,fallback)=>value==null?fallback:Number(value),
+ const dependencies={executionWithCaseEnvironment:require("../../../automation/backend/lib/build/automationExecutionEnvironment").executionWithCaseEnvironment,require:require('node:module').createRequire(require.resolve('../../../automation/backend/services/testEngineDispatch.service')),normalizeText,normalizeJsonValue:(value,fallback)=>value??fallback,normalizeInteger:(value,fallback)=>value==null?fallback:Number(value),
   resolveAutomationCaseType:require('../../../platform/backend/src/utils/automationCaseType').resolveAutomationCaseType,
   preserveFrozenEngineEnvelope:require('../../../platform/backend/src/utils/frozenRunParameterCompatibility').preserveFrozenEngineEnvelope,
   configurationTargetsForRead:()=>[],normalizeEngineBrowser:(value,fallback)=>value||fallback,resolveExecutionPolicy:async()=>({}),
   normalizeSessionMode:(value,fallback)=>value||fallback,normalizeTestEngineWebEngine:(value,fallback)=>value||fallback,
   normalizeStoredReferenceList:()=>[],buildManualSpec:()=>({}),configuredRepairBrief:async()=>({}),
   resolveExecutionHooks:({caseSnapshot})=>caseSnapshot.execution_hooks,toEngineKeyValueEntries:value=>value||[],toEngineDataSetRows:rows=>rows||[]};
- return new Function(...Object.keys(dependencies),part('const normalizeStringRecord =','const normalizeCapturedValuesRecord =')
-  +part('const resolveCaseDataSetContext =','const resolveEngineStepType =')
-  +part('const buildEngineEnvelope =','const summarizeWarnings =')+'\nreturn buildEngineEnvelope;')(...Object.values(dependencies));
+ return new Function(...Object.keys(dependencies),implementationFunctionSource('dispatch/engineTypes','normalizeStringRecord')
+  +implementationFunctionSource('dispatch/engineTypes','resolveCaseDataSetContext')
+  +implementationFunctionSource('dispatch/engineEnvelope','buildEngineEnvelope')+'\nreturn buildEngineEnvelope;')(...Object.values(dependencies));
 }
 
 test('actual dispatcher keeps negative fixture data outside invariant execution settings and preserves pinned hooks',async()=>{

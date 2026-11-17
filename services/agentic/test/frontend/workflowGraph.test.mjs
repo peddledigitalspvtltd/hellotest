@@ -7,7 +7,7 @@ const ts = require('typescript');
 const profiles = {};
 new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/specialistProfiles.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
-}).outputText)(() => JSON.parse(readFileSync(new URL('../../shared/workflowSpecialists.json', import.meta.url), 'utf8')), profiles);
+}).outputText)(() => JSON.parse(readFileSync(new URL('../../../contracts/agents/workflowSpecialists.json', import.meta.url), 'utf8')), profiles);
 const nativeProfiles = {};
 new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/nativeTaskProfiles.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
@@ -19,7 +19,7 @@ new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../.
 const graph = {};
 new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/workflowGraph.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
-}).outputText)(name => name === './specialistProfiles' ? profiles : name === './nativeTaskProfiles' ? nativeProfiles : name === './dataOperationProfiles' ? dataProfiles : name === '@xyflow/react' ? { MarkerType: { ArrowClosed: 'arrowclosed' } } : { isRovoIntegrationId: value => value.startsWith('rovo:') }, graph);
+}).outputText)(name => name === '../../shared/workflowNodeKinds.json' ? {default:JSON.parse(readFileSync(new URL('../../shared/workflowNodeKinds.json', import.meta.url),'utf8'))} : name === './specialistProfiles' ? profiles : name === './nativeTaskProfiles' ? nativeProfiles : name === './dataOperationProfiles' ? dataProfiles : name === '@xyflow/react' ? { MarkerType: { ArrowClosed: 'arrowclosed' } } : { isRovoIntegrationId: value => value.startsWith('rovo:') }, graph);
 
 test('Sprint template snapshots the correct editable intent for each native task', () => {
   const templates = {};
@@ -266,4 +266,25 @@ test('list-processing starter has an explicit connected body and valid completio
   assert.ok(draft.edges.some(edge=>edge.source===body.id && edge.target===loop.id && edge.targetHandle==='continue'));
   assert.ok(draft.edges.some(edge=>edge.source===loop.id && edge.sourceHandle==='done' && draft.nodes.find(node=>node.id===edge.target)?.data.kind==='output'));
   for(const edge of draft.edges) assert.equal(graph.canConnectWorkflow(draft.nodes,draft.edges.filter(item=>item.id!==edge.id),edge.source,edge.target,edge.sourceHandle,edge.targetHandle),true);
+});
+
+
+test('registry exposes every executable kind once in the palette and enforces authoring caps',()=>{
+ const kinds=JSON.parse(readFileSync(new URL('../../shared/workflowNodeKinds.json',import.meta.url),'utf8')).kinds;
+ assert.deepEqual(graph.nodePaletteGroups.flatMap(group=>group.kinds).sort(),Object.keys(kinds).sort());
+ const four=Array.from({length:4},(_,index)=>({id:`agent-${index}`,data:{kind:'agent'}}));
+ assert.throws(()=>graph.insertWorkflowNode(four,[],'agent'),/specialist/i);
+ assert.throws(()=>graph.insertWorkflowNode(Array.from({length:100},(_,index)=>({id:`step-${index}`,data:{kind:index?'transform':'trigger'}})),[],'transform'),/100/);
+});
+
+test('node search and loop collapse are bounded presentation helpers and preserve the saved graph',()=>{
+ const helpers={};
+ new Function('require','exports',ts.transpileModule(readFileSync(new URL('../../frontend/workflows/workflowPresentation.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(()=>graph,helpers);
+ const nodes=[{id:'request',data:{kind:'trigger',label:'Request'}},{id:'loop',data:{kind:'loop',loopAction:'workflow'}},{id:'review',data:{kind:'transform',label:'Review story'}},{id:'done',data:{kind:'output',label:'Output'}}];
+ const edges=[{source:'request',target:'loop'},{source:'loop',target:'review',sourceHandle:'loop'},{source:'review',target:'loop',targetHandle:'continue'},{source:'loop',target:'done',sourceHandle:'done'}];
+ const before=JSON.stringify({nodes,edges});
+ assert.deepEqual([...helpers.loopPresentationBodies(nodes,edges).loop],['review']);
+ assert.deepEqual(helpers.searchWorkflowNodes(nodes,'story').map(node=>node.id),['review']);
+ assert.deepEqual(helpers.searchWorkflowNodes(nodes,'review').map(node=>node.id),['review']);
+ assert.equal(JSON.stringify({nodes,edges}),before);
 });

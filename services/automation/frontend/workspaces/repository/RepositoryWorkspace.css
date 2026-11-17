@@ -1,0 +1,36 @@
+.automation-workspace-grid--repository .repository-config-fields {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.automation-workspace-grid--repository .repository-locator-list article {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.automation-workspace-grid--repository .repository-locator-list article > code,
+.automation-workspace-grid--repository .repository-locator-list article > span:last-child {
+  grid-column: 1 / -1;
+}
+
+.automation-workspace-grid--repository .repository-locator-list article > code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .automation-workspace-grid--repository .pom-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .automation-workspace-grid--repository .pom-page-list {
+    max-height: 14rem;
+  }
+
+  .automation-workspace-grid--repository .repository-screen-overview-grid,
+  .automation-workspace-grid--repository .object-repository-config-drawer .testops-builder-form {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

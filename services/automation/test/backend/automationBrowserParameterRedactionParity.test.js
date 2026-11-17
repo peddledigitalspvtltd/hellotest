@@ -1,8 +1,8 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {snapshotFrameScope}=require('../../backend/lib/automationFrameScope');
-const {projectModelSnapshot,resolveModelToolRequest}=require('../../backend/lib/automationBrowserModelTargets');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {snapshotFrameScope}=require("../../backend/lib/browser/automationFrameScope");
+const {projectModelSnapshot,resolveModelToolRequest}=require("../../backend/lib/browser/automationBrowserModelTargets");
 const base='https://app.test/';
 const read=(resolver,payload)=>JSON.parse(resolver.redactResult({content:[{type:'text',text:JSON.stringify(payload)}]}).content[0].text);
 const observation=payload=>({tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify(payload)}]}});

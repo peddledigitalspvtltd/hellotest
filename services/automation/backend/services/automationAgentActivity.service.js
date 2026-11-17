@@ -1,6 +1,6 @@
 const obsDb=require('@hellotest/platform/backend/src/obsDb');
 const transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service');
-const diagnostics=require('../lib/automationProgressDiagnostics');
+const diagnostics=require("../lib/build/automationProgressDiagnostics");
 const traceContext=require('@hellotest/platform/backend/src/utils/llmTraceContext');
 function page(input={}){
  const offset=Number(input.events_offset??0),limit=Number(input.events_limit??200);
@@ -46,7 +46,7 @@ async function recordProgress(transactionId,event){
   await obsDb.prepare('SELECT id FROM workspace_transactions WHERE id=? FOR UPDATE').get(transactionId);
   const transaction=await transactions.getTransaction(transactionId);
   if(transaction.metadata?.cancelled===true)throw Object.assign(new Error('The automation build was stopped. Saved sections and evidence were retained.'),{name:'AbortError',code:'AUTOMATION_BUILD_CANCELLED',nonRetryable:true});
-  const progress=require('../lib/automationActivityProgress').reduceActivityProgress(transaction.metadata,event);
+  const progress=require("../lib/build/automationActivityProgress").reduceActivityProgress(transaction.metadata,event);
   return transactions.appendTransactionEvent(transactionId,{...event,metadata:{...event.metadata,...progress}});
  })();
 }
@@ -64,7 +64,7 @@ module.exports.screenshot=screenshot;
 
 async function createSectionPreview(transactionId,input){
  if(!transactionId)return {};
- const workspace=require('../lib/automationWorkspacePreview');
+ const workspace=require("../lib/build/automationWorkspacePreview");
  const value=workspace.sectionPreview(input);
  const artifact=await transactions.createTransactionArtifact(transactionId,{file_name:`section-${value.step_id}-attempt-${value.attempt}.json`,mime_type:workspace.PREVIEW_MIME,content:workspace.artifactJson(value)});
  return {preview_artifact_id:artifact.id,preview_created_at:value.created_at,validated_at:value.created_at};
@@ -77,13 +77,13 @@ async function createBrowserEvidence(transactionId,input){
   try{artifact=await transactions.createTransactionArtifact(transactionId,{file_name:`browser-read-diagnostic-${Date.now()}.json`,mime_type:'application/vnd.hellotest.automation-browser-diagnostic+json',content:JSON.stringify(failure)});}
   catch(error){if(diagnostics.isCriticalAutomationError(error))throw error;diagnostics.reportDiagnosticFailure({activityId:transactionId,operation:'browser_read_diagnostic_storage',error});}
   await recordProgress(transactionId,{phase:failure.action_id?'automation.agent.read.diagnostic':'automation.agent.read.failed',level:'warning',
-   message:require('../lib/automationStepBuildErrors').browserReadFailureMessage(failure.error_code),
+   message:require("../lib/build/automationStepBuildErrors").browserReadFailureMessage(failure.error_code),
    details:{...failure,...(artifact?{diagnostic_artifact_id:artifact.id}:{})}});
   // A failed read is a diagnostic, never the latest application evidence or
   // proof used to compile/review an executable section.
   return null;
  }
- const workspace=require('../lib/automationWorkspacePreview'),observed=workspace.browserEvidence(input);
+ const workspace=require("../lib/build/automationWorkspacePreview"),observed=workspace.browserEvidence(input);
  if(!observed)return null;
  const {evidence,hasSnapshot,image}=observed;
  let snapshotArtifact,screenshotArtifact,screenshotUnavailable=false;
@@ -134,13 +134,13 @@ function browserReadDiagnostic({observation,testCaseId,attempt,active_step_id,ac
 module.exports.browserReadDiagnostic=browserReadDiagnostic;
 async function getArtifact(artifactId){try{return await transactions.getTransactionArtifact(artifactId);}catch(error){if(error.message==='Workspace transaction artifact not found')throw Object.assign(new Error('Automation workspace evidence is unavailable for this activity.'),{statusCode:404});throw error;}}
 async function workspaceArtifact(transaction,artifactId,mime,kind){
- const workspace=require('../lib/automationWorkspacePreview');
+ const workspace=require("../lib/build/automationWorkspacePreview");
  return workspace.readArtifact(await getArtifact(artifactId),transaction,mime,kind);
 }
 module.exports.createSectionPreview=createSectionPreview;
 module.exports.createBrowserEvidence=createBrowserEvidence;
 module.exports.preview=async(transaction,artifactId)=>{
- const preview=await workspaceArtifact(transaction,artifactId,require('../lib/automationWorkspacePreview').PREVIEW_MIME,'section_preview');
+ const preview=await workspaceArtifact(transaction,artifactId,require("../lib/build/automationWorkspacePreview").PREVIEW_MIME,'section_preview');
  const unknown={status:'unknown',reasons:['current_plan_unavailable']};
  if(!transaction.project_id)return {...preview,applicability:unknown};
  try{
@@ -154,7 +154,7 @@ module.exports.preview=async(transaction,artifactId)=>{
    JOIN test_cases tc ON tc.id=link.manual_test_case_id AND tc.app_type_id=target.app_type_id AND COALESCE(tc.automated,'no')='no'
    JOIN app_types app ON app.id=target.app_type_id JOIN test_steps s ON s.test_case_id=tc.id
    WHERE target.id=? AND app.project_id=? AND s.id IN (${ids.map(()=>'?').join(',')})`).all(preview.test_case_id,transaction.project_id,...ids):[];
-  return {...preview,applicability:require('../lib/automationGenerationManifest').generationApplicability({manifest:preview.generation_manifest,testCaseId:preview.test_case_id,currentStep:step,currentManualSteps:manualSteps})};
+  return {...preview,applicability:require("../lib/build/automationGenerationManifest").generationApplicability({manifest:preview.generation_manifest,testCaseId:preview.test_case_id,currentStep:step,currentManualSteps:manualSteps})};
  }catch(error){
   if(diagnostics.isCriticalAutomationError(error))throw error;
   // Version comparison is optional. Protected historical content remains
@@ -165,4 +165,4 @@ module.exports.preview=async(transaction,artifactId)=>{
 };
 module.exports.createBuildData=(transactionId,input)=>require('./automationBuildData.service').create(transactionId,input);
 module.exports.buildData=(transaction,artifactId)=>require('./automationBuildData.service').read(transaction,artifactId);
-module.exports.evidence=(transaction,artifactId)=>workspaceArtifact(transaction,artifactId,require('../lib/automationWorkspacePreview').EVIDENCE_MIME,'browser_evidence');
+module.exports.evidence=(transaction,artifactId)=>workspaceArtifact(transaction,artifactId,require("../lib/build/automationWorkspacePreview").EVIDENCE_MIME,'browser_evidence');

@@ -11,6 +11,7 @@ function load(filename, overrides) {
   const module = { exports: {} };
   new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(id => {
     const name = path.basename(id).replace(/\.js$/, '');
+    if (['bugDraftGrounding','structuredModelBoundary','model-boundary'].includes(name)) return load(nativeRequire.resolve(id), overrides);
     return Object.hasOwn(overrides, name) ? overrides[name] : nativeRequire(id);
   }, module, module.exports);
   return module.exports;
@@ -214,7 +215,7 @@ test('scope-aware draft routes enforce native case/suite permissions before call
   const checks = [];
   let denied, previews = 0;
   const routes = load(path.resolve(__dirname, '../../../testing/backend/routes/issues.routes.js'), {
-    'aiBugDraft.service': { preview: async input => { previews++; return { suites: input.linked_test_suite_ids, modules: input.linked_module_ids }; } },
+    aiBugDraft: { preview: async input => { previews++; return { suites: input.linked_test_suite_ids, modules: input.linked_module_ids }; } },
     'projectAccess': { getProject: async () => ({ id: 'project' }) },
     'featureFlag.service': { isEnabled: async () => true }
   });

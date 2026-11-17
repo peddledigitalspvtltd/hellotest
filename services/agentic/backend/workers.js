@@ -4,6 +4,13 @@ module.exports = () => {
     const qualityAgentsService = require("./services/qualityAgents.service");
     return {
         tasks: [
+            { intervalMs: 2000, label: "Unable to deliver durable workflow triggers", run: () => require("./services/workflowTriggers.service").processPending(), runImmediately: true },
+            {
+                intervalMs: 2000,
+                label: "Unable to synchronize canonical agent activity",
+                run: () => require('./services/agentActivity.service').processPending(),
+                runImmediately: true
+            },
             {
                 intervalMs: 2 * 1000,
                 label: "Unable to process queued repository agent analyses",

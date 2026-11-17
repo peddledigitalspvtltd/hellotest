@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import {registerAutomationMcp} from '../../dist/lib/automationMcp.js';
 
 const require=createRequire(import.meta.url);
-const {connectAutomationBrowser}=require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const {connectAutomationBrowser}=require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const payload=result=>JSON.parse(result.content.find(block=>block.type==='text').text);
 const success=async(browser,name,args={},options)=>{
  const result=await browser.call(name,args,options);assert.notEqual(result.isError,true,JSON.stringify(result));return payload(result);

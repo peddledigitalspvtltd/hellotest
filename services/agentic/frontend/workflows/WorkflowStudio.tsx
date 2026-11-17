@@ -1,3 +1,5 @@
+import {useQuery} from "@tanstack/react-query";
+import {agenticApi} from "../api.client";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useWorkflowHistory } from "../hooks/useWorkflowHistory";
 import { validateWorkflowInput, type WorkflowGraphSnapshot } from "./workflowHistory";
@@ -21,13 +23,14 @@ import type {
   AgenticWorkflowReadiness,
   AgenticWorkflowRun,
 } from "@hellotest/platform/frontend/src/types";
-import { WorkflowCanvas, EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
+import { WorkflowCanvas } from "./WorkflowCanvas";
 import {
   WorkflowNodeInspector,
   type WorkflowNodeInspectorProps,
 } from "./WorkflowNodeInspector";
 import {
   nodeKindLabels,
+  WORKFLOW_LIMITS, workflowSpecialistCount,
   nodeKindDescriptions,
   nodePaletteGroups,
   canConnectWorkflow,
@@ -36,6 +39,9 @@ import {
   type WorkflowNodeKind,
 } from "./workflowGraph";
 import "./WorkflowStudio.css";
+import nodeKinds from "../../shared/workflowNodeKinds.json";
+import { searchWorkflowNodes } from "./workflowPresentation";
+import { WorkflowTriggerSettings } from "./WorkflowTriggerSettings";
 import { WorkflowConnections } from "./WorkflowConnections";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 
@@ -91,11 +97,18 @@ type Props = {
 export function WorkflowStudio(props: Props) {
   const root = useRef<HTMLElement>(null);
   const inputId = useId();
+  const repositoryCatalog=useQuery({queryKey:["repository-agent-catalog"],queryFn:({signal})=>agenticApi.repositoryAgents.catalog({signal}),staleTime:60000,retry:1});
+  const repositoryUnavailable=repositoryCatalog.data?.capabilities?.repository_analysis===false || repositoryCatalog.data?.runtime.available===false;
   const inputValidation = validateWorkflowInput(props.input);
   const graphHistory = useWorkflowHistory(props.nodes, props.edges, props.onRestoreGraph);
   const [tab, setTab] = useState<"editor" | "executions" | "settings">(
     "editor",
   );
+  const [nodeQuery,setNodeQuery] = useState("");
+  const [focusRequest,setFocusRequest] = useState(0);
+  const specialists = workflowSpecialistCount(props.nodes);
+  const atNodeCap = props.nodes.length >= WORKFLOW_LIMITS.max_nodes;
+  const atSpecialistCap = specialists >= WORKFLOW_LIMITS.max_specialists;
   const [insertion, setInsertion] = useState<NodeInsertion>();
   const [runStatus, setRunStatus] = useState("all");
   const visibleRuns = props.runs.filter(run => runStatus === "all" || run.status === runStatus);
@@ -152,7 +165,7 @@ export function WorkflowStudio(props: Props) {
           <span>Agentic Studio / Workflow</span>
           <h2>{props.draft.name || "Untitled workflow"}</h2>
         </div>
-        <span className="studio-status">{props.draft.status}</span>
+        <span className="studio-status">{props.draft.status}</span><span className="studio-capacity" aria-label="Workflow capacity">{props.nodes.length}/{WORKFLOW_LIMITS.max_nodes} nodes · {specialists}/{WORKFLOW_LIMITS.max_specialists} specialists</span>
         <div className="studio-header-actions">
           {props.editable && (
             <button
@@ -330,9 +343,9 @@ export function WorkflowStudio(props: Props) {
                 />
               </label>
               <div className="studio-library-list">
-                {matchingProjectAgents.length > 0 && <section><h3>Project agents</h3>{matchingProjectAgents.map(agent => <button key={agent.id} type="button" disabled={!props.editable || props.busy} onClick={() => { props.onAddAgent?.(agent, insertion); setLibrary(false); }}><span className="studio-library-icon" data-kind="agent"><WorkflowNodeIcon kind="agent" /></span><span><strong>{(agent.active_definition || agent.definition).name}</strong><small>Version {agent.active_version} · LLM required</small></span></button>)}</section>}
+                {matchingProjectAgents.length > 0 && <section><h3>Project agents</h3>{matchingProjectAgents.map(agent => <button key={agent.id} type="button" disabled={!props.editable || props.busy || atNodeCap || atSpecialistCap} onClick={() => { props.onAddAgent?.(agent, insertion); setLibrary(false); }}><span className="studio-library-icon" data-kind="agent"><WorkflowNodeIcon kind="agent" /></span><span><strong>{(agent.active_definition || agent.definition).name}</strong><small>Version {agent.active_version} · LLM required</small></span></button>)}</section>}
                 {nodePaletteGroups.map((group) => {
-                  const kinds = group.kinds.filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "stop", "errorHandler"].includes(kind))).filter((kind) =>
+                  const kinds = group.kinds.filter(kind=>!(kind==="repositoryAgent" && repositoryUnavailable)).filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "stop", "errorHandler"].includes(kind))).filter((kind) =>
                     `${nodeKindLabels[kind]} ${nodeKindDescriptions[kind]}`
                       .toLowerCase()
                       .includes(query.toLowerCase()),
@@ -344,7 +357,7 @@ export function WorkflowStudio(props: Props) {
                         <button
                           key={kind}
                           type="button"
-                          disabled={!props.editable || props.busy}
+                          disabled={!props.editable || props.busy || atNodeCap || (nodeKinds.kinds[kind].specialist && atSpecialistCap)}
                           onClick={() => {
                             props.onAdd(kind, insertion);
                             setLibrary(false);
@@ -359,9 +372,7 @@ export function WorkflowStudio(props: Props) {
                           <span>
                             <strong>{nodeKindLabels[kind]}</strong>
                             <small>{nodeKindDescriptions[kind]}</small>
-                            {!EXECUTABLE_NODE_KINDS.has(kind) && (
-                              <em>Preview only</em>
-                            )}
+                            {nodeKinds.kinds[kind].specialist && atSpecialistCap && <em>Specialist limit reached</em>}
                           </span>
                         </button>
                       ))}
@@ -378,6 +389,7 @@ export function WorkflowStudio(props: Props) {
           )}
           <div className="studio-canvas-workspace">
             <div className="studio-canvas-actions">
+              <div className="studio-node-search"><label className="studio-search"><IconSearch size={15}/><input aria-label="Find a step in this workflow" placeholder="Find a step…" value={nodeQuery} onChange={event=>setNodeQuery(event.target.value)}/></label>{nodeQuery.trim()&&<div className="studio-node-search-results" role="list" aria-label="Matching workflow steps">{searchWorkflowNodes(props.nodes,nodeQuery).map(node=><button type="button" role="listitem" key={node.id} onClick={()=>{props.onSelect(node.id);setFocusRequest(value=>value+1);setNodeQuery("");}}><strong>{String(node.data.label||node.id)}</strong><small>{node.id} · {nodeKindLabels[node.data.kind as WorkflowNodeKind]}</small></button>)}{!searchWorkflowNodes(props.nodes,nodeQuery).length&&<p>No matching steps.</p>}</div>}</div>
               {props.editable && <div className="studio-history-actions" role="group" aria-label="Edit history">
                 <button type="button" className="studio-icon-button" disabled={props.busy || !graphHistory.canUndo} onClick={graphHistory.undo} aria-label="Undo graph edit" title="Undo graph edit (⌘/Ctrl Z)"><IconArrowBackUp size={18} /></button>
                 <button type="button" className="studio-icon-button" disabled={props.busy || !graphHistory.canRedo} onClick={graphHistory.redo} aria-label="Redo graph edit" title="Redo graph edit (⌘/Ctrl Shift Z)"><IconArrowForwardUp size={18} /></button>
@@ -387,7 +399,7 @@ export function WorkflowStudio(props: Props) {
                   type="button"
                   className="primary-button"
                   onClick={() => library ? setLibrary(false) : openLibrary()}
-                  disabled={props.busy}
+                  disabled={props.busy || atNodeCap}
                 >
                   <IconPlus size={16} />
                   Add node
@@ -420,7 +432,7 @@ export function WorkflowStudio(props: Props) {
                 </button>
               )}
             </div>
-            <WorkflowCanvas
+            <WorkflowCanvas focusNodeId={props.selectedNodeId} focusRequest={focusRequest}
               onInsert={props.editable && !props.busy ? openLibrary : undefined}
               isValidConnection={connection => canConnectWorkflow(props.nodes, props.edges, connection.source, connection.target, connection.sourceHandle, connection.targetHandle)}
               nodes={props.nodes.map((node) => ({
@@ -603,16 +615,19 @@ export function WorkflowStudio(props: Props) {
                 value={props.draft.trigger_kind}
                 onChange={(event) =>
                   props.onDraft({
-                    trigger_kind: event.target
-                      .value as WorkflowDraft["trigger_kind"],
+                    trigger_kind: event.target.value as WorkflowDraft["trigger_kind"],
+                    settings: {...props.draft.settings,trigger:{...((props.draft.settings.trigger||{}) as Record<string,unknown>),...(event.target.value==='schedule'?{interval_minutes:60}:event.target.value==='event'?{event_name:'story.created'}:event.target.value==='release'?{state:'released'}:{})}},
                   })
                 }
               >
                 <option value="manual">Manual</option>
-                <option value="schedule">Schedule · preview only</option>
-                <option value="webhook">Webhook · preview only</option>
+                <option value="schedule">Schedule</option>
+                <option value="webhook">Signed webhook</option>
+                <option value="release">Release state change</option>
+                <option value="event">Project event</option>
               </select>
             </label>
+            <WorkflowTriggerSettings draft={props.draft} disabled={!props.editable || props.busy} onChange={settings=>props.onDraft({settings})}/>
             <label>
               <span>Node processing</span>
               <select aria-label="Node processing" value={props.draft.settings.processing_mode === "parallel" ? "parallel" : "sequential"}

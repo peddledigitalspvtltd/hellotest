@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { automationActivityBrowserMetadata, automationActivityFailureReasons, automationActivityForSubmission, automationActivityPollingDelay, automationActivityStepErrors, automationSemanticIssueMessage, mergeAutomationActivityHistory } from '../../frontend/lib/automationActivityMonitoring.ts';
 const require = createRequire(import.meta.url);
-const { reduceActivityProgress } = require('../../backend/lib/automationActivityProgress');
-const { buildFailureProgress } = require('../../backend/lib/automationBuildFailureProgress');
+const { reduceActivityProgress } = require("../../backend/lib/build/automationActivityProgress");
+const { buildFailureProgress } = require("../../backend/lib/build/automationBuildFailureProgress");
 
 test('submitting a new build keeps the prior failure in history without presenting it as the new outcome',()=>{
  const failed={id:'previous-failed',status:'failed',metadata:{outcome_status:'incomplete',retry_test_case_ids:['case']}};

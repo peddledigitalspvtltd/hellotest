@@ -11,6 +11,7 @@ export type RepositoryAgentCatalog = {
   agents: RepositoryAgentDefinition[];
   limits: { max_archive_bytes: number; max_files: number };
   runtime: { available: boolean; detail: string };
+  capabilities?: { repository_analysis?: boolean };
 };
 
 export type RepositoryAgentEvidence = { path: string; line?: number; excerpt?: string };

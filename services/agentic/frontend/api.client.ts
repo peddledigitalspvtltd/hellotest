@@ -1,4 +1,6 @@
-import { consumeAssistantProgress, type AgentProgress } from "./lib/assistantProgressStream";
+import { repositoryInspectionApi } from "@hellotest/automation/inspection-client";
+import { requestAgentReview, evidenceScopeOptions } from "@hellotest/ai/review-client";
+import type { AgentProgress } from "@hellotest/ai/frontend/lib/assistantProgressStream";
 import { streamQualityProgress, type QualityStreamOptions } from './lib/qualityProgressStream';
 import type { AgentStructuredArtifact, TestDataSet, TestEnvironment } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
@@ -24,7 +26,7 @@ export type AgentProposalReceipt = { id: string; kind: 'story' | 'test_case' | '
 export type AgentEvidenceScopeOption = { id: string; label: string; description?: string };
 export const agenticApi = {
   evidenceScope: {
-    options: (query: { project_id: string; app_type_id?: string; field: string; search?: string; limit?: number; story_id?: string; test_case_id?: string; execution_id?: string; release_id?: string; sprint_id?: string }, options?: { signal?: AbortSignal }) => request<{ items: AgentEvidenceScopeOption[]; has_more: boolean }>(`/agentic-workflows/evidence-scope/options${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
+    options: evidenceScopeOptions,
   },
   workflowTestDataSets: {
     list: (query: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<TestDataSet[]>(`/test-data-sets${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
@@ -38,9 +40,9 @@ export const agenticApi = {
   },
   mcp: {
     status: (projectId:string) => request<{status:string;tool_count:number;checked_at:string;external_transport?:{public_endpoint_configured:boolean;request_host_allowed:boolean;request_origin_allowed:boolean}}>(`/agentic-workflows/mcp/status${toQueryString({project_id:projectId})}`,{cache:"no-store"},10000),
-    server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;protocol_versions?:string[];authentication?:string;client_contract?:{authentication:string;credential_ttl_seconds:number;project_id:string;accept:string;stateless:boolean;standalone_get_supported:boolean;oauth_supported:boolean};discovery?:{tools:number;resources:string[];resource_templates:string[];prompts:string[]};tools:Array<{name:string;title?:string;description:string;read_only:boolean;input_schema?:Record<string,unknown>;output_schema?:Record<string,unknown>}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
-    credentials: (projectId:string) => request<Array<{id:string;client_id:string;expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
-    issue: (projectId:string) => request<{id:string;token:string;expires_at:string}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host"})}),
+    server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;protocol_versions?:string[];authentication?:string;client_contract?:{authentication:string;credential_ttl_seconds:number;project_id:string;accept:string;stateless:boolean;standalone_get_supported:boolean;oauth_supported:boolean;oauth_issuer?:string;oauth_authorization_server_metadata?:string;oauth_resource_metadata?:string;oauth_registration_endpoint?:string;credential_issuance_enabled?:boolean;manual_bearer_supported?:boolean;scopes_supported?:string[];default_scopes?:string[]};tool_sets?:McpToolSet[];discovery?:{tools:number;resources:string[];resource_templates:string[];prompts:string[]};tools:Array<{name:string;title?:string;description:string;tool_set?:string;read_only:boolean;input_schema?:Record<string,unknown>;output_schema?:Record<string,unknown>}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
+    credentials: (projectId:string) => request<Array<{id:string;client_id:string;scopes?:string[];expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
+    issue: (projectId:string,scopes?:string[]) => request<{id:string;token:string;expires_at:string;scopes?:string[]}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host",...(scopes?{scopes}:{})})}),
     revoke: (projectId:string,id:string) => request(`/agentic-workflows/mcp/credentials/${encodeURIComponent(id)}${toQueryString({project_id:projectId})}`,{method:"DELETE"}),
     plans: (projectId:string) => request<Array<{id:string;client_id:string;operation_id:string;operation:{method:string;path:string;permission:string};arguments:Record<string,unknown>;digest:string;state:string;expires_at:string;receipt?:Record<string,unknown>}>>(`/agentic-workflows/mcp/plans${toQueryString({project_id:projectId})}`),
     authorize: (projectId:string,id:string,digest:string) => request(`/agentic-workflows/mcp/plans/${encodeURIComponent(id)}/authorize`,{method:"POST",body:JSON.stringify({project_id:projectId,digest})}),
@@ -81,20 +83,7 @@ workflowConnections: {
     discover: (id: string, projectId: string) => request<McpToolDefinition[]>(`/agentic-workflows/admin/connections/${encodeURIComponent(id)}/discover${toQueryString({ project_id: projectId })}`, { method: "POST" }),
     discoverDraft: (input: WorkflowConnectionSettingsInput, connectionId?: string) => request<McpDiscoveryResult>("/agentic-workflows/admin/connections/discover", { method: "POST", body: JSON.stringify({ ...input, connection_id: connectionId }) }, 75000),
   },
-repositoryInspection: {
-    localAgentSetup: async (input: { project_id: string; origin: string; agent_token: string }, options?: { signal?: AbortSignal }) => {
-      const setup = await request<{ download_url: string; expires_at: string }>("/repository-inspection/local-agent/setup", { method: "POST", body: JSON.stringify(input), signal: options?.signal });
-      const serviceBase = resolveServiceBase("/repository-inspection", API_BASE_URL);
-      return { ...setup, download_url: new URL(`${serviceBase}/${setup.download_url.replace(/^\//, "")}`, window.location.origin).href };
-    },
-    capabilities: (projectId: string, options?: { signal?: AbortSignal }) =>
-      request<{ remote: { available: boolean; reason: string | null }; local: { base_url: string; setup_command: string } }>(`/repository-inspection/capabilities${toQueryString({ project_id: projectId })}`, { signal: options?.signal, cache: "no-store" }),
-    start: async (input: { project_id: string; app_type_id?: string; start_url?: string }) => {
-      const session = await request<RecorderSessionResponse>("/repository-inspection/sessions", { method: "POST", body: JSON.stringify(input) }, 90_000);
-      const resolve = (path: string | null | undefined) => path ? new URL(`${resolveServiceBase(path, API_BASE_URL)}/${path.replace(/^\//, "")}`, window.location.origin).href : undefined;
-      return { ...session, recorder_mode: "remote" as const, status_url: resolve(session.status_url), live_view_url: resolve(session.live_view_url) };
-    }
-  },
+repositoryInspection: repositoryInspectionApi,
 repositoryAgents: {
     catalog: (options?: { signal?: AbortSignal }) =>
       request<RepositoryAgentCatalog>("/repository-agents", { signal: options?.signal }),
@@ -131,46 +120,7 @@ agenticWorkflows: {
       request<WorkspaceTransaction[]>(`/agentic-assistant/sessions${toQueryString(query)}`, { signal: options?.signal }),
     getSession: (id: string, options?: { signal?: AbortSignal }) =>
       request<AgenticAssistantSavedSessionResponse>(`/agentic-assistant/sessions/${encodeURIComponent(id)}`, { signal: options?.signal }),
-    ask: (input: {
-      project_id: string;
-      app_type_id?: string;
-      mode: AgenticAssistantMode;
-      agent_id: string;
-      agent_version?: number;
-      inputs?: Record<string, unknown>;
-      prompt: string;
-      context_scopes: string[];
-      smart_context?: {
-        query: string;
-        source_ids?: string[];
-        source_kinds?: string[];
-        reviewed_context?: string;
-      };
-      integration_id?: string;
-      history?: Array<{ role: "user" | "assistant"; content: string }>;
-    }, options?: { signal?: AbortSignal; onProgress?: (event: AgentProgress) => void }) => {
-      if (!options?.onProgress) return request<AgenticAssistantSessionResponse>("/agentic-assistant/sessions", {
-        method: "POST", body: JSON.stringify(input), signal: options?.signal
-      }, AI_REQUEST_TIMEOUT_MS);
-      return (async () => {
-        const controller=new AbortController();
-        const abort=()=>controller.abort();
-        options.signal?.addEventListener("abort",abort,{once:true});
-        if(options.signal?.aborted)controller.abort();
-        const timer=setTimeout(abort,AI_REQUEST_TIMEOUT_MS);
-        try {
-          const path="/agentic-assistant/sessions";
-          const token=readRequestSession().token;
-          const response=await fetch(`${resolveServiceBase(path,API_BASE_URL)}${path}`,{
-            method:"POST",headers:{"Content-Type":"application/json",Accept:"text/event-stream",...(token?{Authorization:`Bearer ${token}`}:{})},
-            body:JSON.stringify(input),signal:controller.signal
-          });
-          if(!response.ok) {const failure=await response.json().catch(()=>({}));throw new Error(failure.message || failure.error || `Review request failed (${response.status}).`);}
-          if(!response.headers.get("content-type")?.includes("text/event-stream"))return response.json() as Promise<AgenticAssistantSessionResponse>;
-          return await consumeAssistantProgress<AgenticAssistantSessionResponse>(response,options.onProgress,controller.signal);
-        } finally {clearTimeout(timer);options.signal?.removeEventListener("abort",abort);}
-      })();
-    },
+    ask: requestAgentReview,
     list: (query?: { project_id?: string; app_type_id?: string; status?: string }, options?: { signal?: AbortSignal; fresh?: boolean }) =>
       request<AgenticWorkflow[]>(`/agentic-workflows${toQueryString(query)}`, { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined }),
     get: (id: string) =>
@@ -243,6 +193,7 @@ agenticWorkflows: {
   }
 };
 
+export type McpToolSet = { id: string; title: string; description: string; read_only: boolean; requires: string[]; default: boolean; tool_count: number };
 export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; authType?: "none" | "bearer" | "basic" | "header"; username?: string; builtin?: boolean; authenticationMode?: "current-user" | "managed-credential"; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
 export type WorkflowConnectionSettingsInput = {
   name: string; kind: "mcp" | "http"; url: string; project_id: string; tools: string[]; methods: string[];

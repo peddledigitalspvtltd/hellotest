@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {missingBuildInputs,assertBuildInputs,assertCurrentBuildInputs}=require('../../backend/lib/automationBuildInputPreflight');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {missingBuildInputs,assertBuildInputs,assertCurrentBuildInputs}=require("../../backend/lib/build/automationBuildInputPreflight");
 test('missing authored static inputs are identified before browser/generation work without inventing values',()=>{
  const steps=[{id:'entry',action:'Open signup'},{id:'data',action:'Enter @t.name and @t.email',expected_result:'Name @t.name shown'}];
  const resolver=createBrowserParameterResolver({caseValues:{'t.email':'known@example.test'},steps});

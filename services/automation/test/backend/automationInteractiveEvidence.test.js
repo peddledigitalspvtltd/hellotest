@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent, connectAutomationBrowser } = require('../../backend/lib/automationBrowserAgent');
-const { browserActionRequirements, interactiveEvidenceFeedback } = require('../../backend/lib/automationInteractiveEvidence');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+const { runAutomationBrowserAgent, connectAutomationBrowser } = require("../../backend/lib/browser/automationBrowserAgent");
+const { browserActionRequirements, interactiveEvidenceFeedback } = require("../../backend/lib/browser/automationInteractiveEvidence");
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
 
 const code = 'await page.locator("#email").fill("@t.email"); await expect(page.locator("#email")).toHaveValue("@t.email");';
 const candidate = { step_id: 'email', automation_code: code };

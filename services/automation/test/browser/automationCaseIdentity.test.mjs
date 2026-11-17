@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm } from 'node:fs/promises';
@@ -33,7 +34,7 @@ test('removing either standalone or linked automation deletes only its AT record
     page.setDefaultNavigationTimeout(60_000);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', route => { errors.push('Unexpected API request'); return route.abort(); });
+    await page.route('**/api/**', async route => {if (await fulfillAutomationFixtureRequest(page, route)) return; errors.push('Unexpected API request'); return route.abort(); });
     for (const suffix of ['', '?linked=1']) {
       await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html${suffix}`);
       await page.getByRole('tab', { name: /^Details/ }).click();

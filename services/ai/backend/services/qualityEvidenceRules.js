@@ -1,3 +1,4 @@
+const identity = require('./qualityGraphIdentity');
 const { createHash } = require('crypto');
 const VERSION = 'quality-evidence/1';
 const list = value => Array.isArray(value) ? value : [];
@@ -11,18 +12,18 @@ function buildGraph(snapshot) {
   const nodes = [], edges = [], byKey = new Map();
   for (const [kind, rows] of Object.entries({ story: snapshot.stories, test: snapshot.tests, run: snapshot.runs, attempt: snapshot.attempts, defect: snapshot.defects })) {
     for (const row of list(rows)) {
-      const node = { id: ref(kind, row), kind, entity_id: row.id, title: row.title || row.name || row.id, revision: hash(row), observed_at: snapshot.as_of };
+      const node = { id: ref(kind, row), kind, entity_id: row.id, source_reference: identity.record(kind,row.id), title: row.title || row.name || row.id, revision: hash(row), observed_at: snapshot.as_of };
       nodes.push(node); byKey.set(node.id, node);
     }
   }
   for (const story of list(snapshot.stories)) for (const [index, criterion] of coverageRules.criteria(story).entries()) {
     const id = `obligation:${coverageRules.obligationId(story,index)}`;
-    const node = { id,kind:'obligation',entity_id:id,title:coverageRules.criterionText(criterion),revision:coverageRules.storyRevision(story),observed_at:snapshot.as_of };
+    const node = { id,kind:'obligation',entity_id:id,source_reference:identity.derived('story',story.id,`acceptance_criteria/${index}`),title:coverageRules.criterionText(criterion),revision:coverageRules.storyRevision(story),observed_at:snapshot.as_of };
     nodes.push(node);byKey.set(id,node);
   }
   for (const test of list(snapshot.tests)) for (const step of list(test.steps).filter(step=>step.expected_result?.trim())) {
     const id = `assertion:${test.id}:${step.id}`;
-    const node = { id,kind:'assertion',entity_id:step.id,title:step.expected_result,revision:coverageRules.assertionHash(step),observed_at:snapshot.as_of };
+    const node = { id,kind:'assertion',entity_id:step.id,source_reference:identity.derived('test',test.id,`steps/${step.id}/expected_result`),title:step.expected_result,revision:coverageRules.assertionHash(step),observed_at:snapshot.as_of };
     nodes.push(node);byKey.set(id,node);
   }
   const add = (source, target, relation, reviewId = null) => {
@@ -39,7 +40,7 @@ function buildGraph(snapshot) {
     for (const id of list(defect.requirement_ids)) add(`story:${id}`, ref('defect', defect), 'linked_defect');
     for (const id of list(defect.test_case_ids)) add(`test:${id}`, ref('defect', defect), 'linked_defect');
   }
-  return { name: 'AI Quality Graph', nodes, edges: [...new Map(edges.map(edge => [edge.id, edge])).values()], complete: snapshot.complete,
+  return { name: 'AI Quality Graph', boundary:identity.boundary, nodes, edges: [...new Map(edges.map(edge => [edge.id, edge])).values()], complete: snapshot.complete,
     limitations: ['Recorded links establish traceability, not assertion adequacy or causation.', 'Relationships are indexed by immutable source revisions. Each assessment refreshes its authoritative scope; inferred relationships are not promoted automatically.'] };
 }
 

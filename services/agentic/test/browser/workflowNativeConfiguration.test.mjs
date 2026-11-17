@@ -56,7 +56,7 @@ test('Sprint template saves editable per-node guidance and previews the current 
       await page.getByLabel('Node evidence mode', {exact:true}).selectOption('none');
       await page.getByLabel('Task-specific review criteria', {exact:true}).fill('Specific review criteria for ' + id);
     }
-    await page.getByRole('checkbox', { name: /Inspect the browser before building/ }).uncheck();
+    await page.getByRole('combobox', { name: 'Browser generation', exact: true }).selectOption('offline');
     assert.equal(await page.getByRole('combobox', {name:'Readiness handling',exact:true}).inputValue(), 'verify-inputs');
     await page.getByRole('combobox', {name:'Readiness handling',exact:true}).selectOption('require-ready');
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -69,7 +69,8 @@ test('Sprint template saves editable per-node guidance and previews the current 
       assert.equal(node.data.aiConfiguration.context.mode, 'none');
       assert.equal(node.data.reviewCriteria, 'Specific review criteria for ' + id);
     }
-    assert.equal(saved.nodes.find(node => node.id === 'automation-engineer').data.inspectBrowser, false);
+    assert.equal(saved.nodes.find(node => node.id === 'automation-engineer').data.automationBrowserMode, 'offline');
+    assert.equal(await page.getByRole('combobox', { name: 'Browser generation', exact: true }).inputValue(), 'offline', 'Saving preserves the explicit browser scope.');
     assert.equal(saved.nodes.find(node => node.id === 'automation-engineer').data.readinessPolicy, 'require-ready');
     await page.getByRole('button', { name: 'Restore task defaults', exact: true }).click();
     assert.equal(await page.getByLabel('Instructions', { exact: true }).inputValue(), profiles['automation-engineer'].instructions);

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {stampObservation,reconcileAction,exactLinearCoverage}=require('../../backend/lib/automationActionReconciliation');
+const {stampObservation,reconcileAction,exactLinearCoverage}=require("../../backend/lib/build/automationActionReconciliation");
 
 const execution={required:true,step_id:'section'};
 const click={name:'browser_click',arguments:{locator:'#continue'}};
@@ -13,7 +13,7 @@ const reconcile=(code,observations=[observed()],request=click,scope=execution)=>
 
 test('saved source retains an observed prerequisite navigation even when later input actions already match',()=>{
  const navigation=observed(click,{action_id:'navigation'});
- require('../../backend/lib/automationActionReconciliation').markPageTransition(navigation);
+ require("../../backend/lib/build/automationActionReconciliation").markPageTransition(navigation);
  const fill={name:'browser_fill',arguments:{locator:'#email',value:'@t.email'}},filled=observed(fill,{action_id:'fill'});
  const source="await page.locator('#email').fill('@t.email'); await expect(page.locator('#email')).toHaveValue('@t.email');";
  const missing=exactLinearCoverage({payload:payload(source),execution,observations:[navigation,filled]});

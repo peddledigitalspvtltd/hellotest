@@ -16,6 +16,7 @@ const modelHttpError = (status, responseText = "", retryAfterMs = null) => {
 const modelFailureCode = (error) => {
   if (/TIMEOUT|TIMED_OUT|DEADLINE_EXCEEDED/.test(error?.code || "") || error?.name === "TimeoutError") return "MODEL_TIMEOUT";
   if (error?.code === "ERR_CONTRACT_VALIDATION") return "MODEL_INVALID_RESPONSE";
+  if (error?.code === "DEPENDENCY_CIRCUIT_OPEN" && Number(error?.upstreamStatus) === 429) return "MODEL_PROVIDER_LIMITED";
   return /^MODEL_[A-Z_]+$/.test(error?.code || "") ? error.code : "MODEL_UNAVAILABLE";
 };
 
@@ -25,6 +26,7 @@ const modelFailureMessage = (code) => ({
   MODEL_NOT_FOUND: "Sources were found, but the selected answer model is unavailable. Check the model in the selected connection.",
   MODEL_CONFIGURATION_ERROR: "Sources were found, but the answer provider URL is invalid. Check the selected model connection.",
   MODEL_RATE_LIMITED: "Sources were found, but the answer provider is limiting requests. Try again shortly; the evidence is available below.",
+  MODEL_PROVIDER_LIMITED: "Sources were found, but the answer provider is limiting requests or its available quota is exhausted. Review the selected connection's rate limits, usage and billing; the evidence is available below.",
   MODEL_QUOTA_EXCEEDED: "Sources were found, but the answer provider's quota is exhausted. Check the selected connection's quota.",
   MODEL_REQUEST_REJECTED: "Sources were found, but the selected model rejected the answer request. Check its connection and model compatibility.",
   MODEL_CONTEXT_LIMIT: "Sources were found, but they exceed the selected model's request limit. Narrow the source selection or choose a model connection with a larger limit.",

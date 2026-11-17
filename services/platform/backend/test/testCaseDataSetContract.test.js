@@ -3,7 +3,9 @@ const { readFile } = require("node:fs/promises");
 const path = require("node:path");
 const test = require("node:test");
 
-const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+const readSource = (relativePath) => /\/(testEngineDispatch|aiAutomationBuilder)\.service\.js$/.test(relativePath)
+  ? require("./helpers/sourceFile").readOwnedAutomationSource(path.basename(relativePath, ".js"))
+  : readFile(path.join(__dirname, relativePath), "utf8");
 
 test("test case metadata and data set links are durable and scope checked", async () => {
   const [schema, bootstrap, service, dataSetService, routes, versionRestore, openapi] = await Promise.all([

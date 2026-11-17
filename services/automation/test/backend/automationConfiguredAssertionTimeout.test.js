@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {configuredAssertionTimeoutMs,configuredNavigationTimeoutMs,browserTransportTimeoutMs}=require('../../backend/lib/automationAssertionTimeout');
-const {connectAutomationBrowser}=require('../../backend/lib/automationBrowserAgent');
-const {verifyRecordedAutomation}=require('../../backend/lib/automationVerificationClient');
+const {configuredAssertionTimeoutMs,configuredNavigationTimeoutMs,browserTransportTimeoutMs}=require("../../backend/lib/build/automationAssertionTimeout");
+const {connectAutomationBrowser}=require("../../backend/lib/browser/automationBrowserAgent");
+const {verifyRecordedAutomation}=require("../../backend/lib/verification/automationVerificationClient");
 
 test('configured assertion policy matches Run parsing without changing default, fixed-predicate or action transport limits',()=>{
  for(const [input,expected]of [[undefined,undefined],[null,undefined],['',undefined],[' ',undefined],[0,250],['0',250],[45000.9,45000],['45000ms',45000],[200000,120000],['bad',10000],[true,10000],[Infinity,10000]])assert.equal(configuredAssertionTimeoutMs(input),expected,String(input));

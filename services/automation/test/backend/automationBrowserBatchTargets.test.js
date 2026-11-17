@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createBrowserBatchTargetResolver } = require('../../backend/lib/automationBrowserBatchTargets');
-const { projectModelSnapshot, browserBatchTargetEvidence } = require('../../backend/lib/automationBrowserModelTargets');
+const { createBrowserBatchTargetResolver } = require("../../backend/lib/browser/automationBrowserBatchTargets");
+const { projectModelSnapshot, browserBatchTargetEvidence } = require("../../backend/lib/browser/automationBrowserModelTargets");
 let sequence = 0;
 const control = { tag: 'button', accessible_role: 'button', accessible_name: 'Submit', attributes: { id: 'submit' }, locator_candidates: ['#submit'], locators_validated: true, displayed: true };
 const result = (extra = {}) => ({ tag: 'p', accessible_role: 'alert', accessible_name: '', context_text: 'Registration result', text: 'Before', attributes: { id: 'result', 'data-testid': 'signup-result' }, locator_candidates: ['getByRole("alert")', 'getByTestId("signup-result")', '#result'], locators_validated: true, displayed: true, ...extra });

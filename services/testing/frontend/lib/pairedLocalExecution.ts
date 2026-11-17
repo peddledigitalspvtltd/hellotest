@@ -1,4 +1,4 @@
-import { probePairedLocalAgent, submitPairedLocalRun, type PairedLocalDispatch } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
+import { probePairedLocalAgent, submitPairedLocalRun, type PairedLocalDispatch } from "@hellotest/automation/frontend/lib/localAgentPairing";
 import type { ExecutionStartResponse } from "./executionStartSummary";
 
 type DispatchResult = ExecutionStartResponse & { id: string; execution_mode?: "local"; engine_base_url?: string; acknowledgement?: "unknown"; local_dispatch?: PairedLocalDispatch };

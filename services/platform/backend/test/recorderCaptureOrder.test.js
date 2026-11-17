@@ -5,12 +5,17 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const loadRecorder = (steps = []) => {
+
   const writes = [];
-  const database = { prepare: () => ({ get: async () => null, all: async () => steps, run: async () => ({ changes: 1 }) }) };
+  const database = { transaction: callback => callback, prepare: () => ({ get: async () => ({id:"case"}), all: async () => steps, run: async () => ({ changes: 1 }) }) };
   const file = path.join(__dirname, "../../../automation/backend/services/aiAutomationBuilder.service.js");
   const sandbox = { module: { exports: {} }, exports: {}, process, URL, Buffer, setTimeout, clearTimeout, console,
     require: (id) => {
+ if (typeof id === 'string' && (id.startsWith('./builder/') || id.startsWith('./dispatch/'))) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(id);
+ if (id.endsWith('/automationAuthoringAdmission.service') || id === '@hellotest/automation/authoring-admission') return {withBuild:async(_scope,reserve)=>reserve(),withRecorder:async(_scope,reserve)=>reserve(),assertNoRecorder:async()=>({state:'idle'})};
+
       if (id === "@hellotest/platform/backend/src/db" || id === "@hellotest/platform/backend/src/obsDb") return database;
+      if (id.endsWith("/webRecorderPersistence.service")) return require("../../../automation/backend/services/webRecorderPersistence.service");
       if (id === "crypto") return require("crypto");
       if (id === "@hellotest/platform/backend/src/utils/testStepAutomation") return require("../src/utils/testStepAutomation");
       if (id === "@hellotest/testing/backend/services/testStep.service") return {

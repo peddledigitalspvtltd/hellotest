@@ -5,17 +5,17 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import ts from "typescript";
 
+const require = createRequire(import.meta.url);
 const modules = {};
 function load(name) {
   if (modules[name]) return modules[name];
   const exports = modules[name] = {};
   const source = readFileSync(sourceFile(`${name}.ts`, "lib"), "utf8");
   const script = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-  new Function("require", "exports", script)(id => load(id.replace(/^\.\//, "")), exports);
+  new Function("require", "exports", script)(id => id.startsWith(".") ? load(id.replace(/^\.\//, "")) : require(id), exports);
   return exports;
 }
 const { dataOverrideEnabled, missingDataSetParameters } = load("dataSetValidation");
-const require = createRequire(import.meta.url);
 const { normalizeDataOptions } = require("../../backend/src/utils/scopedTestData.js");
 const required = (...names) => names.map(name => ({ name }));
 

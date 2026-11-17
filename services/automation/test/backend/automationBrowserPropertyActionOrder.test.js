@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {browserCurrentActionPolicy,browserActionOrderFeedback} = require('../../backend/lib/automationBrowserActionOrder');
-const {projectBrowserCapabilities} = require('../../backend/lib/automationBrowserCapabilities');
-const {runAutomationBrowserAgent} = require('../../backend/lib/automationBrowserAgent');
+const {browserCurrentActionPolicy,browserActionOrderFeedback} = require("../../backend/lib/browser/automationBrowserActionOrder");
+const {projectBrowserCapabilities} = require("../../backend/lib/browser/automationBrowserCapabilities");
+const {runAutomationBrowserAgent} = require("../../backend/lib/browser/automationBrowserAgent");
 const execution = (action = 'Verify Username field is present and editable', extras = {}) => ({required:true,step_id:'current',
   source_obligations:[{id:'current',source:'section',action,expected_result:'The Username input field is visible and editable.'}],...extras});
 const inspect = (name, active = execution()) => browserActionOrderFeedback({request:{name,arguments:{locator:'#private-target',value:'PRIVATE_INPUT'}},execution:active});

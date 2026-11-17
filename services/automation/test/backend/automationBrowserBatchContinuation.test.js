@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
 
 const secret = 'private-fixture-value-never-in-model-or-metrics';
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/form', ...value }) }] });

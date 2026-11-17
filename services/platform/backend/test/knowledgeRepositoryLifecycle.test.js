@@ -31,9 +31,10 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
   const rag = require("../../../knowledge/backend/services/knowledgeRag.service");
   const lifecycle = require("../../../knowledge/backend/services/knowledgeSourceLifecycle.service");
   const vector = require("../../../knowledge/backend/services/knowledgeVectorStore.service");
+  const vectorProjection = require("../../../knowledge/backend/services/knowledgeVectorProjection.service");
   const llmSelection = require("../../../integration/backend/services/aiLlmSelection.service");
   const { localEmbedding } = require("../../../knowledge/backend/services/knowledgeProcessing.service");
-  const original = { isConfigured: vector.isConfigured, replaceDocument: vector.replaceDocument, search: vector.search, deleteSource: vector.deleteSource };
+  const original = { isConfigured: vector.isConfigured, replaceDocument: vector.replaceDocument, reconcileDocument: vector.reconcileDocument, search: vector.search, deleteSource: vector.deleteSource };
   const originalSelection = llmSelection.resolveLlmIntegrationForUsage;
   const admin = { id: "reader", role: "admin" };
   t.mock.method(require("../../../knowledge/backend/services/knowledgeEnrichment.service"), "enrichDocument", async () => ({ sections: [], mode: "standard", reason: "FIXTURE_MODEL_DISABLED" }));
@@ -49,17 +50,21 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       await db.query("INSERT INTO roles (id, name) VALUES ('workspace-role', 'workspace-reviewer'), ('project-role', 'project-reviewer'), ('other-role', 'other-reviewer')");
       await db.query("INSERT INTO users (id, default_role_id, status) VALUES ('reader', 'workspace-role', 'active')");
       await db.query("INSERT INTO project_members (project_id, user_id, role_id) VALUES ('project', 'reader', 'project-role'), ('other-project', 'reader', 'other-role')");
-      for (const table of ["requirements", "feedback", "executions", "ai_knowledge_repo"]) {
-        await db.query(`CREATE TEMP TABLE ${table}(id TEXT PRIMARY KEY,project_id TEXT,is_active BOOLEAN DEFAULT TRUE) ON COMMIT DROP`);
+      for (const table of ["requirements", "feedback", "executions", "test_suites", "test_case_modules", "requirement_releases", "requirement_iterations", "ai_knowledge_repo"]) {
+        await db.query(`CREATE TEMP TABLE ${table}(id TEXT PRIMARY KEY,project_id TEXT,app_type_id TEXT,is_active BOOLEAN DEFAULT TRUE) ON COMMIT DROP`);
       }
       await db.query(`CREATE TEMP TABLE app_types(id TEXT PRIMARY KEY,project_id TEXT) ON COMMIT DROP`);
       await db.query(`CREATE TEMP TABLE test_cases(id TEXT PRIMARY KEY,app_type_id TEXT) ON COMMIT DROP`);
       const schema = await readFile(path.join(__dirname, "../instance-setup-data/schema-setup/schema.sql"), "utf8");
-      for (const table of ["app_settings", "permissions", "ai_knowledge_sources", "ai_knowledge_documents", "ai_knowledge_chunks", "ai_knowledge_index_states", "ai_knowledge_security_bindings", "ai_knowledge_collection_sources", "ai_knowledge_ingestion_jobs", "ai_knowledge_ingestion_inputs", "ai_knowledge_ingestion_results", "ai_knowledge_relations"]) {
+      for (const table of ["app_settings", "permissions", "execution_results", "ai_knowledge_sources", "ai_knowledge_documents", "ai_knowledge_chunks", "ai_knowledge_index_states", "ai_knowledge_security_bindings", "ai_knowledge_collection_sources", "ai_knowledge_ingestion_jobs", "ai_knowledge_ingestion_inputs", "ai_knowledge_ingestion_results", "ai_knowledge_relations"]) {
         const block = schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0];
         await db.query(block.replace("CREATE TABLE", "CREATE TEMP TABLE")
           .replace(/ REFERENCES [a-z_]+\(id\) ON DELETE (?:CASCADE|SET NULL)/g, "")
           .replace(/\n\);$/, "\n) ON COMMIT DROP;"));
+      }
+      for (const statement of require("../../../knowledge/backend/retrievalSchema")) await db.query(statement);
+      for (const statement of require("../../../knowledge/backend/semanticWorkSchema")) {
+        await db.query(statement.replace("CREATE TABLE IF NOT EXISTS ai_knowledge_semantic_jobs", "CREATE TEMP TABLE ai_knowledge_semantic_jobs"));
       }
       await db.query("ALTER TABLE ai_knowledge_documents ADD COLUMN effective_from TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN effective_to TIMESTAMPTZ");
       await db.query("ALTER TABLE ai_knowledge_index_states ADD COLUMN required_indexes_ready BOOLEAN NOT NULL DEFAULT FALSE");
@@ -85,16 +90,18 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       assert.ok(first.chunks.length > 1);
       await db.prepare("UPDATE ai_knowledge_documents SET effective_from = '2020-01-01' WHERE id = ?").run(first.document.id);
       vector.isConfigured = () => true;
-      vector.replaceDocument = async () => { throw new Error("Index unavailable"); };
+      vector.reconcileDocument = async () => { throw new Error("Index unavailable"); };
       const pending = await persist("# Current onboarding\nA changed form requires a new indexed revision.");
       assert.equal(pending.document.is_active, true, "Optional vector outages must not hide the current canonical revision.");
       assert.equal((await db.prepare("SELECT id FROM ai_knowledge_documents WHERE is_active = TRUE").get()).id, pending.document.id);
       assert.equal((await db.prepare("SELECT required_indexes_ready FROM ai_knowledge_index_states WHERE document_id = ?").get(pending.document.id)).required_indexes_ready, true);
-      assert.match(pending.warning, /searchable using PostgreSQL/);
+      assert.equal((await vectorProjection.processSource({ projectId: "project", sourceId: pending.source.id })).status, "retry_scheduled");
       const duringOutage = await rag.search({ projectId: "project", query: "changed form", user: admin,
         mode: "keyword", filters: { source_ids: [pending.source.id] } });
       assert.ok(duringOutage.results.some((hit) => hit.document_id === pending.document.id));
-      vector.replaceDocument = async ({ chunks }) => ({ dimensions: 256, indexed: chunks.length });
+      vector.reconcileDocument = async ({ chunks }) => ({ configured: true, dimensions: 256, indexed: chunks.length });
+      await db.prepare("UPDATE ai_knowledge_vector_jobs SET next_attempt_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE source_id = ?").run(pending.source.id);
+      assert.equal((await vectorProjection.processSource({ projectId: "project", sourceId: pending.source.id })).status, "ready");
       const promoted = await persist("# Current onboarding\nThe changed onboarding form is now indexed.\n\n# Internal evaluation\nPrivate onboarding participant observations.\n".repeat(8));
       assert.equal(promoted.document.is_active, true);
       assert.equal((await db.prepare("SELECT COUNT(*)::INTEGER AS count FROM ai_knowledge_documents WHERE is_active = TRUE").get()).count, 1);
@@ -133,7 +140,7 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       };
       const result = await rag.search({ projectId: "project", query: "onboarding", mode: "hybrid", user: admin,
         filters: { source_ids: [promoted.source.id] },
-        preparedEmbedding: { model: "hellotest-hash-v1", vector: localEmbedding("onboarding"), fallback: localEmbedding("onboarding") } });
+        preparedEmbedding: { model: "model-a", vector: localEmbedding("onboarding"), fallback: localEmbedding("onboarding") } });
       assert.equal(sawPrefilter, true);
       assert.ok(result.results.length);
       assert.equal(result.results.some((hit) => hit.chunk_id === deniedId), false);

@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {createRetainedAssertionContract,retainedActionProgress}=require('../../backend/lib/automationRetainedAssertions');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {createRetainedAssertionContract,retainedActionProgress}=require("../../backend/lib/browser/automationRetainedAssertions");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
 const op=(name,arguments)=>({name,arguments}),click=locator=>op('browser_click',{locator}),visible=locator=>op('browser_assert',{assertion:'visible',locator});
 const url='https://fixture.test/';
 const receipt=(value,isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',url,...value})}]});

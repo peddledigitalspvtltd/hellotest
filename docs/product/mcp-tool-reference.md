@@ -4,6 +4,14 @@ HelloTest exposes named tools for common QA tasks and a discoverable operation c
 
 This document describes the implemented interface. Runtime `tools/list` and `hellotest_capabilities` identify what the current deployment can call. A registered native route alone does not make it an MCP capability. Named domain tools are advertised only when their underlying adapter is callable. The [feature coverage inventory](../development/mcp-feature-coverage.md) records callable operations and explicit gaps; some application features still require the native UI or a dedicated transport.
 
+## Tool sets
+
+A credential is issued for tool sets, and `tools/list` shows a host only the tools of its sets: `knowledge` (cited evidence, graph, recorded task contexts), `records` (discovery, projections and the list/get tools), `actions` (prepare, approve-then-execute and track a change) and `automation` (Automation Engineer and browser missions). A credential is **read-only by default** (`knowledge` and `records`); `actions` and `automation` must be chosen when it is created and bring `records` with them. A tool outside the credential's sets is neither listed nor callable; a call through another path returns `MCP_SCOPE_DENIED` with the set to add. Sets only narrow access, because every tool still applies the user's own permissions. `hellotest_graph_expand` was retired: use `hellotest_graph_resolve` then `hellotest_graph_context` or `hellotest_graph_trace`.
+
+A host that is refused with `429` should wait for `Retry-After`: each credential has a request rate and burst, and each project a share of the capacity.
+
+Production hosts use HelloTest OAuth discovery (`/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`) and public-client authorization code with S256 PKCE. The user signs in to HelloTest, chooses an accessible project, and grants only requested tool sets. Access tokens are resource bound, last one hour, and can be revoked in **Agent Studio → MCP Servers**. Production does not offer manually issued bearer credentials. Local development may enable that one-hour option for debugging. OAuth does not replace project permissions or action-plan review.
+
 ## Identity and response format
 
 Each connection is bound to one project and the signed-in user who issued its credential. Listing an identifier does not grant permission to use it. Reads, relationships and action references undergo current native permission and project checks, including references inside request bodies.
@@ -140,13 +148,12 @@ Some native operations commit before a later runner dispatch or shared-step sync
 
 | Tool | Inputs and result |
 | --- | --- |
-| `hellotest_context_build` | Required `question` (up to 8,000 characters); optional `app_type_id`, `filters`, `budgets`, `intent_plan`, `integration_id`, `source_ids`; `token_budget` 256–32,000, default 6,000. Returns a native `packet` or the API bridge's `result.packet` with evidence, provenance, freshness, applied limits and gaps. |
+| `hellotest_context_build` | Required `question` (up to 8,000 characters); optional `app_type_id`, `filters`, `budgets`, `intent_plan`, `integration_id`, `source_ids`, `conversation` (recent `messages`, `session_id`, `focus_source_ids`), `smart_context`, `planning_mode` (`deterministic` default, or `model` with `integration_id`) and `follow_up_rounds`; `token_budget` 256–32,000, default 6,000. Returns a native `packet` or the API bridge's `result.packet` with evidence, provenance, freshness, applied limits and gaps. |
 | `hellotest_knowledge_fetch` | Required `fragment_id`; optional `expected_document_id`, `expected_version_hash` and `as_of`. Fetches exact content after current record, source ACL, readiness and version checks. Pin a citation's identifiers to reject a changed version. Historical reads require Knowledge management permission. |
 | `hellotest_graph_schema` | No arguments. Lists supported graph entity kinds, provenance and traversal limits. |
 | `hellotest_graph_resolve` | Exact `identifiers` (canonical source IDs or `{kind,ref_id}`), or an exact title/curated alias in `query`; optional application/limit/deadline. Inspect ambiguity and partial results before choosing a node. |
 | `hellotest_graph_context` | Required `seeds` (1–6 typed `{kind,ref_id}` objects); bounded traversal options. Returns authorized nodes, edges, supporting passages and explicit gaps. |
 | `hellotest_graph_trace` | Required typed `source` and `target`; optional `max_paths` (1–5) and traversal bounds. Returns witnessed paths rather than inferred dependencies. |
-| `hellotest_graph_expand` | Required `entity_id`; optional `limit` (1–50). Returns the simpler native relationship witnesses. |
 | `hellotest_context_graph_list` | No required arguments. Lists only the credential owner's retained task contexts; optional `app_type_id`, `feature_id`, UTC `from`/`to`, `limit` (1–20, default 12) and returned opaque `cursor`. Returns `items`, `next_cursor`, project identity, privacy and retention information. |
 | `hellotest_context_graph_explore` | Required `trace_id` from the list; optional `app_type_id`. Returns one owner-private `ContextGraph` with trace metadata, nodes, typed directed edges, timeline, counts and explicit limitations. |
 
@@ -248,6 +255,6 @@ The server marks only eligible read failures as retryable. A timeout is not perm
 
 ## Implementation and verification
 
-The published definitions are generated from [mcpServer.js](../../services/mcp/backend/mcpServer.js), [domainTools.js](../../services/mcp/backend/domainTools.js), [toolContracts.js](../../services/mcp/backend/toolContracts.js), [contextRequest.js](../../services/mcp/backend/contextRequest.js), [contextGraph.js](../../services/mcp/backend/contextGraph.js) and audited registry/policy contracts. Native request contracts are extracted from controllers rather than copied into client instructions.
+The published definitions are generated from [mcpServer.js](../../services/mcp/backend/mcpServer.js), [domainTools.js](../../services/mcp/backend/domainTools.js), [toolContracts.js](../../services/mcp/backend/toolContracts.js), [contextRequest.js](../../services/mcp/backend/contextRequest.js), [contextGraph.js](../../services/mcp/backend/contextTraceTools.js) and audited registry/policy contracts. Native request contracts are extracted from controllers rather than copied into client instructions.
 
 Run `npm run check:mcp` to check extracted native contracts, `npm run test:mcp` for focused transport/schema/security tests, and `npm run test:mcp:postgres` for real PostgreSQL authorization, pagination, reviewed mutations, stale-plan and generated-proposal checks. Passing checks establish the tested local behavior; deployment availability still comes from live discovery.

@@ -8,7 +8,7 @@ import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../d
 import { createPlaywrightCodeBindings } from '../../dist/lib/playwrightBindings.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 // Only model decisions are scripted. The transport, browser, private operation

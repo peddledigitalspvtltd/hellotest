@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {assertApiParameterBindings,apiParameterBindingContext}=require('../../backend/lib/automationApiParameterContract');
+const {assertApiParameterBindings,apiParameterBindingContext}=require("../../backend/lib/build/automationApiParameterContract");
 const values={'t.base_url':'https://api.fixture','t.item_name':'Build-time mutable name','r.token':'private fixture token'};
 const source={step_order:1,action:'POST @t.base_url/items with @t.item_name',expected_result:'JSON name equals @t.item_name; generated capture @r.future_id is available',api_request:{url:'@t.base_url/items',body:'{"name":"@t.item_name"}',headers:[{key:'Authorization',value:'Bearer @r.token'}]}};
 const request=()=>({url:'@t.base_url/items',body:'{"name":"@t.item_name"}',auth:{type:'bearer',credential_reference:'@r.token'},validations:[{kind:'json_path',target:'$.name',expected:'@t.item_name'}]});

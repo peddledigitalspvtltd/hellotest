@@ -185,6 +185,7 @@
     "./frontend/src/shared/lib/csvGrid": "./frontend/src/shared/lib/csvGrid.ts",
     "./frontend/src/shared/lib/cursorPagination": "./frontend/src/shared/lib/cursorPagination.ts",
     "./frontend/src/shared/lib/externalReferences": "./frontend/src/shared/lib/externalReferences.ts",
+    "./frontend/src/shared/lib/knowledgeCitation": "./frontend/src/shared/lib/knowledgeCitation.ts",
     "./frontend/src/shared/lib/metricTitle": "./frontend/src/shared/lib/metricTitle.ts",
     "./frontend/src/shared/lib/optionalQueryView": "./frontend/src/shared/lib/optionalQueryView.ts",
     "./frontend/src/shared/lib/stepParameters": "./frontend/src/shared/lib/stepParameters.ts",
@@ -209,8 +210,6 @@
     "./shared/aiPromptDefaults.json": "./shared/aiPromptDefaults.json",
     "./shared/metricCatalog.json": "./shared/metricCatalog.json",
     "./backend/services/metricGovernance.service": "./backend/services/metricGovernance.service.js",
-    "./shared/agentContextPolicies.json": "./shared/agentContextPolicies.json",
-    "./shared/agentEvidenceScopeFields.json": "./shared/agentEvidenceScopeFields.json",
     "./shared/aiPromptTemplateCatalog.json": "./shared/aiPromptTemplateCatalog.json",
     "./backend/src/utils/aiGenerationContext": "./backend/src/utils/aiGenerationContext.js",
     "./backend/src/utils/aiAuthoringIntent": "./backend/src/utils/aiAuthoringIntent.js",
@@ -221,7 +220,14 @@
     "./backend/src/utils/agentEvidenceScopeSql": "./backend/src/utils/agentEvidenceScopeSql.js",
     "./backend/src/utils/aiExecutionConfiguration": "./backend/src/utils/aiExecutionConfiguration.js",
     "./shared/metricFormulaValues": "./shared/metricFormulaValues.js",
-    "./shared/aiExecutionDefaults.json": "./shared/aiExecutionDefaults.json"
+    "./shared/aiExecutionDefaults.json": "./shared/aiExecutionDefaults.json",
+    "./frontend/src/shared/components/Button": "./frontend/src/shared/components/Button.tsx",
+    "./frontend/src/shared/components/Input": "./frontend/src/shared/components/Input.tsx",
+    "./frontend/src/shared/components/Select": "./frontend/src/shared/components/Select.tsx",
+    "./frontend/src/shared/components/Card": "./frontend/src/shared/components/Card.tsx",
+    "./frontend/src/shared/components/ui-tokens.css": "./frontend/src/shared/components/ui-tokens.css",
+    "./agent-metrics": "./backend/src/utils/agentMetrics.js",
+    "./model-boundary": "./backend/src/utils/structuredModelBoundary.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",
@@ -256,6 +262,7 @@
     "@hellotest/testing": "^1.0.0",
     "@hellotest/trace": "^1.0.0",
     "acorn": "8.18.0",
-    "ajv": "^8.20.0"
+    "ajv": "^8.20.0",
+    "@hellotest/contracts": "^1.0.0"
   }
 }

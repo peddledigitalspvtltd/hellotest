@@ -28,7 +28,7 @@ exports.verify=async({app,db,createToken})=>{
     await db.prepare('INSERT INTO role_permissions(role_id,permission_id) VALUES(?,?)').run('mcp-fixture-role',permission.id);added.push(permission.id);
    }
   }
-  const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:project}});assert.equal(issued.statusCode,200,issued.body);credential=issued.json();
+  const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:project,scopes:['records','actions']}});assert.equal(issued.statusCode,200,issued.body);credential=issued.json();
   const start=await operation('POST','/executions/:id/start'),complete=await operation('POST','/executions/:id/complete'),rerun=await operation('POST','/executions/:id/rerun');
   const review=await operation('POST','/test-cases/:id/review'),accept=await operation('POST','/test-cases/:id/accept-generated'),reject=await operation('DELETE','/test-cases/:id/reject-generated');
 

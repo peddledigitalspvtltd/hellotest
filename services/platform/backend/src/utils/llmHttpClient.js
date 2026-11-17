@@ -85,6 +85,8 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     // Even a failed/truncated body after accepted generation is not a fresh
     // transport failure. Never regenerate that accepted model response.
     retryAfterAcceptedResponse: false,
+    retryableStatuses: options.bufferedProposal === true ? undefined : new Set([429]),
+    retryableError: error => require('@hellotest/contracts/runtime/retry').isRetryableGenerationError(error, {bufferedProposal: options.bufferedProposal === true}),
     maxConcurrent: options.maxConcurrent || 16,
     failureThreshold: options.failureThreshold || 5,
     resetTimeoutMs: options.resetTimeoutMs || 30_000,

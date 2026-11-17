@@ -1,6 +1,6 @@
 const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
-const { referenceKey, referencedParameterNames, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
+const { referenceKey, referencedParameterNames, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/parameters');
 const { fail } = require('./endpointPolicy');
 
 const SENSITIVE = /password|passwd|secret|token|credential|api.?key|authorization|cookie|session|csrf|xsrf|private.?key|connection.?string|passcode|(?:^|[._ -])pin(?:$|[._ -])|otp|verification.?code|one.?time.?code/i;
@@ -105,7 +105,10 @@ async function resolveNodeInputs({ run, node, user, access, startUrlFallback }) 
 }
 
 function storyStartUrl(story) {
-  const source = [story?.title, story?.description, story?.acceptance_criteria, story?.acceptanceCriteria]
+  const criteria = story?.acceptance_criteria ?? story?.acceptanceCriteria ?? story?.additional_fields?.acceptance_criteria;
+  const criterionText = item => typeof item === 'string' ? item : item && typeof item === 'object' && !Array.isArray(item)
+    ? [item.text, item.description, item.title].filter(value => typeof value === 'string').join('\n') : '';
+  const source = [story?.title, story?.description, ...(Array.isArray(criteria) ? criteria.map(criterionText) : [criterionText(criteria)])]
     .filter(value => typeof value === 'string').join('\n').replace(/<[^>]*>/g, ' ').replace(/&amp;/gi, '&');
   const candidates = [...source.matchAll(/https?:\/\/[^\s<>"']+/gi)].map(match => match[0]
     .replace(/[),.;!?\]}]+$/g, '')).filter(Boolean);

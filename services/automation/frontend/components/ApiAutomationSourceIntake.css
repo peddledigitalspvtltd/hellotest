@@ -1,0 +1,17 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
+.api-source-intake{display:grid;gap:12px;padding:16px;border:1px solid var(--border-color,var(--ui-border));border-radius:14px;background:var(--surface-subtle,var(--ui-surface));min-width:0}
+.api-source-intake-heading{display:grid;gap:5px}.api-source-intake-heading p{margin:0;color:var(--text-secondary,var(--ui-text));font-size:.875rem;line-height:1.55}
+.api-source-intake-controls{display:grid;grid-template-columns:minmax(160px,1fr) minmax(180px,1fr);gap:12px}
+.api-source-intake .form-field{display:grid;gap:6px;min-width:0}.api-source-intake .form-field>span{font-size:.8rem;font-weight:600}
+.api-source-intake input,.api-source-intake select,.api-source-intake textarea{box-sizing:border-box;width:100%;min-width:0;font:inherit;color:inherit;border:1px solid var(--border-color,var(--ui-border));border-radius:8px;background:var(--surface,var(--ui-surface));padding:8px 10px}
+.api-source-intake input[type=file]{font-size:.75rem;padding:7px}
+.api-source-intake textarea{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.8rem;max-height:260px;resize:vertical}
+.api-source-intake>small{font-size:.75rem;line-height:1.5;color:var(--text-secondary,var(--ui-text))}
+.api-source-intake-actions{display:flex;gap:8px;flex-wrap:wrap}.api-source-intake-error{margin:0;color:var(--danger,var(--ui-red-text))}
+.api-source-intake-review{display:grid;gap:12px;min-width:0}.api-source-intake-review>ol{margin:0;padding:0;list-style:none;max-height:260px;overflow:auto;border:1px solid var(--border-color,var(--ui-border));border-radius:10px;background:var(--surface,var(--ui-surface))}
+.api-source-intake-review>ol>li{display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 10px;padding:10px 12px;border-bottom:1px solid var(--border-color,var(--ui-border));overflow-wrap:anywhere}.api-source-intake-review>ol>li:last-child{border-bottom:0}
+.api-source-intake-review>ol>li>small{grid-column:2;color:var(--text-secondary,var(--ui-text))}.api-source-method{font-weight:700;font-size:.75rem;letter-spacing:.025em;color:var(--accent-color,var(--ui-blue-text))}
+.api-source-url{grid-column:2;white-space:normal;overflow-wrap:anywhere;font-size:.75rem;color:var(--text-secondary,var(--ui-text))}
+.api-source-warnings{margin:0;padding-left:20px;font-size:.8rem;line-height:1.6;color:var(--text-secondary,var(--ui-text))}
+@media(max-width:640px){.api-source-intake-controls{grid-template-columns:1fr}.api-source-intake{padding:12px}}

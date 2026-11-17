@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createExecutionDiagnosticRedactor}=require('../../backend/lib/automationExecutionDiagnostics');
+const {createExecutionDiagnosticRedactor}=require("../../backend/lib/build/automationExecutionDiagnostics");
 
 test('frozen private declarations and alias echoes are masked in application JSON without corrupting machine receipt fields',()=>{
  const frozen={case_snapshots:[{parameter_values:{'t.account':'PRIVATE_ACCOUNT','t.pin':1234},test_data_options:{private_parameter_names:['t.account','t.pin']}}],

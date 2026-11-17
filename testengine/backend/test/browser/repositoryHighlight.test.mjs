@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { chromium } from 'playwright';
+import { resolveRepositoryLocator } from '../../dist/lib/repositoryLocator.js';
+const require=createRequire(import.meta.url),ts=require('typescript');
+const source=await readFile(new URL('../../src/lib/recorder.ts',import.meta.url),'utf8');
+const tree=ts.createSourceFile('recorder.ts',source,ts.ScriptTarget.Latest,true);
+const names=new Set(['highlightRepositoryElement','clearRepositoryHighlights']);
+const selected=tree.statements.filter(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(item=>names.has(item.name.getText(tree))));
+const code=ts.transpileModule(selected.map(node=>node.getText(tree)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+const highlight=new Function('resolveRepositoryLocator','REPOSITORY_HIGHLIGHT_DURATION_MS',code+'\nreturn highlightRepositoryElement;')(resolveRepositoryLocator,3000);
+
+test('repository highlighting uses exact native semantics and refuses ambiguous matches',async t=>{
+ const browser=await chromium.launch({headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage();
+ await page.setContent('<input aria-label="Save" id="input"><input id="hidden" hidden><button id="draft">Save draft</button><button id="save" data-testid="save">Save</button><button class="duplicate">A</button><button class="duplicate">B</button>');
+ const result=await highlight(page,'getByRole("button", {name:"Save", exact:true})','Save button');
+ assert.equal(result.match_count,1);assert.equal(result.duration_ms,3000);
+ assert.equal(await page.locator('#save').getAttribute('data-hellotest-repository-highlight'),'true');
+ assert.equal(await page.locator('#draft').getAttribute('data-hellotest-repository-highlight'),null);
+ assert.equal(await page.locator('#input').getAttribute('data-hellotest-repository-highlight'),null);
+ await assert.rejects(highlight(page,'.duplicate'),/matches 2 elements/);
+ const missing=await highlight(page,'getByTestId("absent")');assert.equal(missing.found,false);
+ const hidden=await highlight(page,'#hidden');assert.equal(hidden.found,false);assert.equal(hidden.visible,false);
+ await highlight(page,'xpath=//button[@id="draft"]');
+ assert.equal(await page.locator('#draft').getAttribute('data-hellotest-repository-highlight'),'true');
+ assert.equal(await page.locator('#save').getAttribute('data-hellotest-repository-highlight'),null);
+});

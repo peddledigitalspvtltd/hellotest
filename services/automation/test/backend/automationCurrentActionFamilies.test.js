@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {browserCurrentActionPolicy,browserActionOrderFeedback}=require('../../backend/lib/automationBrowserActionOrder');
+const {browserCurrentActionPolicy,browserActionOrderFeedback}=require("../../backend/lib/browser/automationBrowserActionOrder");
 const execution=(action,extra={})=>({required:true,step_id:'current',source_obligations:[{id:'current',action},{id:'manual:linked:current',action}],...extra});
 const allowed=(action,name)=>browserCurrentActionPolicy(execution(action))?.allowed_tools.includes(name);
 const blocked=(action,name)=>browserActionOrderFeedback({execution:execution(action),request:{name,arguments:{locator:'#fixture'}}});

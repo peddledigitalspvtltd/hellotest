@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
-const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
+const { createAutomationSemanticReviewer } = require("../../backend/lib/browser/automationSemanticReview");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const unknownSecret = '@NotAConfiguredBinding987';
 const collidingSecret = '@t.validref';

@@ -8,7 +8,9 @@ const settingsService = require("../../backend/services/settings.service");
 
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
-test("governed workspace preferences are shared while ordinary preferences remain personal", async () => {
+test("governed workspace preferences are shared while ordinary preferences remain personal", async t => {
+  t.mock.method(require("../../backend/services/aiConfiguration.service"),"publishedOverrides",async()=>({prompts:{},integrations:{}}));
+  t.mock.method(require("../../backend/services/metricGovernance.service"),"publishedOverrides",async()=>({criteria:{},parameters:{}}));
   const originalPrepare = db.prepare;
   const originalTransaction = db.transaction;
   const settings = new Map([

@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {failureInfo,withArtifact,withNode}=require('../../../agentic/backend/workflows/runtimeEvents');
 
 const step={id:'open-product',step_order:6,step_type:'web',action:'Open the observed product',expected_result:'The product details are visible'};
@@ -68,7 +68,7 @@ test('an optional failed-evidence write cannot replace the native fault; revoked
 });
 
 test('a thrown HTTP transport failure keeps its active section and native tool attribution without replay',async()=>{
- const {browserTransportError}=require('../../backend/lib/automationBrowserTransportError');
+ const {browserTransportError}=require("../../backend/lib/browser/automationBrowserTransportError");
  const failure=browserTransportError(503,{method:'tools/call',tool:'browser_click'}),state=fixture({failedResult:failure});
  await assert.rejects(state.run(),error=>{
   assert.equal(error,failure);assert.equal(error.section_order,6);assert.equal(error.nonRetryable,true);

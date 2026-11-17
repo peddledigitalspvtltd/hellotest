@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {recordBrowserOperation,adoptPlanningNavigation,recordedSectionRequests,recordedSectionCandidate,actorOperationState}=require('../../backend/lib/automationBrowserRecording');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../backend/lib/automationProgramTools');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+const {recordBrowserOperation,adoptPlanningNavigation,recordedSectionRequests,recordedSectionCandidate,actorOperationState}=require("../../backend/lib/browser/automationBrowserRecording");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../backend/lib/build/automationProgramTools");
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
 const receipt=(value,isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',...value})}]});
 const tools=['browser_navigate','browser_snapshot','browser_fill','browser_click','browser_assert'].map(name=>({name,inputSchema:{type:'object'}}));
 const execution={required:true,step_id:'current',expected_result:'Configured value is entered'};
@@ -194,7 +194,7 @@ test('an explicit requested reload is performed and retained separately from an 
 });
 
 test('a redaction placeholder is rejected before browser dispatch and corrected to a private reference in the same session',async()=>{
- const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+ const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
  const secret='owned-secret-not-for-model',parameters=createBrowserParameterResolver({caseValues:{'t.password':secret}});
  let turns=0,actualFills=0;
  const browser={tools,call:async(name,args)=>{

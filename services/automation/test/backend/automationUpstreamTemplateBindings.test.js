@@ -1,9 +1,9 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {createHash}=require('node:crypto');
-const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
-const {validSavedInstructionMapping}=require('../../backend/lib/automationInstructionMapping');
+const {validSavedInstructionMapping}=require("../../backend/lib/build/automationInstructionMapping");
 
 test('mixed full-record templates bind before the mapped source is hashed and saved without another browser action',async()=>{
  const startUrl='https://app.test/events',goto=`await page.goto(${JSON.stringify(startUrl)});`;

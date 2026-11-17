@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
 
 test('private case parameter redaction removes record-locator claims without changing safe observed alternatives', () => {
   const resolver = createBrowserParameterResolver({ caseValues: { 't.record': '9private-record' }, privateParameterNames: ['t.record'] });

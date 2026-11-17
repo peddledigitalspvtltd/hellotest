@@ -6,10 +6,10 @@ const vm = require('node:vm');
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require('../../../platform/backend/src/utils/automationStartUrl');
 const { normalizeScheduledAt } = require('../../../platform/backend/src/utils/automationSchedule');
 const { buildFeature } = require('../../../automation/backend/services/aiAutomationFeaturePolicy');
-const { normalizeAgentContext } = require('../../../automation/backend/lib/automationAgentContext');
+const { normalizeAgentContext } = require("../../../automation/backend/lib/build/automationAgentContext");
 const { captureStartUrlReview, createQueuedStartUrlReviewGuard } = require('../../../automation/backend/services/automationQueuedStartUrl.service');
-const {buildParameterValues}=require('../../../automation/backend/lib/automationBuildParameterPlan');
-const {normalizeBuildPipelineOptions,UPSTREAM_BROWSER_DRIVER}=require('../../../automation/backend/lib/automationBuildPipelineOptions');
+const {buildParameterValues}=require("../../../automation/backend/lib/build/automationBuildParameterPlan");
+const {normalizeBuildPipelineOptions,UPSTREAM_BROWSER_DRIVER}=require("../../../automation/backend/lib/build/automationBuildPipelineOptions");
 
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 function fixture({ cases = [], steps = [], targets = {} } = {}) {
@@ -56,11 +56,18 @@ function fixture({ cases = [], steps = [], targets = {} } = {}) {
   };
   const builder = { buildFeature, buildAutomationForCase: async input => { state.providerCalls.push(copy(input)); if (state.onBuild) return state.onBuild(input); return { generated_step_count: 1, learned_locator_count: 0 }; }, buildAutomationBatch: async input => { state.providerCalls.push(copy(input)); return { generated: 1 }; } };
   function load(relative) {
+ if (typeof relative === 'string' && relative.startsWith('./builder/')) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(relative);
+
     const exported = {}, module = { exports: exported };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, relative), 'utf8') + (relative.includes('batchProcess') ? '\nmodule.exports._runAutomationBuild=runAutomationBuild;' : ''), {
       module, exports: exported, process, URL, Buffer, console, setTimeout, clearTimeout,
       require: name => {
+ if (typeof name === 'string' && (name.startsWith('./builder/') || name.startsWith('./dispatch/'))) return require('node:module').createRequire(require.resolve('@hellotest/automation/build'))(name);
+
+        if (name === '@hellotest/contracts/runtime/lease') return {...require('@hellotest/contracts/runtime/lease'),createBatchJobLease:()=>({signal:new AbortController().signal,assertActive(){},ensureOwnership:async()=>{},stop(){}})};
+        if (name.endsWith('/automationAuthoringAdmission.service') || name === '@hellotest/automation/authoring-admission') return {assertNoRecorder:async()=>({state:'idle'})};
         if (/\/(?:db|obsDb)$/.test(name)) return database;
+        if (name.startsWith('@hellotest/') && !name.includes('/backend/')) name=require.resolve(name).replace(/\.js$/,'');
         if (/automationStartUrl$/.test(name)) return { normalizeAutomationStartUrl, requiresAutomationStartUrl };
         if (/automationCaseType$/.test(name)) return require('../../../platform/backend/src/utils/automationCaseType');
         if (/automationSchedule$/.test(name)) return { normalizeScheduledAt };

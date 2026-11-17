@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { setTimeout: pause } = require('node:timers/promises');
 const db = require('@hellotest/platform/backend/src/db');
-const security = require('../lib/pairedLocalSecurity');
+const security = require("../lib/build/pairedLocalSecurity");
 
 const tokenFor = row => security.derive('browser-bridge', row.id, row.nonce, row.agent_id);
 const error = (message, status = 409, code = 'PAIRED_BROWSER_UNAVAILABLE') => security.fail(message, status, code);
@@ -121,7 +121,7 @@ async function createTransport(scope,{assertionTimeoutMs,navigationTimeoutMs}={}
   await authorize(scope);
   return async (_endpoint, init) => {
     const message = init.method === 'DELETE' ? { method: 'session/delete' } : JSON.parse(init.body);
-    const timeoutMs=require('../lib/automationAssertionTimeout').browserTransportTimeoutMs(message.method,message.params,assertionTimeoutMs,navigationTimeoutMs);
+    const timeoutMs=require("../lib/build/automationAssertionTimeout").browserTransportTimeoutMs(message.method,message.params,assertionTimeoutMs,navigationTimeoutMs);
     const response = await exchange({ scope, method: message.method, params: message.params, sessionId: init.headers?.['mcp-session-id'], signal: init.signal,timeoutMs });
     const body = response.body == null ? null : { ...response.body, ...(Object.hasOwn(message,'id') ? { id: message.id } : {}) };
     return new Response([204,205,304].includes(response.status) ? null : body == null ? null : JSON.stringify(body), { status: response.status,

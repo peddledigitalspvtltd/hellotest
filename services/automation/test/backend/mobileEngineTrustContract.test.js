@@ -6,7 +6,8 @@ const test = require("node:test");
 const read = (relativePath) => fs.readFileSync(path.join(__dirname, relativePath), "utf8");
 
 test("Mobile recorder calls use the dedicated service credential and preserve scoped browser URLs", () => {
-  const builder = read("../../backend/services/aiAutomationBuilder.service.js");
+  const {implementationSource}=require("../helpers/implementationSource");
+  const builder = read("../../backend/services/aiAutomationBuilder.service.js")+implementationSource("builder/engineResolution")+implementationSource("builder/recorderImport");
   const secrets = read("../../../platform/backend/src/security/runtimeSecrets.js");
 
   assert.match(secrets, /resolveMobileEngineSecret/);

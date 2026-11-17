@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {matchManualCoverage,completeAutomationBuild}=require('../../backend/lib/automationBuildCompletion');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
+const {matchManualCoverage,completeAutomationBuild}=require("../../backend/lib/build/automationBuildCompletion");
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
 const action='Click Add Employee once to open the employee form.';
 const expected='The First Name input is visible. The Last Name input is visible. The Joined Date input is visible. The Location input is visible in the Add Employee form.';
 const section={id:'section-4',step_order:4,step_type:'web',action,expected_result:expected};
@@ -36,7 +36,7 @@ test('new markup equivalence rejects ambiguous duplicates and keeps shared manua
 });
 
 test('accepted browser source exits once and missing coverage is repaired in a bounded metadata-only request',async()=>{
- const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
+ const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
  const code=compileRecordedProgram([{name:'browser_assert',arguments:{assertion:'visible',locator:'#first-name-box'}}]).source;
  const s={...section,id:'current',action:'Verify First Name visibility.',expected_result:'The First Name input is visible.'};
  const m={...manual,id:'unmatched',action:'Inspect the First Name field.',expected_result:'The First Name field is displayed.'};

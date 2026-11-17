@@ -36,7 +36,7 @@ exports.verify=async({app,db,createToken})=>{
   }
   async function execute(plan){await authorize(plan);return call('hellotest_operation_execute',{plan_id:plan.plan_id});}
   try{
-    const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:project,client_id:'feature-integration'}});
+    const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:project,client_id:'feature-integration',scopes:['knowledge','records','actions']}});
     assert.equal(issued.statusCode,200,issued.body);credential=issued.json();
 
     const readable=await call('hellotest_capabilities',{query:'list test cases',limit:50});
@@ -77,10 +77,12 @@ exports.verify=async({app,db,createToken})=>{
     const storyPlan=await prepare('hellotest_story_create_prepare',{title:'Feature fixture registration',description:'An authorized visitor submits the registration form and sees confirmation.',acceptance_criteria:['A successful registration displays confirmation.'],priority:3});
     const story=await execute(storyPlan);assert.equal(story.state,'succeeded_verified');records.requirements.push(story.domain_id);
     assert.equal((await call('hellotest_stories_get',{story_id:story.domain_id})).record.title,'Feature fixture registration');
-    const premature=await prepare('hellotest_test_case_create_prepare',{app_type_id:application,title:'Feature fixture Gherkin',description:'Register a visitor and observe confirmation.',authoring_mode:'gherkin',gherkin_document:'Feature: Registration\n  Scenario: Register a visitor\n    Given a visitor is on registration\n    When the visitor submits valid details\n    Then confirmation is displayed',requirement_ids:[story.domain_id]});
-    assert.equal((await call('hellotest_operation_execute',{plan_id:premature.plan_id})).state,'requires_authorization','The model cannot approve its own prepared write.');
-    const created=await execute(premature);assert.equal(created.state,'succeeded_verified',JSON.stringify(created));records.test_cases.push(created.domain_id);
-    const repeated=await call('hellotest_operation_execute',{plan_id:premature.plan_id});assert.equal(repeated.state,'succeeded_verified');
+    const gherkinDraftArgs={draft_key:'mcp-feature-gherkin-v1',app_type_id:application,title:'Feature fixture Gherkin',description:'Register a visitor and observe confirmation.',authoring_mode:'gherkin',gherkin_document:'Feature: Registration\n  Scenario: Register a visitor\n    Given a visitor is on registration\n    When the visitor submits valid details\n    Then confirmation is displayed',requirement_ids:[story.domain_id]};
+    const gherkinDraft=await call('hellotest_test_case_create_prepare',gherkinDraftArgs);
+    assert.equal(gherkinDraft.draft,true);assert.equal(gherkinDraft.review_status,'pending');assert.equal(gherkinDraft.record.status,'draft');
+    const created={domain_id:gherkinDraft.record.id};records.test_cases.push(created.domain_id);
+    const repeatedDraft=await call('hellotest_test_case_create_prepare',gherkinDraftArgs);
+    assert.equal(repeatedDraft.record.id,created.domain_id,'the stable draft key retries the same native draft');
     assert.equal((await db.prepare('SELECT COUNT(*)::integer AS count FROM test_cases WHERE id=?').get(created.domain_id)).count,1);
     const update=await prepare('hellotest_test_case_update_prepare',{test_case_id:created.domain_id,title:'Feature fixture renamed'});
     const edited=await execute(update);assert.equal(edited.state,'succeeded_verified');
@@ -91,13 +93,14 @@ exports.verify=async({app,db,createToken})=>{
     const rejected=await app.inject({method:'POST',url:`/agentic-workflows/mcp/plans/${stale.plan_id}/authorize`,headers,payload:{project_id:project,digest:stale.digest}});
     assert.equal(rejected.statusCode,409,rejected.body);assert.equal(rejected.json().code,'MCP_STALE_PLAN');
     assert.equal((await db.prepare('SELECT title FROM test_cases WHERE id=?').get(created.domain_id)).title,'Feature fixture concurrent edit');
-    const cross=await rpc('hellotest_test_case_create_prepare',{app_type_id:'mcp-app-b',title:'Forbidden project B case'});assert.equal(cross.isError,true);
+    const cross=await rpc('hellotest_test_case_create_prepare',{draft_key:'mcp-feature-cross-v1',app_type_id:'mcp-app-b',title:'Forbidden project B case'});assert.equal(cross.isError,true);
 
     const suitePlan=await prepare('hellotest_test_suite_create_prepare',{app_type_id:application,name:'Feature fixture suite',test_case_ids:[created.domain_id]});
     const suite=await execute(suitePlan);assert.equal(suite.state,'succeeded_verified',JSON.stringify(suite));records.test_suites.push(suite.domain_id);
     const membership=await db.prepare('SELECT test_case_id FROM suite_test_cases WHERE suite_id=? ORDER BY test_case_id').all(suite.domain_id);assert.deepEqual(membership.map(item=>item.test_case_id),[created.domain_id]);
-    const structured=await execute(await prepare('hellotest_test_case_create_prepare',{app_type_id:application,title:'Feature fixture structured steps',steps:[{action:'Open the registration form.',expected_result:'The registration form is visible.'},{action:'Submit valid registration details.',expected_result:'A confirmation is displayed.'}]}));
-    assert.equal(structured.state,'succeeded_verified',JSON.stringify(structured));records.test_cases.push(structured.domain_id);
+    const structuredDraft=await call('hellotest_test_case_create_prepare',{draft_key:'mcp-feature-structured-v1',app_type_id:application,title:'Feature fixture structured steps',steps:[{action:'Open the registration form.',expected_result:'The registration form is visible.'},{action:'Submit valid registration details.',expected_result:'A confirmation is displayed.'}]});
+    assert.equal(structuredDraft.draft,true);assert.equal(structuredDraft.review_status,'pending');
+    const structured={domain_id:structuredDraft.record.id};records.test_cases.push(structured.domain_id);
     assert.deepEqual((await db.prepare('SELECT action,expected_result FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(structured.domain_id)).map(row=>({...row})),[{action:'Open the registration form.',expected_result:'The registration form is visible.'},{action:'Submit valid registration details.',expected_result:'A confirmation is displayed.'}]);
     const rewritten=await execute(await prepare('hellotest_test_case_update_prepare',{test_case_id:structured.domain_id,steps:[{action:'Open the registration form and enter the supplied details.',expected_result:'The supplied details are present in the form.'},{action:'Submit the completed form once.',expected_result:'Exactly one confirmation is displayed.'}]}));
     assert.equal(rewritten.state,'succeeded_verified',JSON.stringify(rewritten));

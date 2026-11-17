@@ -12,7 +12,7 @@ import { createWebRunSession } from '../../dist/lib/webEngine.js';
 import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_ENDPOINT } from '../../dist/lib/automationPlaywrightMcp.js';
 import { buildPlaywrightArtifact } from '../../../../services/automation/shared/playwrightArtifact.mjs';
 const require = createRequire(import.meta.url);
-const { createUpstreamTabTracker, TAB_IDENTITY_SCHEMA } = require('../../../../services/automation/backend/lib/automationUpstreamTabs.js');
+const { createUpstreamTabTracker, TAB_IDENTITY_SCHEMA } = require("../../../../services/automation/backend/lib/upstream/automationUpstreamTabs.js");
 const invoke = (app, method, params, session, id = 1) => app.inject({ method: 'POST', url: PLAYWRIGHT_MCP_ENDPOINT,
   headers: session ? { 'mcp-session-id': session } : {}, payload: { jsonrpc: '2.0', id, method, params } });
 

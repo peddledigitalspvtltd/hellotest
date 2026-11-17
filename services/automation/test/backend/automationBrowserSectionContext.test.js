@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
 const receipt = (value, isError = false) => ({ isError, content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const element = name => ({ tag: 'button', accessible_role: 'button', accessible_name: name, attributes: { type: 'button' }, displayed: true, locators_validated: true, locator_candidates: [`#${name.replaceAll(' ', '-')}`] });
 const page = (scope = 'body', name = 'Employee Management', frame = false) => ({ url: 'https://fixture.test/app', observation_id: `observed-${scope}-${name}`, scope, elements: [element(name)],

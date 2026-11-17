@@ -85,7 +85,9 @@ test("Product Management persists releases, Story delivery targets, related Stor
   assert.match(releaseService, /change_groups/);
   assert.match(releaseService, /known_limitations/);
   assert.match(releaseService, /validation_summary/);
-  assert.match(releaseService, /Do not turn delivery statuses into the release narrative/);
+  assert.match(releaseService, /aiInstructionBlock\("ai.release.notes", "requirementRelease.response.1"\)/);
+  const releaseProfile=require('../../shared/aiFeatureCatalog.json').find(item=>item.id==='ai.release.notes');
+  assert.match(releaseProfile.defaults.instruction_blocks['requirementRelease.response.1'], /Do not turn delivery statuses into the release narrative/);
   assert.match(releaseService, /setUTCHours\(0, 0, 0, 0\)/);
   assert.match(releaseService, /plan_date/);
   assert.match(releaseService, /mapWithConcurrency\(releases, 3,/);

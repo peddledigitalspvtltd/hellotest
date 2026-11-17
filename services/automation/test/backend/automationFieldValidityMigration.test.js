@@ -2,12 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { parseExpressionAt } = require('acorn');
-const { fieldValidationStateSource, legacyFieldValidationStateSource } = require('../../backend/lib/automationFieldValidity');
-const { compileRecordedProgram } = require('../../backend/lib/automationRecordedProgram');
-const { deriveProgramTools } = require('../../backend/lib/automationProgramTools');
-const { prepareVerificationSections } = require('../../backend/lib/automationVerificationPipeline');
-const { createRetainedAssertionContract, pendingFinalAssertions } = require('../../backend/lib/automationRetainedAssertions');
-const { preserveGeneratedAssertions } = require('../../backend/lib/automationGeneratedProgram');
+const { fieldValidationStateSource, legacyFieldValidationStateSource } = require("../../backend/lib/build/automationFieldValidity");
+const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { deriveProgramTools } = require("../../backend/lib/build/automationProgramTools");
+const { prepareVerificationSections } = require("../../backend/lib/verification/automationVerificationPipeline");
+const { createRetainedAssertionContract, pendingFinalAssertions } = require("../../backend/lib/browser/automationRetainedAssertions");
+const { preserveGeneratedAssertions } = require("../../backend/lib/build/automationGeneratedProgram");
 const operations = [
   { name: 'browser_fill', arguments: { locator: '#password-input', value: '@r.password' } },
   { name: 'browser_assert', arguments: { assertion: 'value', locator: '#password-input', value: '@r.password' } },

@@ -1,0 +1,7 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {buildGraph}=require('../../backend/services/qualityEvidenceRules');
+test('quality graph projects canonical native references without allocating duplicate source identities',()=>{
+ const graph=buildGraph({project_id:'p',as_of:'2026-11-17T00:00:00Z',complete:true,scope:{build:'build',environment_id:'env'},stories:[{id:'story',title:'Checkout',test_case_ids:['case']}],tests:[{id:'case',title:'Retry',steps:[{id:'step',expected_result:'One order remains'}]}],runs:[{id:'run'}],attempts:[{id:'result',execution_id:'run',test_case_id:'case'}],defects:[{id:'bug',test_case_ids:['case']}]});
+ assert.equal(graph.boundary.contract_version,'quality-graph-boundary/1');assert.equal(graph.boundary.canonical_source_owner,'knowledge');assert.equal(graph.boundary.inferred_relationships_promoted,false);
+ const map=Object.fromEntries(graph.nodes.map(n=>[n.id,n]));assert.deepEqual(map['story:story'].source_reference,{kind:'requirement',ref_id:'story'});assert.deepEqual(map['test:case'].source_reference,{kind:'test_case',ref_id:'case'});assert.deepEqual(map['attempt:result'].source_reference,{kind:'execution_result',ref_id:'result'});assert.deepEqual(map['assertion:case:step'].source_reference,{kind:'test_case',ref_id:'case',derived_path:'steps/step/expected_result'});
+ assert.ok(graph.nodes.every(n=>!('source_id'in n)));assert.ok(graph.edges.every(e=>e.origin==='recorded_relationship'));
+});

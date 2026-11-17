@@ -1,9 +1,9 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../backend/lib/automationProgramTools');
-const {prepareVerificationSections}=require('../../backend/lib/automationVerificationSections');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../backend/lib/build/automationProgramTools");
+const {prepareVerificationSections}=require("../../backend/lib/verification/automationVerificationSections");
 const request=(value='Saved @t.item_name',assertion='text')=>({name:'browser_assert',arguments:{assertion,locator:'#status',value}});
 const resolverFor=(values={})=>createBrowserParameterResolver({caseValues:{'t.item_name':'Build Fixture',...values},materialize:false});
 

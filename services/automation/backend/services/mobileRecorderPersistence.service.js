@@ -1,5 +1,5 @@
 const { buildMobileRecorderPlan } = require("../domain/mobileRecorderPlan");
-const { recorderPlanFingerprint } = require('../lib/automationRecorderPlan');
+const { recorderPlanFingerprint } = require("../lib/recording/automationRecorderPlan");
 
 /** The caller supplies its transaction and storage ports; this service owns the
  * atomic save boundary, and never starts a browser or contacts an LLM. */

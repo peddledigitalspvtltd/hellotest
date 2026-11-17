@@ -1,12 +1,18 @@
 const contracts = require("./knowledgeContracts.service");
 const execution = require("./knowledgeExecution.service");
+const ranking = require("./knowledgeRanking");
 const { boundedRetrievalStage } = require("@hellotest/platform/backend/src/utils/knowledgeRetrievalTiming");
 
 const array = (value) => Array.isArray(value) ? value : [];
 const PLAN_SCOPE_BY_SOURCE_KIND = Object.freeze({
   requirement: "stories",
+  release: "stories",
+  sprint: "stories",
   test_case: "test-cases",
+  test_suite: "test-cases",
+  test_module: "test-cases",
   execution: "runs",
+  execution_result: "runs",
   bug: "bugs",
   knowledge_item: "knowledge",
   file: "knowledge",
@@ -16,6 +22,8 @@ const PLAN_SCOPE_BY_SOURCE_KIND = Object.freeze({
   product_help: "knowledge"
 });
 const unique = (values) => [...new Set(values.filter(Boolean))];
+const namedIdentifiers = (text) => require("./knowledgeLexicalQuery").extractIdentifiers(text, 3);
+const followUp = require("./knowledgeFollowUp");
 const identity = (hit) => hit.chunk_id || hit.citation?.id;
 const packetHits = (hits, packet) => {
   const accepted = new Map(array(packet.evidence).map((item) => [item.evidence_id, item]));
@@ -34,8 +42,8 @@ const anchoredQueries = (queries, { question, hits, seen }) => {
 // Context retrieval is independent of answer generation and can be consumed by
 // chat, agents, or the public ContextPacket endpoint. Dependencies are injected
 // so the same budgets and authorization boundaries can be evaluated offline.
-const retrieve = async ({ request, user, history = [], smartContext = {}, integration, intentPlan, dependencies }) => {
-  const { search, liveEvidence, planContext, merge, assess, planQueries, authorize, expandParents, expandRelationships } = dependencies;
+const retrieve = async ({ request, user, history = [], smartContext = {}, integration, intentPlan, followUpRounds = false, focusSourceIds = [], dependencies }) => {
+  const { search, liveEvidence, planContext, merge, assess, planQueries, authorize, expandParents, expandRelationships, rerank, aggregates } = dependencies;
   const requestedStrategy = intentPlan?.retrieval_strategy === undefined ? 'hybrid_evidence' : intentPlan.retrieval_strategy;
   if (!['hybrid_evidence', 'graph_expand'].includes(requestedStrategy)) throw Object.assign(new Error('Choose a supported context retrieval strategy.'), { code: 'RETRIEVAL_PLAN_INVALID', statusCode: 400 });
   const forceGraph = requestedStrategy === 'graph_expand';
@@ -57,9 +65,29 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   const filters = request.filters || {};
   const pinned = array(filters.source_ids).length || array(filters.collection_ids).length;
   const scopedLive = Object.keys(require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').normalize(filters.evidence_scope)).length > 0;
-  const nativeSourceKinds = unique(array(filters.requested_scopes).flatMap(scope => ({stories:['requirement'],'test-cases':['test_case'],automation:['test_case'],runs:['execution'],bugs:['bug']}[scope] || [])));
+  const scopeKinds = { stories: ['requirement','release','sprint'], 'test-cases': ['test_case','test_suite','test_module'], automation: ['test_case'], runs: ['execution','execution_result'], bugs: ['bug'] };
+  const exactScopeKinds = { story_id: 'requirement', release_id: 'release', sprint_id: 'sprint', test_case_id: 'test_case', execution_id: 'execution', bug_id: 'bug' };
+  const scopedKinds = Object.keys(filters.evidence_scope || {}).map(key => exactScopeKinds[key]).filter(Boolean);
+  const nativeSourceKinds = scopedKinds.length
+    ? unique(scopedKinds)
+    : unique(array(filters.requested_scopes).flatMap(scope => scopeKinds[scope] || []));
   const requestedScopes = array(filters.requested_scopes).length ? filters.requested_scopes : unique(array(filters.source_kinds).map(kind => PLAN_SCOPE_BY_SOURCE_KIND[kind]).filter(Boolean));
   const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes, agentId: filters.agent_id });
+  const explicitSelection = Array.isArray(filters.requested_scopes) || array(filters.source_kinds).length || pinned || scopedLive;
+  if (intentPlan && !explicitSelection && route.route_confidence === 'low') {
+    const confidence = intentPlan.confidence || 'low';
+    const selected = array(intentPlan.context_scopes).filter(scope => require('@hellotest/contracts/agents/contextIntent').CONTEXT_SCOPES.includes(scope));
+    route.route_confidence = confidence;
+    route.route_resolution = 'structured_model';
+    route.scope_widened = confidence === 'low';
+    if (confidence !== 'low' && selected.length) {
+      route.effective_scopes = unique([...selected,'knowledge']);
+      route.priority_scopes = [...route.effective_scopes];
+      route.live_scopes = route.effective_scopes.filter(scope => scope !== 'knowledge');
+      const kinds = {stories:['requirement','release','sprint'],'test-cases':['test_case','test_suite','test_module'],automation:['test_case'],runs:['execution','execution_result'],bugs:['bug'],knowledge:['knowledge_item','file','text','chat','url']};
+      route.indexed_source_kinds = unique(route.effective_scopes.flatMap(scope => kinds[scope] || []));
+    }
+  }
   const productGuide = route.query_category === "tool_help";
   const plannedKinds = unique(array(intentPlan?.source_kinds).map((kind) => String(kind || "").trim().toLowerCase()).filter((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
   const plannedScopes = unique(plannedKinds.map((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
@@ -73,14 +101,16 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     route.effective_scopes = filters.requested_scopes.filter(scope => !productGuide || scope === 'knowledge');
     route.live_scopes = route.effective_scopes.filter(scope => scope !== 'knowledge');
     route.priority_scopes = array(route.priority_scopes).filter(scope => route.effective_scopes.includes(scope));
-    const selectedKinds = { stories: ['requirement'], 'test-cases': ['test_case'], automation: ['test_case'], runs: ['execution'], bugs: ['bug'], knowledge: ['knowledge_item','file','text','chat','url'] };
+    const selectedKinds = { stories: ['requirement','release','sprint'], 'test-cases': ['test_case','test_suite','test_module'], automation: ['test_case'], runs: ['execution','execution_result'], bugs: ['bug'], knowledge: ['knowledge_item','file','text','chat','url'] };
     route.indexed_source_kinds = productGuide
       ? route.effective_scopes.includes('knowledge') ? ['product_help'] : []
       : unique(filters.requested_scopes.flatMap(scope => selectedKinds[scope] || []));
   }
   route.information_needs = unique([...array(intentPlan?.information_needs), ...array(route.information_needs)]).slice(0, 12);
   route.intent_plan_applied = Boolean(plannedKinds.length || array(intentPlan?.queries).length || forceGraph);
-  route.query_class = request.query_class;
+  // Only needs the planner named are checked for coverage; the route's generic default sentence says nothing specific.
+  const plannedNeeds = unique(array(intentPlan?.information_needs)).slice(0, 8);
+  route.query_class = intentPlan?.confidence && intentPlan.confidence !== 'low' && intentPlan.query_class || request.query_class;
   const allowedKinds = new Set(route.indexed_source_kinds || []);
   const selectedKinds = Array.isArray(filters.requested_scopes) && array(filters.source_kinds).length ? filters.source_kinds.filter(kind => allowedKinds.has(kind)) : filters.source_kinds;
   const indexedSelectionConflict = Array.isArray(filters.requested_scopes) && (
@@ -105,12 +135,23 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   let skippedQueryCount = 0;
   let accessChangedBeforeAssembly = false;
   const searchMode = execution.current()?.searchMode || "hybrid";
-  let initialQueries = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? [] : [...new Set([request.query, ...array(intentPlan?.queries), smartContext.query, route.retrieval_query].filter(Boolean))]
+  // A short question that leans on an earlier one is also searched as that earlier question + this one.
+  const resolvedFollowUps = followUp.buildSeedQueries(request.query, history).slice(1);
+  let initialQueries = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? [] : [...new Set([request.query, ...array(intentPlan?.queries), smartContext.query, route.retrieval_query, ...resolvedFollowUps].filter(Boolean))]
     .slice(0, Math.min(5, budget.remaining().queries));
   let queries = initialQueries;
   execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
   while (queries.length && budget.canContinue()) {
-    const graphEligible = forceGraph && !strategy.graph_tool_calls && expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of;
+    // A question that names an entity (STORY-12, TC-0045) can start the graph walk
+    // straight away, as a third channel beside lexical and dense search, because its
+    // seeds come from the question rather than from whichever passages ranked.
+    const ownIdentifiers = namedIdentifiers(request.query);
+    // A follow-up that names nothing itself inherits the entities of the turns before it.
+    const anchorIdentifiers = ownIdentifiers.length ? ownIdentifiers : (resolvedFollowUps.length ? followUp.recentIdentifiers(history, { limit: 2 }) : []);
+    const hasFocus = array(focusSourceIds).length > 0 && resolvedFollowUps.length > 0;
+    const anchoredCandidate = !forceGraph && !rounds.length && !strategy.graph_tool_calls && (anchorIdentifiers.length > 0 || hasFocus)
+      && ["LOOKUP", "ANALYTICAL", "INVESTIGATIVE"].includes(request.query_class);
+    const graphEligible = (forceGraph || anchoredCandidate) && !strategy.graph_tool_calls && expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of;
     const graphToolReserve = graphEligible && budget.remaining().tool_calls >= 2 ? 1 : 0;
     const liveEnabled = !productGuide && (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2 + graphToolReserve;
     // Reserve part of the candidate budget for current native facts. Previously
@@ -127,7 +168,8 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       ? Math.min(Math.max(scopedRunDetails ? 12 : 1, array(route.live_scopes).length), Math.max(1, Math.floor(searchCandidateBudget / 2)), searchCandidateBudget)
       : 0;
     const indexedCandidateBudget = searchCandidateBudget - liveCandidateBudget;
-    if (!budget.consumeRound(queries.length, liveEnabled ? 2 : 1)) break;
+    const anchoredGraph = anchoredCandidate && graphEligible && graphToolReserve === 1 && budget.remaining().tool_calls >= (liveEnabled ? 3 : 2);
+    if (!budget.consumeRound(queries.length, (liveEnabled ? 2 : 1) + (anchoredGraph ? 1 : 0))) break;
     queries.forEach((query) => seen.add(query.toLowerCase()));
     const before = new Set(hits.map(identity));
     execution.emit(searchMode === "keyword" ? "LEXICAL_SEARCH" : "HYBRID_SEARCH", "started", { round: rounds.length + 1 });
@@ -142,14 +184,34 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
         timeoutMs: Math.max(1, timeoutMs - Math.min(50, Math.floor(timeoutMs / 10))), maxCandidates
       }), "INDEXED_SEARCH_TIMEOUT", timeoutMs);
       const jobs = [indexedSelectionConflict || !indexedCandidateBudget ? Promise.resolve({results:[],errors:[]}) : readIndexed(indexedCandidateBudget, searchTimeoutMs)];
-      if (liveEnabled) jobs.push(stage((signal) => liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: scopedLive ? nativeSourceKinds : effectiveFilters.source_kinds, evidenceScope: filters.evidence_scope, signal, timeoutMs: liveTimeoutMs }), "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs));
+      // Count questions are answered by typed, permission-checked queries that return a
+      // computed fact with its query as provenance; they ride in the live job and never
+      // fail it. Anything the aggregates cannot express exactly yields no fact at all.
+      const liveWithAggregates = async (signal) => {
+        const [liveResult, computed] = await Promise.all([
+          liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: scopedLive ? nativeSourceKinds : effectiveFilters.source_kinds, evidenceScope: filters.evidence_scope, signal, timeoutMs: liveTimeoutMs }),
+          aggregates && !scopedLive ? Promise.resolve().then(() => aggregates({ projectId: request.project_id, user, question: request.query, signal })).catch(() => []) : []
+        ]);
+        return array(computed).length ? { ...liveResult, hits: [...computed, ...array(liveResult?.hits)] } : liveResult;
+      };
+      const liveIndex = liveEnabled ? jobs.push(stage(liveWithAggregates, "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs)) - 1 : -1;
+      let graphIndex = -1;
+      if (anchoredGraph) {
+        strategy.graph_tool_calls = 1;
+        strategy.graph_expansion_status = 'started';
+        execution.emit("RELATIONSHIP_SEARCH", "started", { round: 1, message: "Following relationships from the records named in the question." });
+        const graphTimeoutMs = Math.min(1_500, searchTimeoutMs);
+        graphIndex = jobs.push(stage((signal) => expandRelationships({ signal, timeoutMs: graphTimeoutMs, mode: searchMode, maxCandidates: graphCandidateReserve, projectId: request.project_id, app_type_id: filters.app_type_id,
+          ...(Array.isArray(filters.requested_scopes) ? { sourceKinds: route.indexed_source_kinds } : {}), user, hits: [], query: request.query, limit: 6,
+          identifiers: anchorIdentifiers, focusSourceIds: hasFocus ? array(focusSourceIds).slice(0, 6) : [] }), "RELATIONSHIP_SEARCH_TIMEOUT", graphTimeoutMs)) - 1;
+      }
       const settled = await Promise.allSettled(jobs);
       execution.assertActive();
       // A one-candidate request tries its explicitly selected live fact first.
       // If that fact is absent/unavailable, spend the same reserved slot on an
       // allowed KB lookup; do not return empty context solely due to reservation.
       if (!indexedCandidateBudget && !indexedSelectionConflict && searchCandidateBudget > 0
-        && !(settled[1]?.status === "fulfilled" && array(settled[1].value?.hits).length) && stageTime(5_000) > 0) {
+        && !(liveIndex >= 0 && settled[liveIndex]?.status === "fulfilled" && array(settled[liveIndex].value?.hits).length) && stageTime(5_000) > 0) {
         [settled[0]] = await Promise.allSettled([readIndexed(searchCandidateBudget, stageTime(5_000))]);
       }
       for (const [index, entry] of settled.entries()) {
@@ -157,9 +219,20 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           if (entry.reason?.name === "AbortError") throw entry.reason;
           degraded = true;
           errors.push(entry.reason?.code || "RETRIEVAL_UNAVAILABLE");
+          if (index === graphIndex) { strategy.graph_expansion_status = 'failed'; strategy.graph_expansion_reason = entry.reason?.code || 'EXPANSION_UNAVAILABLE'; execution.emit("RELATIONSHIP_SEARCH", "failed"); }
           continue;
         }
-        if (index === 1) {
+        if (index === graphIndex) {
+          const additions = array(entry.value.results).slice(0, Math.max(0, budget.limits.max_candidates - candidateCount));
+          strategy.applied = 'graph_expand'; strategy.graph_expansion_status = 'completed';
+          additions.forEach(item => { const id = item.citation?.id || (item.chunk_id ? `K-${item.chunk_id}` : null); if (id && !item.graph_neighbour) graphProofIds.add(id); });
+          errors.push(...array(entry.value.retrieval?.error_codes));
+          degraded ||= Boolean(entry.value.retrieval?.degraded);
+          candidateCount += additions.length;
+          results.push({ query: "relationship_search", result: { ...entry.value, results: additions }, counted: true });
+          relationships.push(...array(entry.value.relationships));
+          execution.emit("RELATIONSHIP_SEARCH", "completed", { evidence_count: additions.length });
+        } else if (index === liveIndex) {
           live = entry.value;
           // Snapshot builders can return several scopes. The model context is
           // bounded by the caller's candidate limit even for live evidence.
@@ -198,12 +271,12 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
         execution.emit("SEMANTIC_SEARCH", "completed", { degraded });
       }
       // RRF is ranking, not a claim that a cross-encoder reranker ran.
-      hits = merge(results, Math.min(budget.limits.max_evidence_items, 30));
+      hits = merge(results, Math.min(budget.limits.max_evidence_items, 30), { perSourceCap: pinned ? ranking.PINNED_PER_SOURCE_CAP : ranking.PER_SOURCE_CAP, primaryQuery: request.query });
       const authorized = await authorizeHits(hits);
       hits = authorized.allowed;
       partialAuthorization ||= Boolean(authorized.partial || authorized.denied_ids?.length);
       execution.emit("AUTHORIZATION", "completed", { evidence_count: hits.length, partial: partialAuthorization });
-      const needsMore = assess(hits, { contextRoute: route, question: request.query }).requires_more_context;
+      const needsMore = assess(hits, { contextRoute: route, question: request.query, informationNeeds: plannedNeeds }).requires_more_context;
       if ((!rounds.length || forceGraph && !strategy.graph_tool_calls) && hits.length && (needsMore || forceGraph) && stageTime(1_500, authorizationReserveMs * 2) > 0) {
         const expansionJobs = [];
         const expansionTimeoutMs = stageTime(1_500, authorizationReserveMs * 2);
@@ -213,7 +286,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           execution.emit("PARENT_EXPANSION", "started");
           expansionJobs.push({ stage: "PARENT_EXPANSION", job: stage((signal) => expandParents({ signal, timeoutMs: expansionTimeoutMs, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, user, hits, window: 1, limit: Math.min(8, budget.remaining().candidates), asOf: filters.as_of }), "PARENT_EXPANSION_TIMEOUT", expansionTimeoutMs) });
         }
-        if (expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of
+        if (expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of && !(anchoredGraph && !forceGraph)
           && candidateCount < budget.limits.max_candidates && (forceGraph || ["LOOKUP", "ANALYTICAL", "INVESTIGATIVE"].includes(request.query_class)) && budget.reserve({ toolCalls: 1 })) {
           strategy.graph_tool_calls = 1;
           strategy.graph_expansion_status = 'started';
@@ -250,12 +323,12 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           relationships.push(...array(expansion.value.relationships));
           execution.emit(expansionJobs[index].stage, "completed", { evidence_count: additions.length });
         }
-        hits = merge(results, Math.min(budget.limits.max_evidence_items, 30));
+        hits = merge(results, Math.min(budget.limits.max_evidence_items, 30), { perSourceCap: pinned ? ranking.PINNED_PER_SOURCE_CAP : ranking.PER_SOURCE_CAP, primaryQuery: request.query });
         const expandedAccess = await authorizeHits(hits);
         hits = expandedAccess.allowed;
         partialAuthorization ||= Boolean(expandedAccess.partial);
       }
-      const sufficiency = assess(hits, { contextRoute: route, question: request.query });
+      const sufficiency = assess(hits, { contextRoute: route, question: request.query, informationNeeds: plannedNeeds });
       execution.emit("CONTEXT_SUFFICIENCY", "completed", { evidence_count: hits.length, round: rounds.length + 1,
         message: sufficiency.requires_more_context
           ? `Found ${hits.length} usable source${hits.length === 1 ? "" : "s"}; checking for more supporting context.`
@@ -265,11 +338,13 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       if (hits.length && !sufficiency.requires_more_context) { budget.terminate(contracts.TERMINATION_REASONS.CONTEXT_SUFFICIENT); break; }
       if (candidateCount >= budget.limits.max_candidates) { budget.terminate(contracts.TERMINATION_REASONS.CANDIDATE_BUDGET); break; }
       if (rounds.length > 1 && !novelty) { budget.terminate(contracts.TERMINATION_REASONS.EVIDENCE_SATURATED); break; }
-      if (!budget.canContinue() || !integration || !planQueries || budget.remaining().tool_calls < 2) break;
+      // A further round uses bounded deterministic query variants, never a model,
+      // so it needs permission to continue rather than a model integration.
+      if (!budget.canContinue() || !(integration || followUpRounds) || !planQueries || budget.remaining().tool_calls < 2) break;
       execution.emit("RETRIEVAL_PLANNING", "started", { round: rounds.length + 1 });
       if (!budget.reserve({ toolCalls: 1 })) break;
       const planningTimeoutMs = stageTime(2_000);
-      const plan = await stage((signal) => planQueries({ integration, question: request.query, hits, history, projectScope, reviewedContext: smartContext.reviewed_context, signal, timeoutMs: planningTimeoutMs }), "RETRIEVAL_PLANNING_TIMEOUT", planningTimeoutMs);
+      const plan = await stage((signal) => planQueries({ integration, question: request.query, hits, history, projectScope, reviewedContext: smartContext.reviewed_context, openNeeds: sufficiency.uncovered_needs, signal, timeoutMs: planningTimeoutMs }), "RETRIEVAL_PLANNING_TIMEOUT", planningTimeoutMs);
       queries = anchoredQueries(plan.search_queries || plan.queries, { question: request.query, hits, seen }).slice(0, budget.remaining().queries);
       execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
       if (!queries.length) budget.terminate(contracts.TERMINATION_REASONS.NO_NEW_QUERY);
@@ -301,9 +376,35 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       if (error.code === "DEADLINE_EXCEEDED") budget.terminate(contracts.TERMINATION_REASONS.DEADLINE);
     }
   }
+  // Optional cross-encoder rerank of the top candidates. It runs after the final
+  // access check, so only evidence the caller may see is ever sent to it, and a
+  // failure leaves the fused order in place and is reported, never hidden.
+  let reranking = { applied: false, reason: rerank ? "not_attempted" : "not_available" };
+  if (rerank && hits.length > 1 && budget.remaining().deadline_ms > 0 && budget.limits.max_reranker_candidates !== 0) {
+    execution.emit("RERANKING", "started", { message: "Reranking the top passages with the configured relevance model." });
+    try {
+      const candidates = hits.slice(0, Math.max(2, Math.min(budget.limits.max_reranker_candidates || 40, 100)));
+      const result = await stage((signal) => rerank({ query: request.query, hits: candidates, signal }), "RERANKING_TIMEOUT", Math.max(1, Math.min(2_500, budget.remaining().deadline_ms)));
+      if (result.applied) {
+        // The cross-encoder's score is the absolute relevance for the reranked head.
+        hits = [...result.hits.map((hit) => hit.rerank_score != null ? { ...hit, relevance: hit.rerank_score } : hit), ...hits.slice(candidates.length)];
+        reranking = { applied: true, type: result.type, scored: result.scored };
+      } else {
+        reranking = { applied: false, reason: result.reason };
+      }
+      execution.emit("RERANKING", "completed", { evidence_count: hits.length });
+    } catch (error) {
+      execution.assertActive();
+      if (error?.name === "AbortError") throw error;
+      reranking = { applied: false, reason: error?.code || "unavailable" };
+      errors.push(error?.code || "RERANKING_UNAVAILABLE");
+      degraded = true;
+      execution.emit("RERANKING", "failed", { error_code: error?.code || "RERANKING_UNAVAILABLE" });
+    }
+  }
   if (!hits.length && errors.some((code) => /TIMEOUT|DEADLINE_EXCEEDED/.test(code))) budget.terminate(contracts.TERMINATION_REASONS.DEADLINE);
   if (!budget.termination_reason) budget.terminate(hits.length
-    ? assess(hits, { contextRoute: route, question: request.query }).requires_more_context
+    ? assess(hits, { contextRoute: route, question: request.query, informationNeeds: plannedNeeds }).requires_more_context
       ? contracts.TERMINATION_REASONS.NO_NEW_QUERY : contracts.TERMINATION_REASONS.CONTEXT_SUFFICIENT
     : contracts.TERMINATION_REASONS.NO_EVIDENCE);
   if (forceGraph && strategy.graph_expansion_status === 'pending') {
@@ -332,9 +433,9 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     retrieval_request: request, query_class: request.query_class, context_route: route,
     search_mode: searchMode, cost_limited_keyword_mode: searchMode === "keyword", skipped_query_count: skippedQueryCount, budget_partial: skippedQueryCount > 0,
     candidate_count: candidateCount, query_count: seen.size, query_chain: accessChangedBeforeAssembly ? [request.query] : [...seen], seed_query_count: initialQueries.length,
-    retrieval_rounds: rounds, retrieval_round_count: rounds.length, embedding_batch_count: embeddingBatchCount,
+    retrieval_rounds: rounds, retrieval_round_count: rounds.length, embedding_batch_count: embeddingBatchCount, reranking,
     ...liveMetadata(hits),
-    evidence_sufficiency: assess(hits, { contextRoute: route, question: request.query }),
+    evidence_sufficiency: assess(hits, { contextRoute: route, question: request.query, informationNeeds: plannedNeeds }),
     degraded, partial_authorization: partialAuthorization, retrieval_error_count: errors.length,
     error_codes: [...new Set(errors)], retrieval_failed: !hits.length && errors.length > 0,
     vector_modes: [...new Set(results.map((entry) => entry.result.retrieval?.vector_mode).filter(Boolean))]

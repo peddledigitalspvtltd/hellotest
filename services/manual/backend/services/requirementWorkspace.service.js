@@ -869,7 +869,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
   });
 };
 
-exports.previewGherkin = (input) => require("@hellotest/ai/backend/services/storyGherkin.service").preview(input);
+exports.previewGherkin = (input) => require("@hellotest/ai/services/storyGherkin").preview(input);
 
 exports.exportRequirements = async ({ projectId, requirementIds = [], userId, format = "csv" }) => {
   const ids = [...new Set(requirementIds.map((value) => String(value || "").trim()).filter(Boolean))];

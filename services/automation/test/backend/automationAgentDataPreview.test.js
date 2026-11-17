@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 
 test('the actual agent case-context endpoint projects linked manual data and defers random values until a build',async()=>{
  const source=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8');
@@ -9,7 +9,7 @@ test('the actual agent case-context endpoint projects linked manual data and def
  const sections=[{id:'step',action:'Enter @t.name and @t.email',expected_result:'Saved @t.name'}],before=JSON.stringify({testCase,manual,sections});
  const exported={};let resolverCalls=0;
  new Function('exports','require','selectCaseWithScope','getOptionalEvidenceAccess','loadAutomationParameterContext','loadAutomationManualContext','selectStepsForCase','summarizeStep','safeJson','loadAutomationStoryContext',endpoint)(
-  exported,id=>{assert.equal(id,'../lib/automationBrowserParameters');return{loadBrowserParameterResolver:async input=>{
+  exported,id=>{assert.equal(id,'../lib/parameters/automationBrowserParameters');return{loadBrowserParameterResolver:async input=>{
    resolverCalls++;assert.equal(input.materialize,false);assert.equal(input.steps.length,2);
    return createBrowserParameterResolver({...input,caseValues:input.caseValues});
   }};},{get:async()=>testCase},async()=>({'testcase.view':true,'automation.view':true,'automation.code.view':true,'data.view':true}),

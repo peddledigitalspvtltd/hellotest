@@ -1,9 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {runAutomationBrowserAgent}=require('../../backend/lib/automationBrowserAgent');
-const {createRetainedAssertionContract}=require('../../backend/lib/automationRetainedAssertions');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {recordBrowserOperation}=require('../../backend/lib/automationBrowserRecording');
-const {stampObservation}=require('../../backend/lib/automationActionReconciliation');
+const {runAutomationBrowserAgent}=require("../../backend/lib/browser/automationBrowserAgent");
+const {createRetainedAssertionContract}=require("../../backend/lib/browser/automationRetainedAssertions");
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {recordBrowserOperation}=require("../../backend/lib/browser/automationBrowserRecording");
+const {stampObservation}=require("../../backend/lib/build/automationActionReconciliation");
 
 const url='https://app.test/auth';
 const receipt=(value,isError=false)=>({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',url,...value})}]});

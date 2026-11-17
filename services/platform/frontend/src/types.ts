@@ -2496,6 +2496,8 @@ export type ApiRequestPreview = {
     content_type?: string | null;
     body_text: string;
     body_json?: unknown;
+    truncated?: boolean;
+    size_bytes?: number;
     duration_ms: number;
   };
   ai_suggestions?: {
@@ -3466,6 +3468,9 @@ export type KnowledgeRetrievalSummary = {
     query_category?: "tool_help" | "project_facts" | "project_analysis" | "project_knowledge" | "mixed" | "specialist_analysis" | string;
     answer_depth?: "concise" | "standard" | "detailed" | string;
     route_confidence?: "low" | "medium" | "high" | string;
+    scope_widened?: boolean;
+    route_resolution?: "deterministic" | "structured_model";
+    route_contract_version?: string;
     matched_intents?: string[];
     mode?: "chat" | "agent" | string;
     priority_scopes?: string[];
@@ -3892,6 +3897,7 @@ export type ApiError = {
   message?: string;
   code?: string;
   current_revision?: number;
+  details?: { activity_id: string; operation?: "build" | "recording"; status?: "queued" | "leased" | "running"; phase?: string };
 };
 
 export type HelloTestEntityType = "project" | "requirement" | "test_case" | "test_suite" | "shared_step_group" | "execution" | "execution_result" | "issue";

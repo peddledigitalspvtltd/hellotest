@@ -75,8 +75,8 @@ callers.
 
 The integration is implemented in the
 [TestEngine runtime](../../testengine/backend/src/lib/automationPlaywrightMcp.ts),
-[shared Engineer loop](../../services/automation/backend/lib/automationUpstreamEngineer.js)
-and [instruction mapper](../../services/automation/backend/lib/automationInstructionMapping.js).
+[shared Engineer loop](../../services/automation/backend/lib/upstream/automationUpstreamEngineer.js)
+and [instruction mapper](../../services/automation/backend/lib/build/automationInstructionMapping.js).
 
 The 9 November cleanup retired eight unused custom actor/input/object-sync
 modules and removed the unreachable legacy browser-actor branch from the saved

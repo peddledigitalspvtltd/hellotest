@@ -1,7 +1,7 @@
 const service = require('../services/pairedBrowserBridge.service');
 const db = require('@hellotest/platform/backend/src/db');
 const projects = require('@hellotest/platform/backend/public/projectAccess');
-const security = require('../lib/pairedLocalSecurity');
+const security = require("../lib/build/pairedLocalSecurity");
 const agentAuth = req => ({ bridgeId:req.params.id, agentId:req.headers['x-hellotest-local-agent-id'], token:String(req.headers.authorization || '').replace(/^Bearer\s+/i,'') });
 
 module.exports = async function (fastify) {

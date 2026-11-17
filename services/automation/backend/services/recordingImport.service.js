@@ -35,8 +35,8 @@ function createRecordingImportService(dependencies = {}) {
       const identity = recordingImportIdentity(input), existing = await read(identity);
       if (existing) return existing;
       const result = await save();
-      await database().prepare(`INSERT INTO automation_recording_imports(id,project_id,source_test_case_id,test_case_id,created_by,recorder_session_id,input_sha256,result)
-        VALUES(?,?,?,?,?,?,?,?)`).run(identity.id, input.projectId, input.sourceCaseId, targetCaseId, input.userId, input.sessionId, identity.input_sha256, result);
+      await database().prepare(`INSERT INTO automation_recording_imports(id,project_id,source_test_case_id,test_case_id,created_by,recorder_session_id,input_sha256,result,transaction_id)
+        VALUES(?,?,?,?,?,?,?,?,?)`).run(identity.id, input.projectId, input.sourceCaseId, targetCaseId, input.userId, input.sessionId, identity.input_sha256, result, input.transactionId || null);
       return result;
     })()
   };

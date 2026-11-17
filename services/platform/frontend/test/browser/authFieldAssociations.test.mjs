@@ -6,7 +6,7 @@ import { writeFile, rm } from 'node:fs/promises';
 
 const require = createRequire(new URL('../../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require('playwright');
-const { readFieldValidationState } = require('../../services/automation/backend/lib/automationFieldValidity.js');
+const { readFieldValidationState } = require('../../services/automation/backend/lib/build/automationFieldValidity.js');
 const root = new URL('../../', import.meta.url);
 const fixture = `
 import React from 'react';

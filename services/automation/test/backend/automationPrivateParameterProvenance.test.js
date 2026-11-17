@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
-const { createPortableAutomationArtifact } = require('../../backend/lib/automationPortableArtifact');
+const { createBrowserParameterResolver } = require("../../backend/lib/parameters/automationBrowserParameters");
+const { createPortableAutomationArtifact } = require("../../backend/lib/build/automationPortableArtifact");
 
 const marker = { private_parameter_names: ['r.opaque_input'], parameter_overrides: ['r.opaque_input'] };
 const privateValue = 'Private opaque field fixture 569';

@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {automationObjectSourceContext:context,automationObjectSourceContexts:contexts}=require('../../backend/lib/automationObjectSourceContext');
+const {automationObjectSourceContext:context,automationObjectSourceContexts:contexts}=require("../../backend/lib/build/automationObjectSourceContext");
 const rows=[{id:'navigate',step_order:1,step_type:'web',automation_code:'await page.goto("https://app.test/app?view=PRIVATE_ROUTE");'},
  {id:'fill',step_order:2,step_type:'web',automation_code:'await page.locator("#email").fill("@r.email");'},
  {id:'submit',step_order:3,step_type:'web',automation_code:'await page.locator("#submit").click();'}];

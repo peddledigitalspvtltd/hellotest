@@ -95,8 +95,8 @@ function contextSelection(input = {}) {
   const smart = input.smart_context || {};
   return { llm_integration_id: text(input.llm_integration_id,255) || null,
     ...require('../workflows/nodeAiConfiguration').requestSettings(input),
-    context_scopes: ids(input.context_scopes || require('@hellotest/platform/shared/agentContextPolicies.json')[`browser-${input.kind}`]?.scopes || []).filter(scope => ['stories','test-cases','automation','runs','bugs','knowledge'].includes(scope)),
-    evidence_scope: Object.fromEntries(require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key).filter(key => text(input.evidence_scope?.[key],255)).map(key => [key,text(input.evidence_scope[key],255)])),
+    context_scopes: ids(input.context_scopes || require('@hellotest/contracts/agents/contextPolicies.json')[`browser-${input.kind}`]?.scopes || []).filter(scope => ['stories','test-cases','automation','runs','bugs','knowledge'].includes(scope)),
+    evidence_scope: Object.fromEntries(require('@hellotest/contracts/agents/evidenceScopeFields.json').map(field => field.key).filter(key => text(input.evidence_scope?.[key],255)).map(key => [key,text(input.evidence_scope[key],255)])),
     smart_context: { query: text(smart.query,2000), source_ids: ids(smart.source_ids), source_kinds: ids(smart.source_kinds).slice(0,20),
       reviewed_context: require('@hellotest/platform/backend/src/security/aiTextPolicy').sanitizeAiText(text(smart.reviewed_context,12000)).text },
   };

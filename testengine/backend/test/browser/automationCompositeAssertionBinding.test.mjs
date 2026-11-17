@@ -11,10 +11,10 @@ import {runAutomationVerification} from '../../dist/lib/automationVerification.j
 import {compileRecordedProgram as compileEngineProgram} from '../../dist/lib/automationVerificationProgram.js';
 
 const require=createRequire(import.meta.url);
-const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const {compileRecordedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools');
-const {prepareVerificationSections}=require('../../../../services/automation/backend/lib/automationVerificationSections');
+const {createBrowserParameterResolver}=require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters");
+const {compileRecordedProgram}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools");
+const {prepareVerificationSections}=require("../../../../services/automation/backend/lib/verification/automationVerificationSections");
 
 function recordedFixture() {
   const obligations=[{id:'save',source:'section',action:'Enter @t.item_name and save the form.',expected_result:'The status message displays Saved @t.item_name.'}];

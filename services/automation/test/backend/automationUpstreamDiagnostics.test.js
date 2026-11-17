@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {connectUpstreamPlaywright,trustedModelImage}=require('../../backend/lib/automationUpstreamMcpClient');
-const {buildWithUpstreamPlaywright,toolsForPolicy,validateRequest}=require('../../backend/lib/automationUpstreamEngineer');
+const {connectUpstreamPlaywright,trustedModelImage}=require("../../backend/lib/upstream/automationUpstreamMcpClient");
+const {buildWithUpstreamPlaywright,toolsForPolicy,validateRequest}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const {imageUserContent}=require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const startUrl='https://shop.test/product';

@@ -5,7 +5,7 @@ import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "@hel
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
-import { probePairedLocalAgent } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
+import { probePairedLocalAgent } from "../lib/localAgentPairing";
 
 export type RecorderStartMode = "local" | "remote";
 

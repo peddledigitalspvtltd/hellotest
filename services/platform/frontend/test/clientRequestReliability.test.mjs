@@ -19,6 +19,15 @@ function fixture() {
   }) };
 }
 
+test('authoring admission errors preserve their safe activity receipt through the shared HTTP client', async () => {
+  const view = fixture();
+  const pending = view.request('/test-cases/case/recorder', { method: 'POST', body: '{}' });
+  view.requests[0].respond(Response.json({ code: 'AUTOMATION_AUTHORING_BUSY', message: 'A recording is active.',
+    details: { activity_id: 'activity', operation: 'recording', status: 'running', phase: 'recorder.running' } }, { status: 409 }));
+  await assert.rejects(pending, error => error.status === 409 && error.code === 'AUTOMATION_AUTHORING_BUSY'
+    && error.details.activity_id === 'activity' && error.details.operation === 'recording');
+});
+
 test('reads completing before or after a mutation cannot restore stale values or pending requests', async () => {
   const view = fixture();
   const old = view.request('/items');

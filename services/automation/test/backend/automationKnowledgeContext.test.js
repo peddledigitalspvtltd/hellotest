@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
-const { summarizeAutomationKnowledge, reviewedContextForPacket } = require('../../backend/lib/automationKnowledgeContext');
-const { normalizeAgentContext, retrieveAgentContext } = require('../../backend/lib/automationAgentContext');
+const { summarizeAutomationKnowledge, reviewedContextForPacket } = require("../../backend/lib/build/automationKnowledgeContext");
+const { normalizeAgentContext, retrieveAgentContext } = require("../../backend/lib/build/automationAgentContext");
 
 const evidence = () => ({
   evidence_id: 'K-fragment-7', source_id: 'source-2', source_kind: 'requirement',

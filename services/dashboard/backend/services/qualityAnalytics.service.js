@@ -548,7 +548,7 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
 
 const explainQualityInsights = async ({ projectId, release, sprint, userId, integrationId }) => {
   const baseline = await qualityInsights({ projectId, release, sprint });
-  const reviewer = require("@hellotest/ai/backend/services/structuredReview.service");
+  const reviewer = require("@hellotest/ai/services/structuredReview");
   const review = await reviewer.review({ projectId, userId, integrationId, usageKey: "ai.quality.insights",
     task: aiInstructionBlock("ai.quality.portfolio_insights", "qualityAnalytics.review.task"),
     evidence: { ref: "quality:metrics", scope: baseline.scope, metrics: baseline.metrics, findings: baseline.findings, limitations: baseline.limitations },

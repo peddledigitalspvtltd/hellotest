@@ -20,7 +20,7 @@ async function preview(id,input={}) {
    task=JSON.parse(require('@hellotest/manual/backend/services/requirementDesign.service')._promptBuilders.buildPrompt({requirements:[story],appType,maxCases:3,additionalContext:input.user_request,externalLinks:[],images:[],knowledge:[],authoringMode:mode}));
    keys.push(`format.${mode}`);
   } else {
-   const builders=require('@hellotest/ai/backend/services/aiCaseAuthoring.service')._promptBuilders;
+   const builders=require('@hellotest/ai/services/aiCaseAuthoring')._promptBuilders;
    if(id==='ai.case_authoring.full_case') {task=JSON.parse(builders.buildPrompt({requirement:story,appType,currentCase,authoringMode:mode,additionalContext:input.user_request,externalLinks:[],images:[]}));keys.push(`format.${mode}`);}
    else task=JSON.parse(builders.buildStepRephrasePrompt({requirement:story,appType,currentCase,step:{step_order:1,step_type:'web',action:'Measure checkout latency under the supplied workload',expected_result:'p95 is at most 250 ms'},additionalContext:input.user_request}));
   }

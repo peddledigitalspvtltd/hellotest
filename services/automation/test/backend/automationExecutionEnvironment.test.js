@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { executionWithCaseEnvironment } = require('../../backend/lib/automationExecutionEnvironment');
+const { executionWithCaseEnvironment } = require("../../backend/lib/build/automationExecutionEnvironment");
 const db = require('@hellotest/platform/backend/src/db');
 test.after(() => db.close());
 

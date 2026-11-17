@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {canonicalizeRepositoryRows:project,canonicalPageUrl,repositoryInputMetadata}=require('../../backend/lib/repositoryScreenIdentity');
+const {canonicalizeRepositoryRows:project,canonicalPageUrl,repositoryInputMetadata}=require("../../backend/lib/build/repositoryScreenIdentity");
 const row=(id,screen,locator='__screen__',extra={})=>({id,project_id:'p',app_type_id:'app',page_url:'https://app.test/account',page_key:screen,locator_intent:locator==='__screen__'?'__screen__':'Email',locator,source:'manual',test_case_id:'case-'+id,created_at:id,metadata:{screen_name:screen,object_name:locator==='__screen__'?'__screen__':'Email'},...extra});
 
 test('same scoped Page URL is one screen; duplicate fields retain historical refs and source owners without deletes',()=>{

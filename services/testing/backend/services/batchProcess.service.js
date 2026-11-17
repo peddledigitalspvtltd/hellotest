@@ -2,12 +2,12 @@ const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
 const { resolveAutomationCaseSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
-const { captureStartUrlReview, assertQueuedStartUrlReview } = require('@hellotest/automation/backend/services/automationQueuedStartUrl.service');
+const { captureStartUrlReview, assertQueuedStartUrlReview } = require('@hellotest/automation/queued-start-url');
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const { randomUUID: uuid, createHash } = require("crypto");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
-const {createBatchJobLease,RENEWAL_TIMEOUT_MS}=require('./batchJobLease');
+const {createBatchJobLease,RENEWAL_TIMEOUT_MS}=require('@hellotest/contracts/runtime/lease');
 const {runWithoutDatabaseOperationGuard,runWithDatabaseOperationGuard}=require('@hellotest/platform/backend/src/db/databaseOperationGuard');
 
 const QUEUED_BATCH_LIMIT = Math.max(1, Number(process.env.BATCH_PROCESS_CONCURRENCY || 1));
@@ -574,15 +574,15 @@ exports.queueAutomationBuild = db.transaction(async ({
   scheduled_at,
   created_by
 } = {}) => {
-  const selectedFeature = require("@hellotest/automation/backend/services/aiAutomationBuilder.service").buildFeature(ai_feature);
-  ({ verification_mode, browser_driver, verification_driver } = require('@hellotest/automation/backend/lib/automationBuildPipelineOptions').normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions }));
+  const selectedFeature = require("@hellotest/automation/build").buildFeature(ai_feature);
+  ({ verification_mode, browser_driver, verification_driver } = require('@hellotest/automation/build-options').normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions }));
   const appType = app_type_id ? await selectAppType.get(app_type_id) : null;
 
   if (!appType) {
     throw new Error("App type not found");
   }
 
-  await require('@hellotest/automation/backend/lib/automationBuildPipelineOptions').assertBuildVerificationAccess({mode:verification_mode,createdBy:created_by,projectId:appType.project_id});
+  await require('@hellotest/automation/build-options').assertBuildVerificationAccess({mode:verification_mode,createdBy:created_by,projectId:appType.project_id});
   const caseIdentityAliases=new Map();
   test_case_ids=await Promise.all((Array.isArray(test_case_ids)?test_case_ids:[]).map(async id=>{
     if(!/^(?:AT[_-][0-9]+|TC[_-]?[0-9]+)$/i.test(id))return id;
@@ -612,7 +612,10 @@ exports.queueAutomationBuild = db.transaction(async ({
   if (!selectedCases.length || test_case_ids.length && selectedCases.length !== new Set(test_case_ids).size) {
     throw Object.assign(new Error('Select existing cases in this application before building automation.'), { statusCode: 400, code: 'AUTOMATION_SELECTION_CHANGED' });
   }
-  if (paired_browser_bridge_id) for (const entry of selectedCases) await require('@hellotest/automation/backend/services/pairedBrowserBridge.service').authorize({
+  await require('@hellotest/automation/authoring-admission').assertNoRecorder({
+    testCase: { id: selectedCases[0].id, app_type_id, project_id: appType.project_id }, caseIds: selectedCases.map(row => row.id)
+  });
+  if (paired_browser_bridge_id) for (const entry of selectedCases) await require('@hellotest/automation/browser-bridge').authorize({
     bridgeId:paired_browser_bridge_id,projectId:appType.project_id,appTypeId:app_type_id,userId:created_by,caseId:entry.id
   },{requireStarted:false});
   const selectedIds=new Set(selectedCases.map(row=>row.id));
@@ -633,12 +636,12 @@ exports.queueAutomationBuild = db.transaction(async ({
   for(const value of Object.values(test_suite_ids_by_case))if(value!==null&&(typeof value!=='string'||!value.trim()))throw Object.assign(new Error('Suite selections must contain a suite ID or an explicit empty selection per case.'),{statusCode:400,code:'AUTOMATION_BUILD_SUITE_INVALID'});
   const valuesByCase={},planKeysByCase={},suitesByCase={};
   for(const row of selectedCases){
-    const values=require('@hellotest/automation/backend/services/automationBuildParameterPlan.service').buildParameterValues(parameter_values_by_case?.[row.id]||{});
+    const values=require('@hellotest/automation/build-parameters').buildParameterValues(parameter_values_by_case?.[row.id]||{});
     const expectedKey=parameter_plan_keys_by_case?.[row.id];
     const hasSuiteChoice=Object.hasOwn(test_suite_ids_by_case,row.id);
     const suiteId=hasSuiteChoice?test_suite_ids_by_case[row.id]:test_suite_id;
     if(hasSuiteChoice||suiteId!=null||expectedKey!=null||Object.keys(values).length){
-      const plan=await require('@hellotest/automation/backend/services/automationBuildParameterPlan.service').load({caseId:row.id,projectId:appType.project_id,userId:created_by,test_environment_id,test_configuration_id,test_suite_id:suiteId,test_data_set_id,parameter_values:values,expectedKey});
+      const plan=await require('@hellotest/automation/build-parameters').load({caseId:row.id,projectId:appType.project_id,userId:created_by,test_environment_id,test_configuration_id,test_suite_id:suiteId,test_data_set_id,parameter_values:values,expectedKey});
       planKeysByCase[row.id]=plan.parameter_plan_key;
       suitesByCase[row.id]=Object.hasOwn(plan,'test_suite_id')?plan.test_suite_id:suiteId??null;
     }
@@ -908,7 +911,7 @@ async function runTestCaseExport(job) {
 }
 
 async function runAutomationBuild(job,executionGuard) {
-  const aiAutomationBuilderService = require("@hellotest/automation/backend/services/aiAutomationBuilder.service");
+  const aiAutomationBuilderService = require("@hellotest/automation/build");
   const payload = parseJsonValue(job.payload, {});
   const ids = Array.isArray(payload.test_case_ids) ? payload.test_case_ids : [];
   const targets = await db.prepare(`SELECT source.id,app_types.type AS app_type_kind,source.test_data_options

@@ -29,6 +29,9 @@ export type ExecutionStepApiDetail = {
   response?: {
     status?: number;
     status_text?: string;
+    body_truncated?: boolean;
+    body_original_bytes?: number;
+    body_retained_bytes?: number;
     headers?: Record<string, string>;
     body?: string;
     json?: unknown;

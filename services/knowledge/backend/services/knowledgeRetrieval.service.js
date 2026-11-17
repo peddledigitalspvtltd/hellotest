@@ -1,11 +1,13 @@
 const db = require("@hellotest/platform/backend/src/db");
 const knowledgeRagService = require("./knowledgeRag.service");
-const aiContextOrchestrator = require("@hellotest/ai/backend/services/aiContextOrchestrator.service");
+const aiContextOrchestrator = require("@hellotest/ai/services/aiContextOrchestrator");
 const knowledgeContracts = require("./knowledgeContracts.service");
 const contextEngine = require("./knowledgeContextEngine.service");
 const execution = require("./knowledgeExecution.service");
 const knowledgeAuthorization = require("./knowledgeAuthorization.service");
 const { normalizeText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const ranking = require("./knowledgeRanking");
+const lexicalQuery = require("./knowledgeLexicalQuery");
 const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = execution.current()?.signal }) => {
   const checkActive = () => { execution.assertActive(); if (signal?.aborted) throw execution.abortError(); };
   checkActive();
@@ -35,7 +37,9 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = ex
     "test-cases": ["testcase.view", "requirement.view", "suite.view", "shared_step.view"], runs: ["run.view", "result.view"],
     "run-failures": ["run.view", "result.view", "testcase.view", "comment.view", "attachment.view"],
     "execution-context": ["environment.view", "configuration.view"],
-    "object-repository": ["automation.view"], bugs: ["feedback.view"]
+    "object-repository": ["automation.view"], bugs: ["feedback.view"],
+    // Computed counts need the same permission as the records they count.
+    ...require("./knowledgeAggregates.service").SCOPE_PERMISSIONS
   };
   const corePermissions = { stories: ["requirement.view"], "test-cases": ["testcase.view"], runs: ["run.view"], "run-failures": ["run.view", "result.view", "testcase.view"], "execution-context": [] };
   const storySupportPermissions = ['comment.view', 'attachment.view'];
@@ -71,7 +75,6 @@ const MAX_GROUNDED_HITS = 14;
 
 const MAX_HITS_PER_SOURCE = 3;
 
-const MIN_GROUNDED_SCORE = 0.06;
 
 const createError = (message, statusCode = 400, code) => {
   const error = new Error(message);
@@ -102,7 +105,7 @@ const normalizeAssistantFilters = async ({ projectId, appTypeId, base, override 
   const filters = {};
   if (Array.isArray(merged.requested_scopes)) filters.requested_scopes = [...new Set(merged.requested_scopes.filter(scope => ['stories','test-cases','runs','bugs','automation','knowledge'].includes(scope)))];
   if (typeof merged.agent_id === 'string') filters.agent_id = normalizeText(merged.agent_id, 255);
-  if (merged.evidence_scope && typeof merged.evidence_scope === 'object') filters.evidence_scope = Object.fromEntries(require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key).filter(key => typeof merged.evidence_scope[key] === 'string' && merged.evidence_scope[key].trim()).map(key => [key, normalizeText(merged.evidence_scope[key], 255)]));
+  if (merged.evidence_scope && typeof merged.evidence_scope === 'object') filters.evidence_scope = Object.fromEntries(require('@hellotest/contracts/agents/evidenceScopeFields.json').map(field => field.key).filter(key => typeof merged.evidence_scope[key] === 'string' && merged.evidence_scope[key].trim()).map(key => [key, normalizeText(merged.evidence_scope[key], 255)]));
   if (collectionIds.length) filters.collection_ids = collectionIds;
   const sourceKinds = [...new Set(asArray(merged.source_kinds).map((value) => normalizeText(value, 80)).filter(Boolean))].slice(0, 20);
   if (sourceKinds.length) filters.source_kinds = sourceKinds;
@@ -133,63 +136,88 @@ const buildDeterministicRetrievalQueries = (question) => {
   return [...new Set([identifierQuery, ...domainTerms].filter(Boolean))].slice(0, 2);
 };
 
-const mergeRetrievalResults = (queryResults, limit = MAX_GROUNDED_HITS) => {
+// Combine the per-query hit lists into one ordered, diversified list.
+//
+// Order is plain reciprocal-rank fusion across the queries. The raw question is
+// retained as a tie-break preference, not given an uncalibrated score multiplier.
+// Absolute relevance remains descriptive and feeds sufficiency/reranking only.
+const mergeRetrievalResults = (queryResults, limit = MAX_GROUNDED_HITS, { perSourceCap = MAX_HITS_PER_SOURCE, primaryQuery } = {}) => {
   const fused = new Map();
+  // The user's own question counts double: queries derived from it (domain variants,
+  // open-need follow-ups) refine it and must never outvote it.
+  const primary = String(primaryQuery || "").trim().toLowerCase();
+  const isPrimary = (entry) => Boolean(primary) && String(entry?.query || "").trim().toLowerCase() === primary;
+  const activeQueries = queryResults.filter(entry => asArray(entry?.result?.results).length).length;
   queryResults.forEach((entry, queryIndex) => {
-    const graphProofs = new Set(entry?.result?.retrieval?.vector_mode === "graph_witnesses"
-      ? asArray(entry.result.relationships).filter(edge => edge.endpoints_authorized === true
-        && ['DETERMINISTIC', 'SOURCE_EXPLICIT', 'HUMAN_VERIFIED'].includes(edge.provenance_type)
-        && edge.source_canonical_id && edge.target_canonical_id && edge.source_canonical_id !== edge.target_canonical_id)
-        .flatMap(edge => asArray(edge.evidence_ids)) : []);
-    asArray(entry?.result?.results).forEach((hit, rank) => {
+    const result = entry?.result || {};
+    const graphMode = result.retrieval?.vector_mode === "graph_witnesses";
+    const trustedGraphEvidence = new Set(asArray(result.relationships)
+      .filter((edge) => edge?.endpoints_authorized === true
+        && ["DETERMINISTIC", "SOURCE_EXPLICIT", "HUMAN_VERIFIED"].includes(edge.provenance_type))
+      .flatMap((edge) => asArray(edge.evidence_ids)));
+    asArray(result.results).forEach((hit, rank) => {
       const key = hit?.chunk_id || hit?.citation?.id;
-      // A permission-checked exact graph witness is evidence even though it has
-      // no lexical/vector similarity score. Keep its rank signal at zero rather
-      // than manufacturing a confidence score to get past the search threshold.
-      if (!key || Number(hit.score || 0) < MIN_GROUNDED_SCORE && !graphProofs.has(hit.citation?.id)) return;
-      const current = fused.get(key) || {
-        hit,
-        bestScore: Number(hit.score || 0),
-        reciprocalRank: 0,
-        queryIndexes: new Set()
-      };
-      if (Number(hit.score || 0) > current.bestScore) {
+      const relevance = Number(hit?.relevance ?? hit?.score ?? 0);
+      if (!key) return;
+      const evidenceId = hit?.citation?.id || (hit?.chunk_id ? `K-${hit.chunk_id}` : null);
+      if (graphMode && !trustedGraphEvidence.has(evidenceId)) return;
+      // Zero-score passages are useful only when their exact content proves an
+      // authorized trusted relationship or was reached through that relation.
+      if (!graphMode && !hit.graph_neighbour && !(relevance > 0)) return;
+      const current = fused.get(key) || { hit, bestRelevance: relevance, reciprocalRank: 0, queryIndexes: new Set(), primary: false };
+      if (isPrimary(entry)) current.primary = true;
+      if (relevance > current.bestRelevance) {
         current.hit = hit;
-        current.bestScore = Number(hit.score || 0);
+        current.bestRelevance = relevance;
       }
-      current.reciprocalRank += 1 / (60 + rank + 1);
+      current.reciprocalRank += 1 / (ranking.RRF_K + rank + 1);
       current.queryIndexes.add(queryIndex);
       fused.set(key, current);
     });
   });
+  const best = activeQueries / (ranking.RRF_K + 1) || 1;
   const ranked = [...fused.values()].map((entry) => ({
     ...entry.hit,
+    relevance: Number(entry.bestRelevance.toFixed(6)),
     retrieval_query_match_count: entry.queryIndexes.size,
-    retrieval_fusion_score: Number(Math.min(1, entry.bestScore * 0.82 + Math.min(0.18, entry.reciprocalRank * 4)).toFixed(6))
+    matched_primary_query: entry.primary,
+    retrieval_fusion_score: Number(Math.min(1, entry.reciprocalRank / best).toFixed(6))
   })).sort((left, right) => (
     right.retrieval_fusion_score - left.retrieval_fusion_score
+    || Number(right.matched_primary_query) - Number(left.matched_primary_query)
     || right.retrieval_query_match_count - left.retrieval_query_match_count
-    || Number(right.score || 0) - Number(left.score || 0)
+    || Number(right.relevance || 0) - Number(left.relevance || 0)
   ));
-  const sourceCounts = new Map();
-  const diversified = [];
-  for (const hit of ranked) {
-    const sourceKey = hit.source_id || hit.citation?.source_id || hit.chunk_id;
-    const sourceCount = sourceCounts.get(sourceKey) || 0;
-    if (sourceCount >= MAX_HITS_PER_SOURCE) continue;
-    sourceCounts.set(sourceKey, sourceCount + 1);
-    diversified.push(hit);
-    if (diversified.length >= limit) break;
-  }
-  return diversified;
+  return ranking.diversify(ranked, { limit, cap: perSourceCap, sourceOf: (hit) => hit.source_id || hit.citation?.source_id || hit.chunk_id });
 };
 
-const assessEvidenceSufficiency = (hits = [], { contextRoute, question } = {}) => {
+// For each information need the planner named: do the retrieved passages address
+// it? A need counts as covered when one passage contains at least half of its
+// key terms. This is a coverage check, not an entailment check.
+// Words that describe the question or the answer rather than the subject. A need built
+// from them ("the behaviour the question asks about") names nothing to look for.
+const NEED_META_WORDS = new Set(["behaviour", "behavior", "question", "questions", "asks", "asked", "asking", "answer", "answers", "information", "details", "detail",
+  "relevant", "specific", "exact", "current", "project", "context", "evidence", "facts", "domain", "supporting", "related", "user", "users", "needs", "need", "about", "regarding", "concerning"]);
+const needCoverage = (hits, needs) => asArray(needs).map((need) => {
+  const terms = lexicalQuery.extractKeyTerms(need, { maxTerms: 8, extraStopWords: NEED_META_WORDS }).terms;
+  // A need with fewer than two distinctive terms cannot be checked reliably; it is not
+  // evaluated, so a vague need never forces another retrieval round.
+  if (terms.length < 2) return null;
+  const covering = asArray(hits).filter((hit) => {
+    const text = `${hit.title || ""} ${hit.content || ""}`.toLowerCase();
+    const tokens = ranking.tokenSet(text);
+    return terms.filter((term) => tokens.has(term) || text.includes(term)).length / terms.length >= 0.5;
+  });
+  return { need: normalizeText(need, 400), covered: covering.length > 0, evidence_ids: covering.slice(0, 3).map((hit) => hit.citation?.id).filter(Boolean) };
+}).filter(Boolean).slice(0, 8);
+
+const assessEvidenceSufficiency = (hits = [], { contextRoute, question, informationNeeds } = {}) => {
   const citationReady = asArray(hits).filter((hit) => hit?.citation?.id);
   const indexed = citationReady.filter((hit) => hit.source_kind !== "live_project");
   const liveCount = citationReady.length - indexed.length;
   const distinctSources = new Set(citationReady.map((hit) => hit.source_id || hit.citation?.source_id || hit.citation.id)).size;
-  const scores = indexed.map((hit) => Number(hit.retrieval_fusion_score || hit.score || 0)).filter(Number.isFinite);
+  // Absolute relevance, not rank: the best of a poor candidate set must not look strong.
+  const scores = indexed.map((hit) => Number(hit.relevance ?? hit.retrieval_fusion_score ?? hit.score ?? 0)).filter(Number.isFinite);
   const strongestScore = scores.length ? Math.max(...scores) : 0;
   const corroboratedCount = citationReady.filter((hit) => Number(hit.retrieval_query_match_count || 0) > 1).length;
   const expectedKinds = new Set(asArray(contextRoute?.indexed_source_kinds));
@@ -215,9 +243,20 @@ const assessEvidenceSufficiency = (hits = [], { contextRoute, question } = {}) =
     + Math.min(8, routeAlignedCount * 2)
     + Math.min(6, topicallyMatchedCount * 2)
   ));
+  // When the intent planner supplied explicit questions, evaluate each one.
+  // Otherwise use the user's own question as a single fallback need so an
+  // empty planner response cannot turn a pile of unrelated passages into a
+  // sufficient context packet.
+  const requestedNeeds = asArray(informationNeeds).length ? informationNeeds : question ? [question] : [];
+  const needs = needCoverage(citationReady, requestedNeeds);
+  const uncoveredNeeds = needs.filter((item) => !item.covered).map((item) => item.need);
+  const status = !citationReady.length ? "empty" : uncoveredNeeds.length ? "partial" : "covered";
   return {
     score,
-    status: score >= 65 ? "strong" : score >= 45 ? "usable" : "weak",
+    status,
+    information_needs: needs,
+    uncovered_needs: uncoveredNeeds,
+    needs_coverage_ratio: needs.length ? Number((needs.length - uncoveredNeeds.length) / needs.length).toFixed(2) * 1 : null,
     citation_ready_count: citationReady.length,
     distinct_source_count: distinctSources,
     live_evidence_count: liveCount,
@@ -225,22 +264,27 @@ const assessEvidenceSufficiency = (hits = [], { contextRoute, question } = {}) =
     route_aligned_result_count: routeAlignedCount,
     topically_matched_result_count: topicallyMatchedCount,
     strongest_retrieval_score: Number(strongestScore.toFixed(4)),
-    requires_more_context: score < 65
+    // Candidate counts and rank scores are diagnostics only. A retrieval round
+    // continues because a requested information need remains uncovered.
+    requires_more_context: uncoveredNeeds.length > 0
   };
 };
 
-const retrieveContext = ({ request, user, history, smartContext, integration, intentPlan, signal }) => execution.run({
+const retrieveContext = ({ request, user, history, smartContext, integration, intentPlan, followUpRounds, focusSourceIds, signal }) => execution.run({
   ...execution.current(), signal: signal && execution.current()?.signal ? AbortSignal.any([signal,execution.current().signal]) : signal || execution.current()?.signal
 }, () => contextEngine.retrieve({
-  request, user, history, smartContext, integration, intentPlan,
+  request, user, history, smartContext, integration, intentPlan, followUpRounds, focusSourceIds,
   dependencies: {
     search: runRagSearchBatch, liveEvidence: aiContextOrchestrator.buildLiveProjectEvidence,
     planContext: aiContextOrchestrator.planContext, merge: mergeRetrievalResults, assess: assessEvidenceSufficiency,
     // The LLM intent planner runs once before retrieval. Any second retrieval
     // round uses bounded deterministic variants, never another planning call.
-    planQueries: ({ question }) => ({ search_queries: buildDeterministicRetrievalQueries(question) }),
+    // Follow-up queries are deterministic: the question's own domain variants plus the information needs that no passage addressed yet.
+    planQueries: ({ question, openNeeds }) => ({ search_queries: [...asArray(openNeeds), ...buildDeterministicRetrievalQueries(question)] }),
     authorize: (hits, { signal } = {}) => authorizeFreshEvidence({ projectId: request.project_id, user, hits, asOf: request.filters?.as_of, signal }),
-    expandParents: knowledgeRagService.expandEvidence, expandRelationships: knowledgeRagService.expandRelationships
+    expandParents: knowledgeRagService.expandEvidence, expandRelationships: knowledgeRagService.expandRelationships,
+    rerank: ({ query, hits, signal }) => require("./knowledgeReranker").rerank({ query, hits, signal }),
+    aggregates: ({ projectId, user, question }) => require("./knowledgeAggregates.service").hits({ projectId, user, question })
   }
 }));
 
@@ -262,9 +306,16 @@ const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, u
   }
 };
 
-const retrieveDirect = (input) => execution.run({ signal: input.signal || execution.current()?.signal, onProgress: input.onProgress || execution.current()?.onProgress }, async () => {
+// Inherits the calling turn's execution context (trace id, event log, progress
+// stream) when there is one, so retrieval stages stay in the caller's processing
+// trace; an external host has no parent context and starts a fresh one.
+const retrieveDirect = (input) => execution.run({ ...execution.current(), signal: input.signal || execution.current()?.signal, onProgress: input.onProgress || execution.current()?.onProgress }, async () => {
+  try {
   const filters = await normalizeAssistantFilters({ projectId: input.projectId, appTypeId: input.appTypeId, base: input.filters });
-  const request = knowledgeContracts.buildRetrievalRequest({ projectId: input.projectId, query: input.query, filters, budgets: input.budgets });
+  const history = asArray(input.history).filter(message => message && ['user', 'assistant'].includes(message.role) && typeof message.content === 'string').slice(-6);
+  const request = knowledgeContracts.buildRetrievalRequest({ projectId: input.projectId, query: input.query, filters, budgets: input.budgets,
+    smartContext: input.smartContext, traceId: execution.current()?.traceId,
+    conversation: { session_id: input.conversation?.session_id, history_message_count: history.length, follow_up: history.length > 0 } });
   execution.current().modelBudget = { ...request.budgets,
     ...(input.budgets?.max_query_cost_usd != null || input.budgets?.max_cost_usd != null
       ? { max_query_cost_usd: request.budgets.max_cost_usd } : {}) };
@@ -283,26 +334,43 @@ const retrieveDirect = (input) => execution.run({ signal: input.signal || execut
     try{return require('./knowledgeIntentPlanning.service').normalizePlan(input.intentPlan,request.query);}
     catch{throw createError('The supplied retrieval hint must be bounded and related to the original question.',400,'RETRIEVAL_PLAN_INVALID');}
   };
+  const deterministicIntent = require('@hellotest/contracts/agents/contextIntent').planContext({prompt:request.query,agentId:filters.agent_id,requestedScopes:filters.requested_scopes,history});
   const planning = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? {mode:"disabled",plan:null,reason:"NO_REQUESTED_CONTEXT"}
     : input.intentPlan ? {mode:'caller_supplied',plan:suppliedPlan(),reason:null}
     : input.planningMode==='deterministic' ? {mode:'deterministic',plan:null,reason:null}
-    : scopedNativeRead ? {mode:"scoped_native",plan:null,reason:null} : await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
+    : scopedNativeRead ? {mode:"scoped_native",plan:null,reason:null}
+    : input.planningMode!=='model' && deterministicIntent.route_confidence!=='low' ? {mode:'deterministic_resolved',plan:null,reason:null} : await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
     integration: input.integration, integrationId: input.integrationId, history: input.history, signal: input.signal || execution.current()?.signal });
   const intentModelCalls = Number(execution.current().modelStats.calls || 0);
-  const retrievalRequest = { ...request, budgets: { ...request.budgets,
+  const retrievalRequest = { ...request, ...(deterministicIntent.route_confidence==='low'&&planning.plan?.confidence&&planning.plan.confidence!=='low'&&planning.plan.query_class?{query_class:planning.plan.query_class}:{}), budgets: { ...request.budgets,
     max_tool_calls: Math.max(0, request.budgets.max_tool_calls - intentModelCalls),
     max_cost_usd: Math.max(0, request.budgets.max_cost_usd - Number(execution.current().modelStats.reservedCostUsd || 0)),
     deadline_ms: Math.max(1, request.budgets.deadline_ms - (Date.now() - started)) } };
-  const result = await retrieveContext({ request: retrievalRequest, user: input.user, intentPlan: planning.plan });
+  // A model-planned or caller-supplied plan, or an explicit request, allows one
+  // further deterministic round; the plain deterministic read stays single-round.
+  const followUpRounds = input.followUpRounds !== undefined ? Boolean(input.followUpRounds) : Boolean(planning.plan);
+  const result = await retrieveContext({ request: retrievalRequest, user: input.user, intentPlan: planning.plan,
+    history, smartContext: input.smartContext || {}, followUpRounds, focusSourceIds: asArray(input.focusSourceIds).slice(0, 6) });
   const { context_packet, ...diagnostics } = result.retrieval;
   result.packet.retrieval = { ...diagnostics, ...result.packet.retrieval, intent_planning_mode: planning.mode,
-    intent_planning_model_used: planning.mode === "llm", intent_model_calls: intentModelCalls, intent_plan_error_code: planning.reason,
-    model_context_plan: planning.plan ? { source_kinds: planning.plan.source_kinds, information_needs: planning.plan.information_needs, retrieval_strategy: planning.plan.retrieval_strategy } : null };
+    intent_planning_model_used: planning.mode === "llm", route_confidence:planning.plan?.confidence||deterministicIntent.route_confidence,
+    intent_scope_widened:!filters.requested_scopes?.length && (planning.plan?.confidence==='low'||(!planning.plan?.confidence&&deterministicIntent.scope_widened)), intent_model_calls: intentModelCalls, intent_plan_error_code: planning.reason,
+    model_context_plan: planning.plan ? { source_kinds: planning.plan.source_kinds, information_needs: planning.plan.information_needs, retrieval_strategy: planning.plan.retrieval_strategy,query_class:planning.plan.query_class,confidence:planning.plan.confidence,context_scopes:planning.plan.context_scopes } : null };
   execution.emit("COMPLETED", "completed");
+  execution.recordRetrievalOutcome({ candidate_count: result.packet.retrieval.candidate_count,
+    degraded: result.packet.retrieval.degraded, termination_reason: result.packet.retrieval.termination_reason });
   return result.packet;
+  } catch (error) {
+    execution.recordRetrievalOutcome({ degraded: true,
+      termination_reason: error?.code === "DEADLINE_EXCEEDED" ? knowledgeContracts.TERMINATION_REASONS.DEADLINE : knowledgeContracts.TERMINATION_REASONS.FAILED });
+    throw error;
+  }
 });
 
-const retrieve = (input) => require("@hellotest/mcp/backend/gateway").retrievePacket(input);
+// Knowledge owns the canonical context-build operation. MCP and HTTP routes
+// adapt this same packet contract; the domain package must not depend upward
+// on the MCP gateway to retrieve its own evidence.
+const retrieve = retrieveDirect;
 
 // Adapt one authorized packet for existing search consumers without losing citation identity.
 const retrieveSearch = async input => {
@@ -321,4 +389,4 @@ const retrieveSearch = async input => {
     guardrails: knowledgeRagService.ASSISTANT_GUARDRAILS };
 };
 
-module.exports = { fetchEvidence: input => require('./knowledgeEvidence.service').fetchEvidence(input), retrieveSearch, retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };
+module.exports = { fetchEvidence: input => require('./knowledgeEvidence.service').fetchEvidence(input), retrieveSearch, retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };

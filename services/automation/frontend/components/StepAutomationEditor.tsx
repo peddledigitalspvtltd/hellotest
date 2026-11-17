@@ -1,5 +1,5 @@
 import { AutomationCodeLines } from "./AutomationCodeLines";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PlayIcon, SparkIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
@@ -35,6 +35,8 @@ import { AutomationParameterInput, AutomationReferencedParameters, AutomationRep
 import { readAutomationInstructions } from "../lib/automationInstructions";
 import { automationNumericArgument, automationParameterArgument, automationStringArgument, getAutomationKeywordInputSpec, resolveAutomationRepositoryTarget } from "../lib/automationKeywordInputs";
 import { usesExpressionParameterBindings } from "../../shared/automationParameterMode.mjs";
+import { AUTOMATION_KEYWORDS_BY_TYPE, buildAutomationCodeFromDraft } from "../lib/automationStepDraft";
+import Ajv from "ajv";
 import "./StepAutomationEditor.css";
 
 const AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS;
@@ -91,7 +93,7 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "goBack", label: "Go back", locatorLabel: "Optional note", dataLabel: "Wait until" },
   { id: "goForward", label: "Go forward", locatorLabel: "Optional note", dataLabel: "Wait until" },
   { id: "waitForLoadState", label: "Wait load state", locatorLabel: "Optional note", dataLabel: "load, domcontentloaded, or networkidle" },
-  { id: "waitForSelector", label: "Wait for element", locatorLabel: "Locator", dataLabel: "visible or hidden", locatorRequired: true },
+  { id: "waitForSelector", label: "Wait for element", locatorLabel: "Locator", dataLabel: "attached, detached, visible, or hidden", locatorRequired: true },
   { id: "click", label: "Click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "hover", label: "Hover", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "dblclick", label: "Double click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
@@ -101,20 +103,38 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "select", label: "Select option", locatorLabel: "Select locator", dataLabel: "Option value", locatorRequired: true, dataRequired: true },
   { id: "check", label: "Check", locatorLabel: "Checkbox locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "uncheck", label: "Uncheck", locatorLabel: "Checkbox locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "drag", label: "Drag", locatorLabel: "Source object", dataLabel: "Destination object", locatorRequired: true, dataRequired: true },
+  { id: "uploadFile", label: "Upload file", locatorLabel: "File input", dataLabel: "File path", locatorRequired: true, dataRequired: true },
+  { id: "uploadLocalFile", label: "Upload local file", locatorLabel: "File input", dataLabel: "File path", locatorRequired: true, dataRequired: true },
+  { id: "uploadRemoteFile", label: "Upload file from URL", locatorLabel: "File input", dataLabel: "File URL", locatorRequired: true, dataRequired: true },
   { id: "press", label: "Press Key", locatorLabel: "Locator optional", dataLabel: "Key", dataRequired: true },
   { id: "scroll", label: "Scroll", locatorLabel: "Direction", dataLabel: "Pixels", dataRequired: true },
   { id: "wait", label: "Wait", locatorLabel: "Optional note", dataLabel: "Milliseconds", dataRequired: true },
   { id: "expectVisible", label: "Assert Visible", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
+  { id: "expectHidden", label: "Verify hidden", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectEnabled", label: "Verify enabled", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectDisabled", label: "Verify disabled", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectChecked", label: "Verify checked", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectUnchecked", label: "Verify unchecked", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectEditable", label: "Verify editable", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectFocused", label: "Verify focused", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectEmpty", label: "Verify empty", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "expectCount", label: "Verify element count", locatorLabel: "Locator", dataLabel: "Expected count", locatorRequired: true, dataRequired: true },
   { id: "expectText", label: "Assert Text", locatorLabel: "Locator optional", dataLabel: "Expected text", dataRequired: true },
+  { id: "expectValue", label: "Verify input value", locatorLabel: "Input locator", dataLabel: "Expected value", locatorRequired: true, dataRequired: true },
   { id: "expectUrl", label: "Assert URL", locatorLabel: "Optional note", dataLabel: "URL fragment", dataRequired: true },
   { id: "captureText", label: "Capture Text", locatorLabel: "Locator", dataLabel: "Param token", locatorRequired: true, dataRequired: true },
-  { id: "captureValue", label: "Capture Value", locatorLabel: "Locator", dataLabel: "Param token", locatorRequired: true, dataRequired: true }
+  { id: "captureValue", label: "Capture Value", locatorLabel: "Locator", dataLabel: "Param token", locatorRequired: true, dataRequired: true },
+  { id: "text", label: "Read text", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "value", label: "Read input value", locatorLabel: "Locator", dataLabel: "", locatorRequired: true },
+  { id: "screenshot", label: "Take screenshot", locatorLabel: "", dataLabel: "" }
 ];
 
 const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
   { id: "aiStep", label: "AI Step", selectorLabel: "Optional selector", valueLabel: "Instruction", valueRequired: true },
   { id: "codedJS", label: "CodedJS", selectorLabel: "Optional selector", valueLabel: "Edit generated code below" },
   { id: "tap", label: "Tap", selectorLabel: "UiAutomator/XPath/accessibility id", valueLabel: "Optional note", selectorRequired: true },
+  { id: "tapByText", label: "Tap by text", selectorLabel: "Visible text", valueLabel: "", selectorRequired: true },
   { id: "tapPoint", label: "Tap point", selectorLabel: "X,Y", valueLabel: "Optional note", selectorRequired: true, hint: "Example: 540,1200" },
   { id: "doubleTap", label: "Double tap", selectorLabel: "Selector or point:X,Y", valueLabel: "Optional note", selectorRequired: true },
   { id: "longPress", label: "Long press", selectorLabel: "Selector or point:X,Y", valueLabel: "Duration ms", selectorRequired: true },
@@ -123,6 +143,7 @@ const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
   { id: "hideKeyboard", label: "Hide keyboard", selectorLabel: "Optional note", valueLabel: "Optional note" },
   { id: "waitForDisplayed", label: "Wait visible", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
   { id: "waitForExist", label: "Wait exists", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
+  { id: "waitForEnabled", label: "Wait enabled", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
   { id: "expectText", label: "Assert text", selectorLabel: "Selector", valueLabel: "Expected text", selectorRequired: true, valueRequired: true },
   { id: "expectDisplayed", label: "Assert visible", selectorLabel: "Selector", valueLabel: "Optional note", selectorRequired: true },
   { id: "expectNotDisplayed", label: "Assert hidden", selectorLabel: "Selector", valueLabel: "Timeout ms", selectorRequired: true },
@@ -130,6 +151,15 @@ const ANDROID_KEYWORD_OPTIONS: AndroidKeywordOption[] = [
   { id: "expectValue", label: "Assert value", selectorLabel: "Selector", valueLabel: "Expected value", selectorRequired: true, valueRequired: true },
   { id: "swipe", label: "Swipe", selectorLabel: "Start X,Y", valueLabel: "End X,Y,duration", selectorRequired: true, valueRequired: true, hint: "Example: selector 500,1500 and value 500,500,300" },
   { id: "scrollIntoView", label: "Scroll into view", selectorLabel: "Selector/text", valueLabel: "Direction", selectorRequired: true },
+  { id: "captureText", label: "Capture text", selectorLabel: "Selector", valueLabel: "Save to parameter", selectorRequired: true, valueRequired: true },
+  { id: "screenshot", label: "Take screenshot", selectorLabel: "", valueLabel: "" },
+  { id: "pushFile", label: "Push file to device", selectorLabel: "Device path", valueLabel: "Local file path", selectorRequired: true, valueRequired: true },
+  { id: "pushRemoteFile", label: "Push file from URL", selectorLabel: "Device path", valueLabel: "File URL", selectorRequired: true, valueRequired: true },
+  { id: "pullFile", label: "Pull file from device", selectorLabel: "Device path", valueLabel: "", selectorRequired: true },
+  { id: "installApp", label: "Install app", selectorLabel: "App path or URL", valueLabel: "", selectorRequired: true },
+  { id: "removeApp", label: "Remove app", selectorLabel: "App package", valueLabel: "", selectorRequired: true },
+  { id: "startActivity", label: "Start Android activity", selectorLabel: "App package", valueLabel: "Activity", selectorRequired: true, valueRequired: true },
+  { id: "openDeepLink", label: "Open Android deep link", selectorLabel: "URL", valueLabel: "App package", selectorRequired: true, valueRequired: true },
   { id: "pressBack", label: "Press back", selectorLabel: "Optional note", valueLabel: "Optional note" },
   { id: "pressKeyCode", label: "Press key code", selectorLabel: "Android key code", valueLabel: "Optional note", selectorRequired: true },
   { id: "backgroundApp", label: "Background app", selectorLabel: "Seconds", valueLabel: "Optional note" },
@@ -166,15 +196,6 @@ function playwrightLocatorExpression(target: string, parameterExpressions = fals
   return `page.locator(${automationStringArgument(target, parameterExpressions)})`;
 }
 
-function webdriverElementBlock(selector: string, lines: string[]) {
-  return [
-    "{",
-    `  const element = await driver.$(${quoteCodeString(selector)});`,
-    ...lines.map((line) => `  ${line}`),
-    "}"
-  ].join("\n");
-}
-
 function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data: string, parameterExpressions = false) {
   const target = locator.trim();
   const value = parameterExpressions ? data : data.trim();
@@ -201,7 +222,7 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
       return `await web.openTab(${target ? argument(target) : "null"}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
     case "switchTab":
       // The HelloTest helper mirrors choosing a Page from browserContext.pages() and makes it active.
-      return `await web.switchTab(${quoteCodeString(target || "latest")});`;
+      return `await web.switchTab(${argument(target || "latest")});`;
     case "closeTab":
       // The HelloTest helper mirrors Page.close() and moves the runtime to the next available tab.
       return target ? `await web.closeTab(${argument(target)});` : "await web.closeTab();";
@@ -214,7 +235,7 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
     case "waitForLoadState":
       return `await page.waitForLoadState(${automationParameterArgument(value) || quoteCodeString(loadState)});`;
     case "waitForSelector":
-      return `await web.waitForSelector(${argument(target)}, ${argument(/^(visible|hidden)$/i.test(value) ? value.toLowerCase() : "visible")});`;
+      return `await web.waitForSelector(${argument(target)}, ${automationParameterArgument(value) || argument(/^(attached|detached|visible|hidden)$/i.test(value) ? value.toLowerCase() : "visible")});`;
     case "click":
       return targetBlock([`await target.click();`]);
     case "hover":
@@ -250,12 +271,32 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
       return `await page.waitForTimeout(${automationNumericArgument(value, 1000)});`;
     case "expectVisible":
       return `await expect(${locatorExpression}).toBeVisible();`;
+    case "expectHidden":
+      return `await expect(${locatorExpression}).toBeHidden();`;
+    case "expectEnabled":
+      return `await expect(${locatorExpression}).toBeEnabled();`;
+    case "expectDisabled":
+      return `await expect(${locatorExpression}).toBeDisabled();`;
+    case "expectChecked":
+      return `await expect(${locatorExpression}).toBeChecked();`;
+    case "expectUnchecked":
+      return `await expect(${locatorExpression}).not.toBeChecked();`;
+    case "expectEditable":
+      return `await expect(${locatorExpression}).toBeEditable();`;
+    case "expectFocused":
+      return `await expect(${locatorExpression}).toBeFocused();`;
+    case "expectEmpty":
+      return `await expect(${locatorExpression}).toBeEmpty();`;
+    case "expectCount":
+      return `await expect(${locatorExpression}).toHaveCount(Number(${automationParameterArgument(value) || argument(value)}));`;
     case "expectText":
       return target
         ? `await expect(${locatorExpression}).toContainText(${argument(value)});`
         : `await expect(page.locator("body")).toContainText(${argument(value)});`;
     case "expectUrl":
-      return `await expect(page).toHaveURL(${argument(value)});`;
+      return `await web.expectUrl(${argument(value)});`;
+    case "expectValue":
+      return `await expect(${locatorExpression}).toHaveValue(${argument(value)});`;
     case "captureText":
       return targetBlock([
         `capture(${quoteCodeString(value || "@t.capturedText")}, (await target.textContent())?.trim() || "");`
@@ -265,154 +306,21 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
         `capture(${quoteCodeString(value || "@t.capturedValue")}, await target.inputValue());`
       ]);
     default:
-      return "";
+      return buildAutomationCodeFromDraft({
+        step_type: "web", behaviorKeyword: "When", name: "", expected_result: "",
+        keyword: `web.${option.id}`, objectRef: target, value, parameterExpressions,
+        apiMethod: "GET", apiHeaders: "", apiBodyMode: "none", apiExpectedStatus: ""
+      });
   }
 }
 
-function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: string, data: string) {
-  const target = selector.trim();
-  const value = data.trim();
-  const splitNumbers = (source: string) => source.split(",").map((item) => automationNumericArgument(item, 0));
-  const pointTarget = target.replace(/^point:/i, "");
-  const [pointX, pointY] = splitNumbers(pointTarget);
-
-  switch (option.id) {
-    case "aiStep":
-      return `await android.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ selector: target || undefined })});`;
-    case "tap":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `await element.click();`
-      ]);
-    case "tapPoint":
-      return `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().up().perform();`;
-    case "doubleTap":
-      if (/^(point:)?\d+\s*,\s*\d+$/i.test(target)) {
-        return [
-          `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().up().perform();`,
-          `await driver.pause(80);`,
-          `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().up().perform();`
-        ].join("\n");
-      }
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `await element.click();`,
-        `await driver.pause(80);`,
-        `await element.click();`
-      ]);
-    case "longPress": {
-      const duration = automationNumericArgument(value, 800);
-      if (/^(point:)?\d+\s*,\s*\d+$/i.test(target)) {
-        return `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().pause(${duration}).up().perform();`;
-      }
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `const location = await element.getLocation();`,
-        `const size = await element.getSize();`,
-        `await driver.action("pointer").move({ x: Math.round(location.x + size.width / 2), y: Math.round(location.y + size.height / 2) }).down().pause(${duration}).up().perform();`
-      ]);
-    }
-    case "type":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `await element.clearValue();`,
-        `await element.setValue(${quoteCodeString(value)});`
-      ]);
-    case "clear":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `await element.clearValue();`
-      ]);
-    case "hideKeyboard":
-      return "await driver.hideKeyboard().catch(() => undefined);";
-    case "waitForDisplayed":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: ${automationNumericArgument(value, 10000)} });`
-      ]);
-    case "waitForExist":
-      return webdriverElementBlock(target, [
-        `await element.waitForExist({ timeout: ${automationNumericArgument(value, 10000)} });`
-      ]);
-    case "expectText":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `const actualText = await element.getText();`,
-        `if (!String(actualText).includes(${quoteCodeString(value)})) {`,
-        `  throw new Error(${quoteCodeString(`Expected ${target} text to contain ${value}`)} + \`, received \${actualText}\`);`,
-        `}`
-      ]);
-    case "expectDisplayed":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`
-      ]);
-    case "expectNotDisplayed":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: ${automationNumericArgument(value, 10000)}, reverse: true });`
-      ]);
-    case "expectEnabled":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `if (!await element.isEnabled()) {`,
-        `  throw new Error(${quoteCodeString(`Expected ${target} to be enabled`)});`,
-        `}`
-      ]);
-    case "expectValue":
-      return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: 10000 });`,
-        `const actualValue = await element.getAttribute("value").catch(() => null) || await element.getText().catch(() => "");`,
-        `if (!String(actualValue).includes(${quoteCodeString(value)})) {`,
-        `  throw new Error(${quoteCodeString(`Expected ${target} value to contain ${value}`)} + \`, received \${actualValue}\`);`,
-        `}`
-      ]);
-    case "swipe": {
-      const [startX, startY] = splitNumbers(target);
-      const [endX, endY, duration] = splitNumbers(value);
-      return [
-        `await driver.touchAction([`,
-        `  { action: "press", x: ${startX || 500}, y: ${startY || 1500} },`,
-        `  { action: "wait", ms: ${duration || 300} },`,
-        `  { action: "moveTo", x: ${endX || 500}, y: ${endY || 500} },`,
-        `  "release"`,
-        `]);`
-      ].join("\n");
-    }
-    case "scrollIntoView":
-      return [
-        "{",
-        `  const direction = ${automationParameterArgument(value) || quoteCodeString(/^(up|left)$/i.test(value) ? "up" : "down")};`,
-        `  for (let attempt = 0; attempt < 6; attempt += 1) {`,
-        `    const element = await driver.$(${quoteCodeString(target)});`,
-        `    if (await element.isDisplayed().catch(() => false)) break;`,
-        `    const size = await driver.getWindowSize();`,
-        `    const startY = direction === "down" ? Math.round(size.height * 0.75) : Math.round(size.height * 0.25);`,
-        `    const endY = direction === "down" ? Math.round(size.height * 0.25) : Math.round(size.height * 0.75);`,
-        `    await driver.touchAction([`,
-        `      { action: "press", x: Math.round(size.width / 2), y: startY },`,
-        `      { action: "wait", ms: 250 },`,
-        `      { action: "moveTo", x: Math.round(size.width / 2), y: endY },`,
-        `      "release"`,
-        `    ]);`,
-        `  }`,
-        `  await (await driver.$(${quoteCodeString(target)})).waitForDisplayed({ timeout: 10000 });`,
-        "}"
-      ].join("\n");
-    case "pressBack":
-      return "await driver.back();";
-    case "pressKeyCode":
-      return `await driver.pressKeyCode(${automationNumericArgument(target, 0)});`;
-    case "backgroundApp":
-      return `await driver.background(${automationNumericArgument(target, 3)});`;
-    case "activateApp":
-      return `await driver.activateApp(${quoteCodeString(target)});`;
-    case "terminateApp":
-      return `await driver.terminateApp(${quoteCodeString(target)});`;
-    case "setOrientation":
-      return `await driver.setOrientation(${automationParameterArgument(target) ? `String(${automationParameterArgument(target)}).toUpperCase()` : quoteCodeString(/landscape/i.test(target) ? "LANDSCAPE" : "PORTRAIT")});`;
-    case "pause":
-      return `await driver.pause(${automationNumericArgument(target, 1000)});`;
-    default:
-      return "";
-  }
+/** Reuse the worker-backed keyword converter for both native platforms. */
+function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: string, data: string, platform: "android" | "ios" = "android", parameterExpressions = false) {
+  return buildAutomationCodeFromDraft({
+    step_type: platform, behaviorKeyword: "When", name: "", expected_result: "",
+    keyword: `${platform}.${option.id}`, objectRef: selector, value: data, parameterExpressions,
+    apiMethod: "GET", apiHeaders: "", apiBodyMode: "none", apiExpectedStatus: ""
+  });
 }
 
 const CURL_VALUE_FLAGS = new Set([
@@ -1039,6 +947,14 @@ function ApiHeaderRowsEditor({
   );
 }
 
+function apiValidationOperatorOptions(kind: StepApiValidation["kind"]) {
+  const labels = { eq: "Equals", ne: "Not equal", contains: "Contains", exists: "Exists", lt: "Less than", lte: "At most", gt: "Greater than", gte: "At least" };
+  const supported = kind === "json_path" ? ["eq", "ne", "contains", "exists", "lt", "lte", "gt", "gte"] as const
+    : kind === "header" ? ["eq", "ne", "contains", "exists"] as const
+      : kind === "response_time" ? ["lte"] as const : [];
+  return supported.map((value) => ({ value, label: labels[value] }));
+}
+
 function ApiValidationRowsEditor({
   validations,
   onChange,
@@ -1052,11 +968,14 @@ function ApiValidationRowsEditor({
   parameterValues?: Record<string, string>;
   availableParameters?: StepParameterDefinition[];
 }) {
-  const nextValidations: StepApiValidation[] = validations.length ? validations : [{ kind: "status", operator: "eq", target: "", expected: "200" }];
+  const nextValidations: StepApiValidation[] = validations.length ? validations : [{ kind: "status", target: "", expected: "200" }];
 
   return (
     <div className="automation-grid-stack">
       {nextValidations.map((validation, index) => {
+        const operators = apiValidationOperatorOptions(validation.kind);
+        const selectedOperator = validation.operator || (operators.length ? validation.kind === "response_time" ? "lte" : "eq" : "");
+        const unsupportedOperator = Boolean(validation.operator && !operators.some((option) => option.value === validation.operator));
         const result = results[index] || null;
         const resolvedTarget = resolveStepParameterText(validation.target, parameterValues);
         const resolvedExpected = resolveStepParameterText(validation.expected, parameterValues);
@@ -1075,10 +994,11 @@ function ApiValidationRowsEditor({
                 onChange={(event) => {
                   const updated = nextValidations.map((item, itemIndex) =>
                     itemIndex === index
-                      ? {
-                          ...item,
-                          kind: event.target.value as StepApiValidation["kind"]
-                        }
+                      ? (() => {
+                          const next = { ...item, kind: event.target.value as StepApiValidation["kind"] };
+                          if (!apiValidationOperatorOptions(next.kind).some((option) => option.value === next.operator)) delete next.operator;
+                          return next;
+                        })()
                       : item
                   ) as StepApiValidation[];
                   onChange(updated);
@@ -1095,18 +1015,18 @@ function ApiValidationRowsEditor({
               </select>
               <select
                 aria-label="Validation operator"
-                onChange={(event) => onChange(nextValidations.map((item, itemIndex) => itemIndex === index ? { ...item, operator: event.target.value as StepApiValidation["operator"] } : item))}
-                value={validation.operator || "eq"}
+                disabled={!operators.length && !unsupportedOperator}
+                onChange={(event) => onChange(nextValidations.map((item, itemIndex) => {
+                  if (itemIndex !== index) return item;
+                  const next = { ...item };
+                  if (event.target.value) next.operator = event.target.value as StepApiValidation["operator"];
+                  else delete next.operator;
+                  return next;
+                }))}
+                value={selectedOperator}
               >
-                <option value="eq">Equals</option>
-                <option value="ne">Not equal</option>
-                <option value="contains">Contains</option>
-                <option value="matches">Matches regex</option>
-                <option value="exists">Exists</option>
-                <option value="lt">Less than</option>
-                <option value="lte">At most</option>
-                <option value="gt">Greater than</option>
-                <option value="gte">At least</option>
+                {unsupportedOperator ? <option disabled value={validation.operator}>{`Unsupported: ${validation.operator}`}</option> : null}
+                {operators.length ? operators.map((option) => <option key={option.value} value={option.value}>{option.label}</option>) : <option value="">{validation.kind === "body_contains" ? "Contains" : validation.kind === "body_not_contains" ? "Excludes" : validation.kind === "header_present" ? "Exists" : validation.kind === "json_schema" ? "Matches schema" : "Equals"}</option>}
               </select>
               <input
                 placeholder={validation.kind === "status" ? "Status code" : validation.kind === "json_path" ? "JSON path" : validation.kind === "header" ? "Header name" : "Search text"}
@@ -1554,6 +1474,7 @@ function buildUniqueCaptureToken(preferredToken: string | null | undefined, used
 }
 
 function readPreviewCaptureValue(preview: ApiRequestPreview, path?: string | null) {
+  if (preview.response.truncated) return null;
   const source = preview.response.body_json !== null && preview.response.body_json !== undefined
     ? preview.response.body_json
     : preview.response.body_text;
@@ -1638,22 +1559,19 @@ function createValidationLabel(validation: StepApiValidation, index: number) {
 }
 
 function compareApiValidationValues(actual: unknown, expected: unknown, operator: StepApiValidation["operator"] = "eq") {
-  if (operator === "exists") return actual !== undefined && actual !== null && actual !== "";
-  if (operator === "contains") return String(actual ?? "").includes(String(expected ?? ""));
-  if (operator === "matches") {
-    try { return new RegExp(String(expected || "")).test(String(actual ?? "")); } catch { return false; }
-  }
+  if (operator === "exists") return actual !== undefined;
+  if (operator === "contains") return typeof actual === "string" ? actual.includes(String(expected)) : Array.isArray(actual) && actual.some((value) => areAssertionValuesEqual(value, expected));
   if (["lt", "lte", "gt", "gte"].includes(operator)) {
-    const left = Number(actual);
-    const right = Number(expected);
-    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+    if (typeof actual !== "number" || typeof expected !== "number" || !Number.isFinite(actual) || !Number.isFinite(expected)) return false;
+    const left = actual;
+    const right = expected;
     if (operator === "lt") return left < right;
     if (operator === "lte") return left <= right;
     if (operator === "gt") return left > right;
     return left >= right;
   }
-  const equal = areAssertionValuesEqual(actual, expected) || String(actual ?? "") === String(expected ?? "");
-  return operator === "ne" ? !equal : equal;
+  const equal = areAssertionValuesEqual(actual, expected);
+  return operator === "ne" ? !equal : operator === "eq" && equal;
 }
 
 function evaluateValidationResult(
@@ -1673,8 +1591,17 @@ function evaluateValidationResult(
   const expected = String(resolvedValidation.expected || "").trim();
   const operator = resolvedValidation.operator || "eq";
 
+  if (resolvedValidation.operator && !apiValidationOperatorOptions(kind).some((option) => option.value === resolvedValidation.operator)) {
+    return { id: `validation-${index}`, label, passed: false, summary: "This assertion operator is not supported for the selected response check. Choose a supported operator before running." };
+  }
+
+  if (preview.response.truncated && ["body_contains", "body_not_contains", "json_path", "json_schema"].includes(kind)) {
+    return { id: `validation-${index}`, label, passed: false, summary: "Not verified: the response body was truncated. Run against the complete response before trusting this body assertion." };
+  }
+
   if (kind === "status") {
-    const expectedStatus = Number(expected) || 200;
+    if (!/^[1-5]\d\d$/.test(expected)) return { id: `validation-${index}`, label, passed: false, summary: "Expected status is missing or invalid after resolving parameters. Supply an HTTP status from 100 to 599." };
+    const expectedStatus = Number(expected);
     const passed = compareApiValidationValues(preview.response.status, expectedStatus, operator);
     return {
       id: `validation-${index}`,
@@ -1688,8 +1615,8 @@ function evaluateValidationResult(
 
   if (kind === "header") {
     const headerName = (target || "content-type").toLowerCase();
-    const actual = preview.response.headers[headerName] || "";
-    const passed = compareApiValidationValues(actual, expected, operator);
+    const actual = preview.response.headers[headerName];
+    const passed = Object.prototype.hasOwnProperty.call(preview.response.headers, headerName) && compareApiValidationValues(actual, expected, operator);
     return {
       id: `validation-${index}`,
       label,
@@ -1702,7 +1629,7 @@ function evaluateValidationResult(
 
   if (kind === "header_present") {
     const headerName = (target || "content-type").toLowerCase();
-    const passed = Boolean(preview.response.headers[headerName]);
+    const passed = Object.prototype.hasOwnProperty.call(preview.response.headers, headerName);
     return { id: `validation-${index}`, label, passed, summary: passed ? `Header ${headerName} is present.` : `Header ${headerName} is missing.` };
   }
 
@@ -1724,20 +1651,24 @@ function evaluateValidationResult(
   }
 
   if (kind === "response_time") {
-    const expectedMs = Number(expected || target) || 2000;
+    const expectedMs = Number(expected);
+    if (!expected || !Number.isFinite(expectedMs) || expectedMs <= 0) return { id: `validation-${index}`, label, passed: false, summary: "Expected response duration is missing or invalid after resolving parameters. Supply a positive duration in milliseconds." };
     const passed = compareApiValidationValues(preview.response.duration_ms, expectedMs, operator === "eq" ? "lte" : operator);
     return { id: `validation-${index}`, label, passed, summary: `${preview.response.duration_ms} ms received; threshold ${expectedMs} ms.` };
   }
 
   if (kind === "json_schema") {
-    if (preview.response.body_json === null || preview.response.body_json === undefined) return { id: `validation-${index}`, label, passed: false, summary: "Response is not JSON." };
+    let body: unknown;
+    try { body = JSON.parse(preview.response.body_text); }
+    catch { return { id: `validation-${index}`, label, passed: false, summary: "Response is not JSON." }; }
     try {
-      const schema = JSON.parse(expected || target || "{}");
-      const required = Array.isArray(schema.required) ? schema.required : [];
-      const passed = typeof preview.response.body_json === "object" && preview.response.body_json !== null && required.every((key: string) => key in (preview.response.body_json as object));
-      return { id: `validation-${index}`, label, passed, summary: passed ? "Required JSON schema fields are present." : "One or more required JSON schema fields are missing." };
+      const schema = JSON.parse(expected || target || "");
+      if (!schema || typeof schema !== "object" || Array.isArray(schema) || !Object.keys(schema).length) return { id: `validation-${index}`, label, passed: false, summary: "Provide a nonempty JSON Schema object." };
+      const validator = new Ajv({ allErrors: true, strict: true });
+      const passed = Boolean(validator.validate(schema, body));
+      return { id: `validation-${index}`, label, passed, summary: passed ? "Response matches the JSON Schema." : `Response does not match the JSON Schema: ${validator.errorsText(validator.errors, { dataVar: "response" })}` };
     } catch {
-      return { id: `validation-${index}`, label, passed: false, summary: "Expected value is not a valid JSON schema." };
+      return { id: `validation-${index}`, label, passed: false, summary: "The response JSON Schema is invalid or uses an unsupported schema feature." };
     }
   }
 
@@ -1949,7 +1880,7 @@ export function CodePreviewDialog({
   );
 }
 
-export function StepAutomationDialog({
+function StepAutomationDialogView({
   title,
   subtitle,
   step,
@@ -2073,9 +2004,11 @@ export function StepAutomationDialog({
   );
   const selectedJsonValue = selectedJsonPath ? formatJsonSelectionValue(selectedJsonPath.value) : "";
   const selectedWebKeyword = WEB_KEYWORD_OPTIONS.find((option) => option.id === webKeywordId) || WEB_KEYWORD_OPTIONS[0];
-  const selectedAndroidKeyword = ANDROID_KEYWORD_OPTIONS.find((option) => option.id === androidKeywordId) || ANDROID_KEYWORD_OPTIONS[0];
+  const availableMobileKeywords = ANDROID_KEYWORD_OPTIONS.filter((option) => ["aiStep", "codedJS"].includes(option.id)
+    || AUTOMATION_KEYWORDS_BY_TYPE[stepType === "ios" ? "ios" : "android"].includes(`${stepType === "ios" ? "ios" : "android"}.${option.id}`));
+  const selectedAndroidKeyword = availableMobileKeywords.find((option) => option.id === androidKeywordId) || availableMobileKeywords[0];
   const webInputSpec = getAutomationKeywordInputSpec(webKeywordId, "web");
-  const mobileInputSpec = getAutomationKeywordInputSpec(androidKeywordId, stepType);
+  const mobileInputSpec = getAutomationKeywordInputSpec(selectedAndroidKeyword.id, stepType);
   const apiReferencedParameters = useMemo(() => {
     const names = collectStepParameters([{ id: "request", action: [apiRequest.url, apiRequest.body, ...(apiRequest.headers || []).flatMap((row) => [row.key, row.value]), ...(apiRequest.query_params || []).flatMap((row) => [row.key, row.value]), ...(apiRequest.cookies || []).flatMap((row) => [row.key, row.value])].filter(Boolean).join("\n"), expected_result: "", automation_code: "", api_request: null }]);
     const used = new Set(names.map((parameter) => parameter.name));
@@ -2192,6 +2125,7 @@ export function StepAutomationDialog({
     const nextValidations = [...existingValidations];
 
     (apiPreview.ai_suggestions.assertions || []).forEach((suggestion) => {
+      if (apiPreview.response.truncated && ["body_contains", "body_not_contains", "json_path", "json_schema"].includes(suggestion.kind || "")) return;
       const alreadyExists = nextValidations.some((validation) =>
         validation.kind === suggestion.kind
         && (validation.target || "") === (suggestion.target || "")
@@ -2205,6 +2139,7 @@ export function StepAutomationDialog({
     });
 
     (apiPreview.ai_suggestions.captures || []).forEach((suggestion) => {
+      if (apiPreview.response.truncated) return;
       const path = suggestion.path || "";
 
       if (!path || nextCaptures.some((capture) => (capture.path || "") === path)) {
@@ -2226,7 +2161,8 @@ export function StepAutomationDialog({
       addedCaptureCount += 1;
 
       if (parsed && onSaveResponseValue) {
-        onSaveResponseValue(parsed.name, readPreviewCaptureValue(apiPreview, path));
+        const captured = readPreviewCaptureValue(apiPreview, path);
+        if (captured !== null) onSaveResponseValue(parsed.name, captured);
       }
     });
 
@@ -2237,7 +2173,7 @@ export function StepAutomationDialog({
     }));
     setApiPreviewError("");
     setApiPreviewMessage(
-      `Added ${addedAssertionCount} assertion suggestion${addedAssertionCount === 1 ? "" : "s"} and ${addedCaptureCount} parser suggestion${addedCaptureCount === 1 ? "" : "s"}.`
+      `Added ${addedAssertionCount} assertion suggestion${addedAssertionCount === 1 ? "" : "s"} and ${addedCaptureCount} parser suggestion${addedCaptureCount === 1 ? "" : "s"}.${apiPreview.response.truncated ? " Body suggestions and captures require a complete response and were skipped." : ""}`
     );
   };
 
@@ -2287,7 +2223,7 @@ export function StepAutomationDialog({
       return;
     }
 
-    const snippet = buildWebKeywordSnippet(selectedWebKeyword, webInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(webKeywordLocator, objectRepository), webInputSpec.showValue ? webKeywordData : "", usesExpressionParameterBindings(automationCode));
+    const snippet = buildWebKeywordSnippet(selectedWebKeyword, webInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(webKeywordLocator, objectRepository), webInputSpec.showValue ? webInputSpec.valueTarget === "repository" ? resolveAutomationRepositoryTarget(webKeywordData, objectRepository) : webKeywordData : "", usesExpressionParameterBindings(automationCode));
     setAutomationCode((current) => [normalizeAutomationCode(current), snippet].filter(Boolean).join("\n"));
     setWebKeywordLocator("");
     setWebKeywordData("");
@@ -2313,7 +2249,7 @@ export function StepAutomationDialog({
       return;
     }
 
-    const snippet = buildAndroidKeywordSnippet(selectedAndroidKeyword, mobileInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(androidKeywordSelector, objectRepository), mobileInputSpec.showValue ? androidKeywordData : "");
+    const snippet = buildAndroidKeywordSnippet(selectedAndroidKeyword, mobileInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(androidKeywordSelector, objectRepository), mobileInputSpec.showValue ? androidKeywordData : "", stepType === "ios" ? "ios" : "android", usesExpressionParameterBindings(automationCode));
     setAutomationCode((current) => [normalizeAutomationCode(current), snippet].filter(Boolean).join("\n"));
     setAndroidKeywordSelector("");
     setAndroidKeywordData("");
@@ -2339,6 +2275,10 @@ export function StepAutomationDialog({
   };
 
   const handleInsertJsonPathAssertion = () => {
+    if (apiPreview?.response.truncated) {
+      setApiPreviewError("The response body was truncated. Use a complete response to author a JSON path assertion.");
+      return;
+    }
     if (!selectedJsonPath) {
       return;
     }
@@ -2387,6 +2327,10 @@ export function StepAutomationDialog({
   };
 
   const handleAddResponseCapture = () => {
+    if (apiPreview?.response.truncated) {
+      setApiPreviewError("The response body was truncated. Use a complete response before saving a captured value.");
+      return;
+    }
     if (!selectedJsonPath || !parsedResponseParameter) {
       setApiPreviewError("Choose a JSON node and enter a scoped token like @t.orderId before adding a response parser.");
       setApiPreviewMessage("");
@@ -2438,8 +2382,8 @@ export function StepAutomationDialog({
   if (!canEditAutomationCode) return null;
 
   const isWeb = stepType === "web";
-  const keywordId = isWeb ? webKeywordId : androidKeywordId;
-  const keywordOptions = isWeb ? WEB_KEYWORD_OPTIONS : ANDROID_KEYWORD_OPTIONS;
+  const keywordId = isWeb ? webKeywordId : selectedAndroidKeyword.id;
+  const keywordOptions = isWeb ? WEB_KEYWORD_OPTIONS : availableMobileKeywords;
   const keywordSpec = isWeb ? webInputSpec : mobileInputSpec;
   const keywordTarget = isWeb ? webKeywordLocator : androidKeywordSelector;
   const keywordValue = isWeb ? webKeywordData : androidKeywordData;
@@ -2834,6 +2778,12 @@ export function StepAutomationDialog({
                         </span>
                       </div>
 
+                      {apiPreview.response.truncated ? (
+                        <div className="inline-message warning-message" role="status">
+                          Response body truncated{apiPreview.response.size_bytes ? ` at ${apiPreview.response.size_bytes.toLocaleString()} bytes` : ""}. This preview contains only part of the response. Body assertions and captures are not verified; status and headers remain available.
+                        </div>
+                      ) : null}
+
                       {apiPreview.ai_suggestions ? (
                         <div className="automation-response-meta">
                           <strong>AI response review</strong>
@@ -2875,7 +2825,7 @@ export function StepAutomationDialog({
                         </details>
                       ) : null}
 
-                      {apiPreview.response.body_json !== null && apiPreview.response.body_json !== undefined ? (
+                      {!apiPreview.response.truncated && apiPreview.response.body_json !== null && apiPreview.response.body_json !== undefined ? (
                         <div className="automation-response-tree-shell">
                           <div className="automation-response-tree-panel">
                             <strong>JSON path (JPath) explorer</strong>
@@ -2946,12 +2896,12 @@ export function StepAutomationDialog({
                       ) : (
                         <div className="detail-summary">
                           <strong>Structured explorer unavailable</strong>
-                          <span>This response is not JSON, so only the raw body preview is available for this run.</span>
+                          <span>{apiPreview.response.truncated ? "A complete response is required for the JSON explorer and captured values." : "This response is not JSON, so only the raw body preview is available for this run."}</span>
                         </div>
                       )}
 
                       <div className="automation-response-meta">
-                        <strong>Raw response body</strong>
+                        <strong>{apiPreview.response.truncated ? "Partial response body" : "Raw response body"}</strong>
                         <pre className="automation-code-block automation-code-block--compact automation-code-block--selection">
                           <code>{apiPreview.response.body_text || "No response body returned."}</code>
                         </pre>
@@ -2992,7 +2942,11 @@ export function StepAutomationDialog({
                       ) : null}
                       {keywordSpec.showValue ? (
                         <FormField className="step-composer-argument" label={keywordSpec.valueLabel} required={keywordSpec.valueRequired}>
-                          <AutomationParameterInput ariaLabel={keywordSpec.valueLabel} availableParameters={availableParameters} onChange={setKeywordValue} parameterValues={parameterValues} placeholder="Value or parameter" value={keywordValue} />
+                          {keywordSpec.valueTarget === "repository" ? (
+                            <AutomationRepositoryFieldPicker ariaLabel={keywordSpec.valueLabel} objectRepository={objectRepository} onChange={setKeywordValue} value={keywordValue} />
+                          ) : (
+                            <AutomationParameterInput ariaLabel={keywordSpec.valueLabel} availableParameters={availableParameters} onChange={setKeywordValue} parameterValues={parameterValues} placeholder="Value or parameter" value={keywordValue} />
+                          )}
                         </FormField>
                       ) : null}
                       <button className="primary-button step-composer-add" onClick={isWeb ? handleAddWebKeyword : handleAddAndroidKeyword} type="button">
@@ -3061,6 +3015,8 @@ export function StepAutomationDialog({
     </>
   );
 }
+
+export const StepAutomationDialog = memo(StepAutomationDialogView);
 
 export function SharedGroupLevelIcon({
   kind,

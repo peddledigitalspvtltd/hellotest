@@ -2,10 +2,10 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const rules=require('../../backend/services/automationRepairRules');
+const rules=require('../../../automation/backend/services/automationRepairRules');
 const diagnostics=require('../../../platform/backend/src/domain/executionStepEvidence');
 const aiText=require('../../../platform/backend/src/security/aiTextPolicy');
-const source=fs.readFileSync(require.resolve('../../backend/services/automationRepair.service'),'utf8');
+const source=fs.readFileSync(require.resolve('../../../automation/backend/services/automationRepair.service'),'utf8');
 
 function fixture(allowed=true){
  const reads=[],module={exports:{}};
@@ -22,7 +22,7 @@ function fixture(allowed=true){
   if(id.endsWith('/aiTextPolicy'))return aiText;
   if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
-  if(id==='./automationRepairContext')return require('../../backend/services/automationRepairContext');
+  if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
   throw new Error(`Unexpected module ${id}`);
  }});
  return {...module.exports,reads,step};

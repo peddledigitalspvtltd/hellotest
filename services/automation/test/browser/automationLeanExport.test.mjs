@@ -10,8 +10,8 @@ import {assertTypeScriptExportCompiles} from './playwrightExportFixture.mjs';
 
 const require=createRequire(import.meta.url);
 const engineRequire=createRequire(new URL('../../../../testengine/backend/package.json',import.meta.url));
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {createPortableAutomationArtifact}=require('../../backend/lib/automationPortableArtifact');
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {createPortableAutomationArtifact}=require("../../backend/lib/build/automationPortableArtifact");
 
 test('lean native export waits for field validation and still rejects a real error in a fresh Playwright runner',{timeout:90000},async t=>{
  const server=createServer((request,response)=>{

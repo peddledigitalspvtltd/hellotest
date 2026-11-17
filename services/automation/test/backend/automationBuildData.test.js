@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 
 test('one build materializes linked data once for source steps, expected results, model context and browser inputs',()=>{
  const manual=[{id:'manual',title:'Register @t.email',steps:[{id:'manual-one',action:'Enter @t.email and @t.[Full name]',expected_result:'Saved @t.email'}, {id:'manual-two',action:'Check @t.email with @t.password',expected_result:'Account @t.email exists'}]}];
@@ -165,7 +165,7 @@ function snapshotFixture(){
  let access=true,revision=3;
  const updates=[],permissions=[],module={exports:{}};
  const cases={getTestCase:async()=>({id:'automation',revision}),updateTestCase:async(id,payload,options)=>{updates.push({id,payload,options});if(payload.expected_revision!==revision)throw Object.assign(new Error('Changed after generation'),{statusCode:409,code:'REVISION_CONFLICT'});revision++;}};
- new Function('require','module',fs.readFileSync(require.resolve('../../backend/lib/automationBuildDataSnapshot'),'utf8'))(id=>id.endsWith('optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async(user,project,codes)=>{assert.equal(user.id,'builder');assert.equal(project,'project');permissions.push(codes);return Object.fromEntries(codes.map(code=>[code,access]));}}:id.endsWith('testCase.service')?cases:id.endsWith('scopedTestData')?require('../../../platform/backend/src/utils/scopedTestData'):id.endsWith('testDataGenerators')?require('../../../platform/backend/src/utils/testDataGenerators'):require('../../../platform/backend/src/utils/linkedManualParameters'),module);
+ new Function('require','module',fs.readFileSync(require.resolve("../../backend/lib/build/automationBuildDataSnapshot"),'utf8'))(id=>id.endsWith('optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async(user,project,codes)=>{assert.equal(user.id,'builder');assert.equal(project,'project');permissions.push(codes);return Object.fromEntries(codes.map(code=>[code,access]));}}:id.endsWith('testCase.service')?cases:id.endsWith('scopedTestData')?require('../../../platform/backend/src/utils/scopedTestData'):id.endsWith('testDataGenerators')?require('../../../platform/backend/src/utils/testDataGenerators'):require('../../../platform/backend/src/utils/linkedManualParameters'),module);
  return {...module.exports,updates,permissions,setAccess:value=>{access=value;},advanceRevision:()=>{revision++;}};
 }
 

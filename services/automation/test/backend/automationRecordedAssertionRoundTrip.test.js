@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../backend/lib/automationProgramTools');
-const {prepareVerificationSections}=require('../../backend/lib/automationVerificationPipeline');
-const {parameterReference,referenceKey,createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const {compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../backend/lib/build/automationProgramTools");
+const {prepareVerificationSections}=require("../../backend/lib/verification/automationVerificationPipeline");
+const {parameterReference,referenceKey,createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 
 const lower=source=>deriveProgramTools({payload:{steps:[{step_id:'step',automation_code:source}]},execution:{required:true,step_id:'step'}});
 const operation=(assertion,value)=>({name:'browser_assert',arguments:{assertion,...(!['url','url_contains','title','title_normalized'].includes(assertion)?{locator:'getByRole("alert", {name:"Notice",exact:true})'}:{}),...(value===undefined?{}:{value})}});
@@ -28,7 +28,7 @@ test('the host compiler round trips every saved assertion mode through verificat
 });
 
 test('effective input-type and editability preserve exact native predicates, polarity and expected case',()=>{
- const {normalizeGeneratedProgram,preserveGeneratedAssertions}=require('../../backend/lib/automationGeneratedProgram');
+ const {normalizeGeneratedProgram,preserveGeneratedAssertions}=require("../../backend/lib/build/automationGeneratedProgram");
  const editable=compileRecordedProgram([operation('editable')]).source;
  assert.match(editable,/\.toBeEditable\(\)/);assert.equal(normalizeGeneratedProgram(editable),editable);
  assert.equal(lower(editable)[0].arguments.assertion,'editable');

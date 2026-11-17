@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {automationExpectedResultTemplate}=require('../../backend/lib/automationExpectedResultTemplate');
-const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
+const {automationExpectedResultTemplate}=require("../../backend/lib/build/automationExpectedResultTemplate");
+const {createBrowserParameterResolver}=require("../../backend/lib/parameters/automationBrowserParameters");
 
 test('projected expected-result prose retains its original mutable template',()=>{
   const source={id:'save',step_order:1,step_type:'web',action:'Save @t.item_name',expected_result:'The status displays Saved @t.item_name.'};

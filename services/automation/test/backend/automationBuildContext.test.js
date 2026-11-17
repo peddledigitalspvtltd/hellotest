@@ -2,8 +2,8 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const source=fs.readFileSync(require.resolve('../../backend/lib/automationBuildContext'),'utf8');
-const {resolveAutomationStartUrl}=require('../../backend/lib/automationBuildContext');
+const source=fs.readFileSync(require.resolve("../../backend/lib/build/automationBuildContext"),'utf8');
+const {resolveAutomationStartUrl}=require("../../backend/lib/build/automationBuildContext");
 
 test('browser entry resolves only selected environment or saved explicit web navigation',()=>{
  const steps=[{id:'api',step_type:'api',automation_code:'await page.goto("https://api.test");'},{id:'entry',step_type:'web',automation_code:'await page.goto("https://app.test/signup");'}];

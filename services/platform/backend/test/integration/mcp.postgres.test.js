@@ -19,6 +19,8 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   await db.query("INSERT INTO ai_knowledge_chunks(id,project_id,document_id,source_id,chunk_index,content,search_vector) VALUES ('mcp-fragment','mcp-p-a','mcp-document','mcp-source',0,'Release requires passing tests',to_tsvector('simple','Release requires passing tests'))");
   await db.query("INSERT INTO ai_knowledge_index_states(document_id,project_id,source_id,document_version,is_current,lexical_state,dense_state,required_indexes_ready) VALUES ('mcp-document','mcp-p-a','mcp-source',1,TRUE,'ready','not_configured',TRUE)");
   await db.query("INSERT INTO ai_knowledge_security_bindings(id,project_id,source_id,principal_type,principal_id,effect,inherited) VALUES ('mcp-binding','mcp-p-a','mcp-source','PROJECT','mcp-p-a','ALLOW',TRUE)");
+  // These fixtures drive hundreds of requests through single credentials. The per-credential rate limit has its own tests.
+  process.env.HELLOTEST_MCP_RATE_PER_SECOND='1000';process.env.HELLOTEST_MCP_RATE_BURST='10000';
   const Fastify=require('fastify');app=Fastify({logger:false});
   app.register(require('../../src/plugins/errorHandler'));app.register(require('../../src/plugins/validator'));app.register(require('../../src/plugins/accessControl'));app.register(require('@hellotest/mcp/backend/plugin'));app.register(require('../../src/routes'));
   await app.ready();
@@ -37,8 +39,8 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   await require('./engineQueueProgress.fixture').verify({db,obsDb});
   await require('./apiKeyStories.fixture').verify({app,db,createToken});
   const graphFixture=await require('./contextGraphManagement.fixture').verify({app,db,user:{id:'mcp-a'},headers});
-  const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:'mcp-p-a'}});
-  assert.equal(issued.statusCode,200,issued.body);assert.equal(issued.headers['cache-control'],'no-store');const credential=issued.json();
+  const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:'mcp-p-a',scopes:['knowledge','records','actions']}});
+  assert.equal(issued.statusCode,200,issued.body);assert.equal(issued.headers['cache-control'],'no-store');const credential=issued.json();assert.deepEqual(credential.scopes,['knowledge','records','actions']);
   const meta={'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}};
   const rpc=async(name,args={},token=credential.token,extra={})=>{
    const response=await app.inject({method:'POST',url:'/mcp',headers:{host:'localhost',authorization:'Bearer '+token,accept:'application/json, text/event-stream','MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':name,...extra},payload:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args,_meta:meta}}});
@@ -46,6 +48,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   };
   const memoryFixture=await require('./contextGraphMemory.fixture').verify({app,db,user:{id:'mcp-a'},headers,createToken});
   await require('./mcpContextAttribution.fixture').verify({app,db,rpc,graphFixture});
+  await require('./mcpToolSets.fixture').verify({app,db,headers});
   const memoryList=await rpc('hellotest_context_graph_list',{feature_id:memoryFixture.featureId});
   assert.equal(memoryList.result.isError,undefined,JSON.stringify(memoryList.result));
   assert.ok(memoryList.result.structuredContent.data.items.some(item=>item.trace_id===memoryFixture.traceId));
@@ -60,6 +63,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   assert.equal((await rpc('hellotest_context_graph_list',{user_id:'another-owner'})).result.isError,true);
   const builtinStatus=await app.inject({method:'GET',url:'/agentic-workflows/mcp/status?project_id=mcp-p-a',headers});assert.equal(builtinStatus.statusCode,200,builtinStatus.body);assert.equal(builtinStatus.json().status,'connected');assert.equal(builtinStatus.headers['cache-control'],'no-store');
   const connection=await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=mcp-p-a',headers});assert.equal(connection.statusCode,200,connection.body);const descriptor=connection.json();assert.equal(descriptor.client_contract.authentication,'manual_bearer');assert.equal(descriptor.client_contract.oauth_supported,false);assert.ok(descriptor.tools.find(tool=>tool.name==='hellotest_graph_trace').input_schema.properties.token_budget);assert.ok(descriptor.discovery.resource_templates.includes('hellotest://projects/{project_id}/graph/ontology'));
+  await require('./mcpOAuth.fixture').verify({app,createToken});
   const graphSchema=await rpc('hellotest_graph_schema');assert.equal(graphSchema.result.isError,undefined,JSON.stringify(graphSchema.result));assert.ok(graphSchema.result.structuredContent.data.ontology.node_kinds.includes('requirement'));
   const resolvedGraph=await rpc('hellotest_graph_resolve',{query:'Auth service'});assert.equal(resolvedGraph.result.isError,undefined,JSON.stringify(resolvedGraph.result));assert.deepEqual(resolvedGraph.result.structuredContent.data.nodes.map(node=>node.id),[graphFixture.sourceId]);
   const removedAliasGraph=await rpc('hellotest_graph_resolve',{query:'AuthSvc'});assert.deepEqual(removedAliasGraph.result.structuredContent.data.nodes,[],'The removed curated alias must not survive in MCP resolution');
@@ -152,11 +156,24 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   }finally{global.fetch=originalFetch;}
   const smartPacket=await require('@hellotest/mcp/backend/gateway').retrievePacket({user:{id:'mcp-a'},projectId:'mcp-p-a',query:'What tests are available?',budgets:{max_context_tokens:1000,deadline_ms:3000,max_tool_calls:4}});assert.ok(Array.isArray(smartPacket.evidence));assert.ok(!JSON.stringify(smartPacket).includes('B private case'));
   const listening=await app.listen({host:'127.0.0.1',port:0});process.env.HELLOTEST_MCP_INTERNAL_URL=listening+'/mcp';
-  const mcpClient=require('@hellotest/agentic/backend/workflows/mcpClient');
+  const mcpClient=require('@hellotest/agentic/mcp-client');
   const builtinInspection=await mcpClient.inspect({connectionId:'hellotest',projectId:'mcp-p-a',user:{id:'mcp-a'}});assert.ok(builtinInspection.tools.length);assert.equal(builtinInspection.protocolVersion,'2026-07-28');
   process.env.AGENTIC_SECRET_MCP_FIXTURE=credential.token;
   const externalInspection=await mcpClient.inspect({projectId:'mcp-p-a',draftConnection:{id:'fixture',kind:'mcp',url:listening+'/mcp',projectIds:['mcp-p-a'],allowPrivateNetwork:true,authType:'bearer',secretEnv:'AGENTIC_SECRET_MCP_FIXTURE',tools:[]}});assert.ok(externalInspection.tools.length);assert.equal(externalInspection.protocolVersion,'2025-11-25');delete process.env.AGENTIC_SECRET_MCP_FIXTURE;
-  try{const remoteActor=await require('@hellotest/mcp/backend/auth').principal('mcp-a','mcp-p-a','worker-fixture');const remoteCatalog=await require('@hellotest/mcp/backend/server').callLocal(remoteActor,'hellotest_capabilities',{query:'test-cases',limit:5});assert.ok(remoteCatalog.operations.length);const remaining=await db.prepare("SELECT COUNT(*)::int AS count FROM mcp_credentials WHERE client_id='worker-fixture' AND revoked_at IS NULL").get();assert.equal(remaining.count,0);}finally{delete process.env.HELLOTEST_MCP_INTERNAL_URL;}
+  try{
+   const remoteActor=await require('@hellotest/mcp/backend/auth').principal('mcp-a','mcp-p-a','worker-fixture');const server=require('@hellotest/mcp/backend/server'),remote=require('@hellotest/mcp/backend/remote');
+   const remoteCatalog=await server.callLocal(remoteActor,'hellotest_capabilities',{query:'test-cases',limit:5});assert.ok(remoteCatalog.operations.length);
+   // A turn makes several calls. They share one short-lived, internal credential scoped to the tool set they need; another tool set gets its own.
+   await server.callLocal(remoteActor,'hellotest_capabilities',{query:'test-cases',limit:5});await server.callLocal(remoteActor,'hellotest_database_schema',{});await server.callLocal(remoteActor,'hellotest_graph_schema',{});
+   const held=await db.prepare("SELECT scopes,internal,EXTRACT(EPOCH FROM (expires_at-created_at))::int AS seconds FROM mcp_credentials WHERE client_id='worker-fixture' AND revoked_at IS NULL ORDER BY scopes::text").all();
+   assert.deepEqual(held.map(row=>row.scopes),[['knowledge'],['records']],'two tool sets, two credentials, however many calls were made');
+   assert.ok(held.every(row=>row.internal===true),'minted by the platform, drawing on the capacity reserved for it');
+   assert.ok(held.every(row=>row.seconds>=175&&row.seconds<=185),'and expiring in three minutes, not an hour');
+   // The workflow inspection above made remote calls of its own, so release revokes everything this process holds, not just these two.
+   const everyLive=(await db.prepare("SELECT COUNT(*)::int AS count FROM mcp_credentials WHERE internal=TRUE AND revoked_at IS NULL").get()).count;
+   assert.ok(everyLive>=2);assert.equal(await remote.release(),everyLive);
+   const remaining=await db.prepare("SELECT COUNT(*)::int AS count FROM mcp_credentials WHERE internal=TRUE AND revoked_at IS NULL").get();assert.equal(remaining.count,0);
+  }finally{delete process.env.HELLOTEST_MCP_INTERNAL_URL;}
   const forged=await rpc('hellotest_database_query',{entity:'test_cases',sql:'SELECT * FROM users'});assert.equal(forged.result.isError,true);
   assert.equal((await rpc('hellotest_capabilities',{},webToken)).response.statusCode,401);
   assert.equal((await rpc('hellotest_capabilities',{},credential.token,{origin:'https://evil.example'})).response.statusCode,403);
@@ -246,7 +263,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
 
   const mcpAuth=require('@hellotest/mcp/backend/auth');const cachedActor=await mcpAuth.principal('mcp-a','mcp-p-a');
   await db.query("UPDATE users SET status='suspended' WHERE id='mcp-a'");await assert.rejects(require('@hellotest/mcp/backend/server').invoke(cachedActor,'hellotest_capabilities',{}),{statusCode:403});await db.query("UPDATE users SET status='active' WHERE id='mcp-a'");
-  const userB=require('@hellotest/mcp/backend/auth');const b=await userB.issue({id:'mcp-b'},'mcp-p-b');const wrong=await rpc('hellotest_operation_status',{plan_id:plan.plan_id},b.token);assert.equal(wrong.result.isError,true);
+  const userB=require('@hellotest/mcp/backend/auth');const b=await userB.issue({id:'mcp-b'},'mcp-p-b','fixture-b',{scopes:['actions']});const wrong=await rpc('hellotest_operation_status',{plan_id:plan.plan_id},b.token);assert.equal(wrong.result.isError,true,'user B may use the actions tools, but still cannot read user A\'s plan');
   await db.query("UPDATE users SET status='suspended' WHERE id='mcp-a'");assert.equal((await rpc('hellotest_capabilities')).response.statusCode,403);await db.query("UPDATE users SET status='active' WHERE id='mcp-a'");
   await app.inject({method:'DELETE',url:`/agentic-workflows/mcp/credentials/${credential.id}?project_id=mcp-p-a`,headers});assert.equal((await rpc('hellotest_capabilities')).response.statusCode,401);
  }finally{await app?.close();await require('../../src/utils/cache').close();await Promise.allSettled([db.close(),obsDb.close()]);}

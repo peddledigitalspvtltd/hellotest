@@ -24,3 +24,15 @@ test('Test Engine honors parameterized API status, duration and schema expectati
   }
   assert.equal((await executeApiStepInEngine({...base,run_parameters:{response_schema:'{}'}},step)).status,'failed');
 });
+
+test('header comparisons distinguish an absent header from an existing empty header', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('{}', { headers: { 'x-empty': '' } }));
+  for (const validation of [{kind:'header',target:'x-missing',operator:'exists'}, {kind:'header',target:'x-missing',operator:'eq',expected:''}]) {
+    const result = await executeApiStepInEngine({}, { id:'header', order:1, step_type:'api', api_request: { url:'http://fixture.test/data', validations:[validation] } });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.detail.assertions[0].actual, null);
+    assert.match(result.note, /missing header/);
+  }
+  const empty = await executeApiStepInEngine({}, { id:'header', order:1, step_type:'api', api_request: { url:'http://fixture.test/data', validations:[{kind:'header',target:'x-empty',operator:'exists'}] } });
+  assert.equal(empty.status, 'passed');
+});

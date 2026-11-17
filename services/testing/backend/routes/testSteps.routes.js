@@ -6,7 +6,7 @@ const { resolveEntityScope } = require("@hellotest/platform/backend/services/ent
 const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
 const { containsMobileStepPayload } = require("@hellotest/platform/backend/src/utils/mobileFeature");
 const { createHash } = require('node:crypto');
-const {automationObjectSourceContexts}=require('@hellotest/automation/backend/lib/automationObjectSourceContext');
+const {automationObjectSourceContexts}=require('@hellotest/automation/object-source-context');
 
 const requireCasePermission = async (fastify, req, permissionCode, testCaseId) => {
   const scope = await resolveEntityScope({ entityType: "test_case", entityId: testCaseId });
@@ -40,7 +40,7 @@ const canReadStepAutomation = async (req, scope) => {
 
 const withInstructionMappings = async (req,scope,steps) => {
   try {
-    return await require('@hellotest/automation/backend/services/automationInstructionMapping.service').attachInstructionMappings({
+    return await require('@hellotest/automation/instruction-mapping').attachInstructionMappings({
       steps,projectId:scope.projectId,appTypeId:scope.appTypeId,testCaseId:steps[0]?.test_case_id
     });
   } catch (error) {

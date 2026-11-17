@@ -4,7 +4,7 @@ import { webcrypto } from "node:crypto";
 import test from "node:test";
 import ts from "typescript";
 
-const source = ts.transpileModule(readFileSync(new URL("../../frontend/hooks/useRepositoryInspectAgent.ts", import.meta.url), "utf8"), {
+const source = ts.transpileModule(readFileSync(new URL("../../../automation/frontend/hooks/useRepositoryInspectAgent.ts", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
 }).outputText;
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
@@ -44,7 +44,7 @@ function createHarness() {
   const exports = {};
   let pairingToken;
   const hook = new Function("require", "exports", "fetch", "window", "document", "navigator", "localStorage", "crypto", "setTimeout", "clearTimeout", source + "\nreturn exports.useRepositoryInspectAgent;")(
-    name => name === "react" ? react : name.includes("pairedLocalAgent") ? { getPairedAgentToken: () => pairingToken ||= Array.from(webcrypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2,"0")).join("") } : { agenticApi: api }, exports,
+    name => name === "react" ? react : name.includes("localAgentPairing") ? { getPairedAgentToken: () => pairingToken ||= Array.from(webcrypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2,"0")).join("") } : { repositoryInspectionApi: api.repositoryInspection }, exports,
     (url, options) => { const task = deferred(); probes.push({ ...task, url, signal: options.signal }); return task.promise; },
     { ...events(), location: { origin: "https://app.hellotest.ai" } }, { ...events(), visibilityState: "visible" }, { onLine: true }, { getItem() { return ""; }, setItem() {} }, webcrypto,
     callback => { const id = ++nextTimer; timers.set(id, callback); return id; }, id => timers.delete(id)

@@ -14,7 +14,7 @@ const featureFlagService = require("@hellotest/platform/backend/services/feature
 const projectService = require("@hellotest/platform/backend/public/projectAccess");
 const appTypeService = require("@hellotest/platform/backend/public/applicationAccess");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
-const aiContextOrchestrator = require("@hellotest/ai/backend/services/aiContextOrchestrator.service");
+const aiContextOrchestrator = require("@hellotest/ai/services/aiContextOrchestrator");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent: completionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { sanitizeAiText, sanitizeAiEvidence } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
@@ -29,7 +29,7 @@ const CONTEXT_TIMEOUT_MS = 20_000;
 const MODEL_TIMEOUT_MS = 120_000;
 const agentError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 
-const specialistProfiles = require("../../shared/workflowSpecialists.json");
+const specialistProfiles = require("@hellotest/contracts/agents/workflowSpecialists.json");
 const AGENT_CATALOG = Object.fromEntries(Object.entries(specialistProfiles).map(([id, profile]) => [id, { name: profile.name, objective: profile.description }]));
 
 const CONTEXT_SCOPES = new Set(aiContextOrchestrator.CONTEXT_SCOPES);
@@ -521,175 +521,8 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
   return JSON.stringify(payload);
 };
 
-const requestLlmResult = async ({ user, projectId, integration, agent, mode, prompt, context, citations, history, contextRoute, knowledgeRetrieval, promptPayload, assertEvidenceAccess, deadline = Date.now() + MODEL_TIMEOUT_MS, repair = false, budget = { used: 0, max: 2 } }) => {
-  if (Object.keys(evidenceScopes.normalize(contextRoute?.evidence_scope)).length) {
-    const scopedEvidence = Object.values(context).flat().some(item => {
-      const kind = item?.source_kind || item?.citation?.source_kind;
-      if (!kind || ['task_input', 'workflow_input', 'task_context'].includes(kind)) return false;
-      if (kind !== 'live_project') return Boolean(item.content?.trim());
-      try {
-        const snapshot = JSON.parse(item.content);
-        return Boolean(snapshot.records?.length || snapshot.result_id || Number(snapshot.returned_records) > 0 || Number(snapshot.total_records) > 0);
-      } catch { return false; }
-    });
-    if (!scopedEvidence) throw Object.assign(agentError('The selected evidence could not be retrieved in the current project and application. Refresh the scope or check source access before retrying.', 422), {
-      code: 'AGENT_EVIDENCE_UNAVAILABLE', statusCode: 422
-    });
-  }
-  const messages = [
-    {
-      role: "system",
-      content: dedupeInstructions([
-        // The shared boundary inserts the node-owned primary prompt once.
-        // Keep native shape and successor-specific guidance in this frame.
-        JSON.stringify({ agent_intent: { name: agent.name, objective: agent.objective }, response_schema: responseContract.schema }),
-        agent.customObjective ? "" : agent.instructions || "",
-        ...(agent.skills || []).map(skill => [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.2"),String(skill.name),": ",String(instructionFor(skill,agent.configurationKey)),""].join('')),
-        agent.guardrails && agent.guardrails !== require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current()?.config?.guardrails ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.3"),String(agent.guardrails),""].join('') : "",
-        [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.4"),String(JSON.stringify(agent.acceptance || { require_evidence: true })),aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.5")].join(''),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.1"),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.2"),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.33"),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.outcomes"),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.presentation"),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.evidenceScope"),
-        artifacts.CONTRACT,
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.11"),
-        ...(context.automation_repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.38")] : []),
-        ...(context.automation_repair ? ["Host-enforced automation repair contract: " + JSON.stringify(require("@hellotest/ai/backend/services/automationRepair.service").modelContract)] : []),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.12"),
-        ...(repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.43")] : []),
-        ...(repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.revision")] : []),
-        aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.14")
-      ]).join("\n\n")
-    },
-    ...(Array.isArray(history) ? history : []).filter((entry) => entry && ["user", "assistant"].includes(entry.role) && typeof entry.content === "string").slice(-6).map((entry) => ({
-      role: entry.role === "assistant" ? "assistant" : "user",
-      content: normalizeText(entry.content, 2_500)
-    })),
-    {
-      role: "user",
-      content: promptPayload || buildBoundedAgentPromptPayload({ mode, prompt, context, citations, contextRoute, knowledgeRetrieval })
-    }
-  ];
-
-  const headers = { "Content-Type": "application/json" };
-  if (integrationService.isUsableApiCredential(integration.api_key)) headers.Authorization = `Bearer ${integration.api_key}`;
-  let effectiveMessages = messages, reducedEvidenceIds = null, currentCallRecord = null;
-  const request = async (jsonMode, reducedContent) => {
-    effectiveMessages = reducedContent ? [...messages.filter(message => message.role !== "user"), {role:"user",content:reducedContent}] : messages;
-    execution.assertActive();
-    if (budget.used >= budget.max) throw agentContract.fail("The model call budget is exhausted. Review the output contract or increase the permitted calls.", "AGENT_MODEL_BUDGET");
-    const dispatchRecords=[];
-    const beforeDispatch=async()=>{
-    execution.assertActive();
-    if (budget.used >= budget.max) throw agentContract.fail("The model call budget is exhausted. Review the output contract or increase the permitted calls.", "AGENT_MODEL_BUDGET");
-    if (user && projectId) {
-      if (!await permissionService.hasPermission(user, 'agentic_workflow.run', projectId)) throw agentError('Agent run access changed before the model call.',403);
-      await assertEvidenceAccess?.();
-      const evidence = Object.values(context).flat().filter(item => item.citation?.source_id).map(item => ({ ...item, source_id: item.source_id || item.citation.source_id, source_kind: item.source_kind || item.citation.source_kind, chunk_id: item.chunk_id || item.citation.chunk_id || item.id }));
-      if (evidence.length) {
-        const fresh = await require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').authorizeFreshEvidence({projectId,user,hits:evidence});
-        if (fresh.denied_ids.length) throw agentError('Evidence access changed before the model call. Start a fresh review.',403);
-      }
-    }
-    if(deadline-Date.now()<1000)throw agentError("The model review deadline was reached.",504);
-    budget.used+=1;
-    dispatchRecords.push({name:agent.name,trace_id:null,status:'dispatched',attempt:budget.used,usage:null});
-    };
-    const onTrace=async record=>{
-      if(record.dispatched){
-        const observed=dispatchRecords.find(item=>item.trace_id===record.trace_id)||dispatchRecords.find(item=>!item.trace_id);
-        if(observed){observed.trace_id=record.trace_id;if(record.status!=='running')observed.status=record.status==='succeeded'?'response_received':record.status;if(record.usage)observed.usage=providerUsage(record.usage);if(record.error_code)observed.error_code=record.error_code;}
-      }
-      const sessionId=require('@hellotest/platform/backend/src/utils/llmTraceContext').current().session_id;
-      if(sessionId)await appendEvent(sessionId,require('@hellotest/platform/backend/src/utils/agentModelTrace').modelTraceEvent(record,{name:agent.name}));
-    };
-    const remaining = deadline - Date.now();
-    if (remaining < 1_000) throw agentError("The model review deadline was reached.", 504);
-    let response;
-    try { response = await fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
-    method: "POST",
-    headers,
-    signal: execution.current()?.signal,
-    body: JSON.stringify({
-      model: integration.model,
-      max_tokens: agent.limits?.max_output_tokens || 4000,
-      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-      messages: effectiveMessages
-    })
-    }, {
-      integration,
-      beforeDispatch,
-      featureKey: agent.configurationKey,
-      // This request already carries the MCP packet selected for this agent.
-      // Automatic enrichment must not widen user-selected sources or tool scopes.
-      mcpContextHandled: { evidence_count: citations.filter(item => item.source_id).length },
-      traceContext: { mcp_context_depth: 1, mcp_context: citations.some(item => item.source_id) ? 'retrieved' : 'unavailable',
-        on_llm_trace:onTrace },
-      compatibility: false,
-      contextFallback: false,
-      operation: jsonMode ? "agentic-assistant.respond" : "agentic-assistant.respond.json-mode-compatibility",
-      timeoutMs: remaining,
-      attemptTimeoutMs: remaining,
-      maxAttempts: 1,
-      // Read-only generation still incurs provider work and cost; do not replay on transport failures.
-      idempotent: false,
-      maxOutputTokens: agent.limits?.max_output_tokens || 4000,
-      maxResponseBytes: 512 * 1024
-    });
-    currentCallRecord=dispatchRecords.at(-1)||null;
-    if(currentCallRecord){currentCallRecord.trace_id ||= response.headers?.get?.('x-hellotest-llm-trace-id')||null;if(currentCallRecord.status==='dispatched')currentCallRecord.status=response.ok?'response_received':'failed';}
-    } catch (error) {
-      for(const record of dispatchRecords)if(record.status==='dispatched'){record.status='failed';record.error_code=error.code||'AGENT_PROVIDER_ERROR';}
-      throw error;
-    }finally{
-      // Hidden native-output corrections still perform provider work. Report
-      // every actual POST, and never label a blocked preflight as dispatched.
-      if(budget.onCall)for(const record of dispatchRecords)await budget.onCall(record);
-    }
-    return response;
-  };
-
-  let response = await request(true);
-  const providerFailure = (failed, detail) => {
-    const failure = require('@hellotest/platform/backend/src/utils/upstreamLlmError').createLlmProviderError({status:failed.status,headers:failed.headers,detail});
-    failure.provider_failure_code = failure.code;
-    // Keep this public agent API code stable while retaining the shared
-    // provider classification and safe diagnostics for the workflow node.
-    failure.code = 'AGENT_PROVIDER_ERROR';
-    return failure;
-  };
-  if (!response.ok && [400,413,422].includes(Number(response.status)) && budget.used < budget.max && require('@hellotest/platform/backend/src/utils/llmContextFallback').isContextSizeRejection(response.status, await response.clone().text())) {
-    const originalPayload = JSON.parse(promptPayload || buildBoundedAgentPromptPayload({mode,prompt,context,citations,contextRoute,knowledgeRetrieval}));
-    const reduced = require('./agentMinimalContext').minimalContext(originalPayload);
-    const reducedContent=JSON.stringify(reduced.payload);
-    if(Buffer.byteLength(reducedContent,'utf8')>=Buffer.byteLength(JSON.stringify(originalPayload),'utf8'))throw agentContract.fail('The provider cannot fit the complete required task input. Split the input or select a larger-context model; no repeated request was sent.','AGENT_CONTEXT_BUDGET');
-    reducedEvidenceIds = reduced.ids;
-    response = await request(true,reducedContent);
-  }
-  if (!response.ok) {
-    const providerText = typeof response.text === "function" ? await response.text() : "";
-    if ([400, 422].includes(Number(response.status)) && budget.used < budget.max && JSON_MODE_FIELD.test(providerText) && JSON_MODE_REJECTION.test(providerText)) response = await request(false, reducedEvidenceIds ? effectiveMessages.at(-1).content : undefined);
-    else throw providerFailure(response,providerText);
-  }
-  if (!response.ok) throw providerFailure(response,typeof response.text === 'function' ? await response.text() : '');
-  const payload = await response.json();
-  if (currentCallRecord&&!currentCallRecord.usage) currentCallRecord.usage = providerUsage(payload.usage);
-  if (payload.choices?.[0]?.finish_reason === "length") throw agentContract.fail("The model output limit was reached. Reduce the requested scope or increase this agent's output limit.", "AGENT_OUTPUT_TRUNCATED", 422);
-  const content = completionContent(payload);
-  if (!content) throw new Error("Configured LLM returned an empty completion payload");
-  const candidate = extractJson(content);
-  if (reducedEvidenceIds) Object.defineProperty(candidate,"_suppliedEvidenceIds",{value:reducedEvidenceIds,enumerable:false});
-  Object.defineProperty(candidate, "_model", { value: { effective_model: payload.model || integration.model,
-    prompt_hash: crypto.createHash("sha256").update(JSON.stringify(effectiveMessages)).digest("hex"),
-    context_reduced: Boolean(reducedEvidenceIds),
-    usage: providerUsage(payload.usage),
-    trace_id: response.headers?.get?.("x-hellotest-llm-trace-id") || null,
-    trace_capture: response.headers?.get?.("x-hellotest-llm-trace-status") || null,
-    provider_request_id: response.headers?.get?.("x-request-id") || null }, enumerable: false });
-  return candidate;
-};
+let specialistModelBoundary;
+const requestLlmResult=(...args)=>(specialistModelBoundary ||= require("./specialistModelBoundary")({artifacts,normalizeText,integrationService,authorizeFreshEvidence:(...args)=>require("@hellotest/knowledge/backend/services/knowledgeRetrieval.service").authorizeFreshEvidence(...args),MODEL_TIMEOUT_MS,responseContract,dedupeInstructions,instructionFor,aiInstructionBlock,evidenceScopes,buildBoundedAgentPromptPayload,execution,agentContract,permissionService,agentError,fetchLlmWithRetry,resolveChatCompletionsUrl,appendEvent,providerUsage,JSON_MODE_FIELD,JSON_MODE_REJECTION,completionContent,extractJson,crypto}))(...args);
 
 const appendEvent = async (transactionId, input) => {
   execution.assertActive();
@@ -802,7 +635,7 @@ exports.getSession = async (id, user) => {
   const savedResult = normalizeSavedReviewResult(metadata.result, metadata.citations || []);
   if (savedResult?.quality_assessment?.persistence?.snapshot_id) {
     savedResult.quality_assessment = { ...savedResult.quality_assessment, persistence: { ...savedResult.quality_assessment.persistence,
-      ...await require('@hellotest/ai/backend/services/qualityGraphChanges').freshness(transaction.project_id,savedResult.quality_assessment.persistence.snapshot_id) } };
+      ...await require('@hellotest/ai/services/qualityGraphChanges').freshness(transaction.project_id,savedResult.quality_assessment.persistence.snapshot_id) } };
   }
   const complete = transaction.status === "completed" && savedResult;
   const state = complete ? "completed" : ["running", "queued"].includes(transaction.status) ? "running" : transaction.status === "failed" ? "failed" : "unavailable";
@@ -935,6 +768,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   if (!await permissionService.hasPermission(user, "agentic_workflow.run", projectId)) throw agentError("Permission required: agentic_workflow.run", 403);
   execution.assertActive();
 
+  const agentDescriptor=require('../agents/agentDescriptors.service').build('workflow',normalizedAgentId,{name:agent.name,objective:agent.objective||agent.name,
+    instructions:[governedProfile.config.prompt,...(agent.skills||[]).map(skill=>skill.instructions),agent.outputInstructions].filter(value=>typeof value==='string'&&value.trim()),
+    tools:(policy.allowed_tools||[]).map(name=>({name,effect:'read'})),scopes:requestedScopes,output:definition?.output_contract||'agent-review/3',limits:agent.limits});
   const transaction = await workspaceTransactionService.createTransaction({
     project_id: projectId,
     app_type_id: appTypeId,
@@ -944,6 +780,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     title: `${agent.name} · ${normalizedMode === "chat" ? "Chat" : "Agent task"}`,
     description: normalizedPrompt.slice(0, 500),
     metadata: {
+      agent_descriptor:agentDescriptor,agent_descriptor_hash:agentDescriptor.descriptor_hash,
       mode: normalizedMode,
       agent_id: normalizedAgentId,
       agent_name: agent.name,
@@ -1073,7 +910,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
     }
     if (featureProfile?.verifier === "quality-evidence/1") {
-      const assessment = await require("@hellotest/ai/backend/services/qualityEvidence.service").assess({
+      const assessment = await require("@hellotest/ai/services/qualityEvidence").assess({
         projectId, appTypeId, user, input: runtimeInputs, featureId: featureProfile.featureId,
         scopes: policy.allowed_tools.includes("project_evidence") ? requestedScopes : []
       });
@@ -1081,13 +918,13 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       context.quality_checks = [{ id: "K-quality-checks", title: "Code-computed quality checks", content: JSON.stringify(assessment.projection),
         citation: { id: "K-quality-checks", label: "Code-computed quality checks", source_kind: "verified_calculation" } }];
     }
-    const repairService = featureProfile?.featureId === "F18" ? require("@hellotest/ai/backend/services/automationRepair.service") : null;
+    const repairService = featureProfile?.featureId === "F18" ? require("@hellotest/automation/repair") : null;
     const repairContext = repairService ? policy.allowed_tools.includes("project_evidence") && requestedScopes.includes("automation") && requestedScopes.includes("test-cases") && requestedScopes.includes("runs")
       ? await repairService.prepare({projectId,appTypeId,user,input:runtimeInputs}) : {status:"needs_evidence",detail:"Enable Automation, Test Cases and Runs as evidence scopes."} : null;
     if (repairContext) context.automation_repair = [{id:"K-automation-repair",title:"Pinned automation repair contract",content:JSON.stringify(repairContext.projection || repairContext),citation:{id:"K-automation-repair",label:"Pinned automation repair contract",source_kind:"authoritative_live_automation"}}];
     const isAutomationSpecialist = normalizedAgentId === "automation-engineer" || featureProfile?.featureId === "F18";
     if (governedContext.mode !== "none" && isAutomationSpecialist && runtimeInputs.test_case_id && requestedScopes.includes("automation") && requestedScopes.includes("test-cases")) {
-      const builder=require("@hellotest/automation/backend/services/aiAutomationBuilder.service");
+      const builder=require("@hellotest/automation/build");
       const pinned=await builder.loadAutomationAgentCaseContext({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id});
       for (const permission of pinned.evidence_permissions || ['testcase.view', 'automation.view', 'automation.code.view']) if ((permission !== 'requirement.view' || requestedScopes.includes('stories')) && !evidencePermissions.includes(permission)) evidencePermissions.push(permission);
       if(!requestedScopes.includes("stories"))delete pinned.stories;
@@ -1206,6 +1043,19 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         phase: 'outcome.preview', message, progress,
         outcome_preview: Object.fromEntries(['headline', 'executive_summary', 'findings', 'artifacts', 'sections', 'tables', 'charts'].map(key => [key, currentResult[key]])) });
     };
+    const toolSession=!automationBrowser ? require('./specialistTools').createSpecialistTools({user,projectId,appTypeId,context,requestedScopes,policy,smartContext,evidenceScope,deadline,signal:execution.current()?.signal,maxCalls:4,
+      assertAccess:assertOutcomeEvidenceAccess,onEvent:event=>appendEvent(transactionId,event),
+      onEvidence:async item=>{
+        const safe=sanitizeAiEvidence(item);
+        const evidence=JSON.parse(safe.text);
+        context.tool_evidence ||= [];context.tool_evidence.push(evidence);
+        boundedPayload.bounded_workspace_context.tool_evidence=context.tool_evidence;
+        const citation=evidence.citation;
+        if(citation?.id&&!suppliedCitations.some(row=>row.id===citation.id)){suppliedCitations.push(citation);citations.push(citation);boundedPayload.citation_contract.push(citation);}
+        artifactTargets.splice(0,artifactTargets.length,...artifacts.storyTargets(boundedPayload.bounded_workspace_context));
+        boundedPayload.story_targets=artifactTargets.filter(target=>target.kind!=='test_case'&&target.kind!=='story_link');
+        boundedPayload.story_link_targets=artifactTargets.filter(target=>target.kind==='story_link');        boundedPayload.test_case_targets=artifactTargets.filter(target=>target.kind==='test_case');
+      }}) : null;
     let result = baseline, modelObservation = null, repairPatch = null, contextReductionUsed = false;
     let revisionRound = 0, outcomeRevisionRounds = 0, previousCandidate = null, previousRejectedHash = null, lastOutputIssues = [], lastOutputFailure = null;
     const rejectedHashes = new Set();
@@ -1216,15 +1066,15 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         if (repair) outcomeRevisionRounds += 1;
         const complete = toolPrompt => requestLlmResult({ user, projectId, integration, agent, mode: normalizedMode, prompt: normalizedPrompt, context,
           citations: suppliedCitations, history: Object.keys(evidenceScope).length ? [] : Array.isArray(history) ? history : [], contextRoute, knowledgeRetrieval,
-          promptPayload: toolPrompt || JSON.stringify(boundedPayload), assertEvidenceAccess: assertOutcomeEvidenceAccess, deadline, repair, budget });
-        candidate = automationBrowser?.driver==='playwright_mcp_upstream' ? await require('@hellotest/automation/backend/lib/automationUpstreamEngineer').runUpstreamBrowserReview({
+          promptPayload: toolPrompt || JSON.stringify(boundedPayload), assertEvidenceAccess: assertOutcomeEvidenceAccess, deadline, repair, budget, toolSession });
+        candidate = automationBrowser?.driver==='playwright_mcp_upstream' ? await require('@hellotest/automation/upstream').runUpstreamBrowserReview({
           prompt:JSON.stringify(boundedPayload),browser:automationBrowser,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
           initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-automationBrowser.initialObservations.length),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
-        }) : automationBrowser ? await require("@hellotest/automation/backend/lib/automationBrowserAgent").runAutomationBrowserAgent({
+        }) : automationBrowser ? await require("@hellotest/automation/browser-agent").runAutomationBrowserAgent({
           featureKey:agent.configurationKey,prompt:JSON.stringify(boundedPayload),browser:automationBrowser,parse:value=>value,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
           initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-Math.max(0,automationBrowser.initialObservations.length-2)),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
         }) : await complete();
-        const validatedRepair = repairContext?.status === "eligible" ? require("@hellotest/ai/backend/services/automationRepair.service").validatePatch(repairContext.base,candidate.automation_repair) : null;
+        const validatedRepair = repairContext?.status === "eligible" ? require("@hellotest/automation/repair").validatePatch(repairContext.base,candidate.automation_repair) : null;
         const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && !candidate.artifacts?.length && candidate.evidence_gaps?.length > 0;
         const candidateCitations = candidate._suppliedEvidenceIds ? suppliedCitations.filter(citation => candidate._suppliedEvidenceIds.has(citation.id)) : suppliedCitations;
         issues = presentation.presentationIssues(candidate, candidateCitations);
@@ -1441,7 +1291,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     result.agent_chain[0].verification = result.verification;
     if (result.verification.status !== 'passed') result.agent_chain[0].status = 'needs_input';
     result.model_execution = { ...modelObservation, ...aggregateUsage(modelCallRecords), context_reduced: contextReductionUsed, model_calls: budget.used, max_model_calls: budget.max, max_output_tokens: agent.limits.max_output_tokens, revision_rounds: outcomeRevisionRounds, execution_policy: executionPolicy,
-      agent_version: registered?.version || 1, agent_definition_hash: registered?.definition_hash || fingerprint(specialistProfiles[normalizedAgentId] || {}), prompt_template_version: "agent-review/3", verifier_version: featureProfile?.verifier || "agent-contract/2", generation_mode: "llm" };
+      agent_version: registered?.version || 1, agent_definition_hash: registered?.definition_hash || fingerprint(specialistProfiles[normalizedAgentId] || {}), prompt_template_version: modelObservation?.prompt_template_version || "specialist-system/1", verifier_version: featureProfile?.verifier || "agent-contract/2", generation_mode: "llm" };
     if (!result.readiness.task_evidence_count) result.grounding_status = "insufficient_context";
 
     await appendEvent(transactionId, {
@@ -1468,6 +1318,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       completed_at: new Date().toISOString(),
       metadata: {
         progress: 100,
+        prompt_template_version:result.model_execution.prompt_template_version,system_message_hash:result.model_execution.system_message_hash||null,prompt_hash:result.model_execution.prompt_hash||null,
         provider: integration?.name || "HelloTest evidence engine",
         model: integration?.model || null,
         generation_mode: generationMode,
@@ -1488,7 +1339,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     const events = await workspaceTransactionService.listTransactionEvents(transactionId);
     const contextPacket = knowledgeRetrieval.context_packet;
     if (contextPacket?.retrieval?.context_graph?.status === 'recorded') {
-      result.context_graph_outcome = await require('@hellotest/mcp/backend/contextGraph').rememberDecision({
+      result.context_graph_outcome = await require('@hellotest/mcp/backend/contextTraceTools').rememberDecision({
         projectId, user, packet: contextPacket,
         event: { id: `agent-outcome:${transactionId}`, type: result.artifacts?.length ? 'PROPOSAL_PREPARED' : 'OUTCOME_RECORDED',
           status: result.verification?.status || result.readiness.status, reference_id: transactionId,
@@ -1503,6 +1354,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       citations,
       guardrails,
       provenance: {
+        prompt_template_version:result.model_execution.prompt_template_version,system_message_hash:result.model_execution.system_message_hash||null,prompt_hash:result.model_execution.prompt_hash||null,
         provider: integration?.name || "HelloTest evidence engine",
         model: integration?.model || null,
         generation_mode: generationMode,

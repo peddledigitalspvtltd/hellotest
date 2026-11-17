@@ -1,3 +1,4 @@
+import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -6,7 +7,7 @@ import test from "node:test";
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("automation authoring is a dedicated case workflow with complete build surfaces", async () => {
-  const page = await readSource("../../../automation/frontend/pages/AutomationPage.tsx");
+  const page = await Promise.resolve(automationWorkspaceSource());
 
   for (const capability of [
     "Create automation case",
@@ -16,7 +17,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
     "Author steps",
     "AutomationOverlay",
     "Turn manual cases or prompts into automation",
-    "Complete automation code",
+    "Copy full source",
     "Insert Shared Section Group",
     "Edit instructions"
   ]) {
@@ -28,8 +29,8 @@ test("automation authoring is a dedicated case workflow with complete build surf
   assert.match(page, /seedAutomationPlan\(sources/);
   assert.match(page, /Build instructions \(optional\)/);
   assert.match(page, /target_step_id: origin\.targetStepId \|\| undefined/);
-  assert.match(page, /code=\{completeAutomationCode\}/);
-  assert.match(page, /Automation mapping needed/);
+  assert.match(page, /navigator\.clipboard\?\.writeText\(completeAutomationCode\)/);
+  assert.match(page, /emptyAction=\{canEditAutomationCode[\s\S]*?onClick=\{openInstructionEditor\}[\s\S]*?Add instruction/);
   assert.match(page, /<DetailSectionTabs/);
   assert.match(page, /<AutomationRunReviewDialog/);
   assert.match(page, /const automationActionTargetIds = selectedAutomationActionTargetIds;/);
@@ -43,7 +44,7 @@ test("manual cases expose linked automation without merging the records", async 
   assert.match(page, /testCase\.manual_test_case_ids\?\.includes\(selectedTestCaseId\)/);
   assert.match(page, /label: "Automation Cases"/);
   assert.match(page, /`\/automation\?case=\$\{encodeURIComponent\(automationCase\.display_id \|\| automationCase\.id\)\}`/);
-  assert.match(page, /`\/automation\?create=1&manual=\$\{encodeURIComponent\(selectedTestCase\.id\)\}`/);
+  assert.match(page, /`\/automation\?create=1&manual=\$\{encodeURIComponent\(manualCase\.id\)\}`/);
   assert.doesNotMatch(page, /AI map existing automation/);
   assert.doesNotMatch(page, /Schedule AI automation/);
   assert.match(page, /showAutomationTools=\{false\}/);
@@ -73,18 +74,21 @@ test("test cases distinguish authored parameters from row-level execution data",
 });
 
 test("automation workspace shares one editable plan across agent, recording, and playback", async () => {
-  const page = await readSource("../../../automation/frontend/pages/AutomationPage.tsx");
+  const page = await Promise.resolve(automationWorkspaceSource());
 
-  for (const capability of ["AutomationCaseMetadata", "Automation step plan", "Preconditions", "Build step plan", "Save recording to plan", "Play saved plan", "Execution profile"]) {
+  for (const capability of ["AutomationCaseMetadata", "Automation step plan", "Preconditions", "Build plan", "Save recording to plan", "Run local", "Run remote", "Execution profile"]) {
     assert.match(page, new RegExp(capability));
   }
-  assert.match(page, /result\.data_set_iteration_index/);
-  assert.match(page, /result\.data_set_row_snapshot/);
+  assert.match(page, /<TraceabilityRunHistory appTypeId=\{appTypeId \|\| undefined\} projectId=\{projectId\} testCaseId=\{activeCase\.id\}/);
+  const history = await readSource("../../../manual/frontend/components/TraceabilityRunHistory.tsx");
+  assert.match(history, /navigate\(`\/executions\?\$\{params\.toString\(\)\}`\)/);
+  const executions = await readSource("../../../testing/frontend/pages/ExecutionsPage.tsx");
+  assert.match(executions, /<CaseRunParameterContext[^>]*dataSetRow=\{selectedExecutionCaseInstance\?\.data_set_row_snapshot\} rowIndex=\{selectedExecutionCaseInstance\?\.data_set_iteration_index\}/);
 });
 
 test("blank automation authoring uses focused Test Case tabs and platform-aware behaviour steps", async () => {
   const [page, editor, engine, pipeline] = await Promise.all([
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
     readSource("../../../automation/frontend/components/StepAutomationEditor.tsx"),
     readSource("../../../../testengine/backend/src/lib/webEngine.ts"),
     readSource("../../../../testengine/backend/src/lib/pipeline.ts")
@@ -124,7 +128,7 @@ test("blank automation authoring uses focused Test Case tabs and platform-aware 
 
 test("object repository inspection keeps locator capture focused, bounded, and explainable", async () => {
   const [page, recorder, styles] = await Promise.all([
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
+    Promise.resolve(automationWorkspaceSource()),
     readSource("../../../../testengine/backend/src/lib/recorder.ts"),
     readSource("../src/styles.css")
   ]);
@@ -135,7 +139,7 @@ test("object repository inspection keeps locator capture focused, bounded, and e
   assert.doesNotMatch(page, /Focus browser workspace/);
   assert.match(page, /label: "All fields"/);
   assert.match(page, /label: "Selected"/);
-  assert.match(page, /Highlighted · 1s/);
+  assert.match(page, /Highlighted · 3s/);
   assert.match(page, /validateInspectedFields\.mutate\(\)/);
   assert.match(page, /"Validate"/);
   assert.match(page, /object-repository-selected-editor/);
@@ -163,7 +167,7 @@ test("object repository inspection keeps locator capture focused, bounded, and e
   assert.match(styles, /object-repository-browser-locator-dock/);
   assert.match(styles, /object-repository-inspector\.is-browser-maximized/);
   assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) clamp\(20rem, 27vw, 26rem\)/);
-  assert.match(recorder, /REPOSITORY_HIGHLIGHT_DURATION_MS = 1_000/);
+  assert.match(recorder, /REPOSITORY_HIGHLIGHT_DURATION_MS = 3_000/);
   assert.match(recorder, /outline = "1px solid #2f6df6"/);
   assert.match(recorder, /lastHoveredElement/);
   assert.match(recorder, /sessions\/:id\/inspect\/validate/);

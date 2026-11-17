@@ -41,6 +41,29 @@ test("project summary routes always bind the authenticated user", async t => {
   ]);
 });
 
+test("project creation rejects a missing application scope before calling the service", async t => {
+  let createCalls = 0;
+  t.mock.method(projects, "createProject", async input => {
+    createCalls++;
+    return { id: "created-project", ...input };
+  });
+  const app = Fastify();
+  app.decorate("authenticate", async req => { req.user = { id: "authenticated-user" }; });
+  app.decorate("validate", require("../src/plugins/validator").validateInput);
+  await app.register(require("../routes/projects.routes"));
+  t.after(() => app.close());
+
+  const missing = await app.inject({ method: "POST", url: "/projects", payload: { name: "Missing app", visibility: "private" } });
+  assert.equal(missing.statusCode, 400, missing.body);
+  assert.match(missing.json().message, /app_types.*required/i);
+  assert.equal(createCalls, 0);
+
+  const empty = await app.inject({ method: "POST", url: "/projects", payload: { name: "Empty apps", visibility: "private", app_types: [] } });
+  assert.equal(empty.statusCode, 400, empty.body);
+  assert.match(empty.json().message, /app_types.*at least 1/i);
+  assert.equal(createCalls, 0);
+});
+
 test("portfolio analytics leaves database capacity available and excludes locked projects", async t => {
   let active = 0;
   let maximum = 0;

@@ -81,6 +81,7 @@ function webSetup(t,count=2){
 // Every SQL statement must be an expected receipt operation; no business table
 // is read or written by this fixture.
 function journalStore(t){
+
  const rows=new Map(),queries=[];
  t.mock.method(require('../src/db'),'prepare',sql=>{
   queries.push(sql);

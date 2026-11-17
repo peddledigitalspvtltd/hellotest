@@ -12,11 +12,11 @@ import { runAutomationVerificationCli } from '../../dist/lib/automationVerificat
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser } = require('../../../../services/automation/backend/lib/automationBrowserAgent');
-const { prepareVerificationSections } = require('../../../../services/automation/backend/lib/automationVerificationPipeline');
-const { compileRecordedProgram } = require('../../../../services/automation/backend/lib/automationRecordedProgram');
+const { connectAutomationBrowser } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
+const { prepareVerificationSections } = require("../../../../services/automation/backend/lib/verification/automationVerificationPipeline");
+const { compileRecordedProgram } = require("../../../../services/automation/backend/lib/browser/automationRecordedProgram");
 const rules = require('../../../../services/ai/backend/services/automationRepairRules');
-const {nativeRepairProgramSummary}=require('../../../../services/automation/backend/lib/automationRepairProgramContract');
+const {nativeRepairProgramSummary}=require("../../../../services/automation/backend/lib/verification/automationRepairProgramContract");
 const op = (name, args) => ({ name, arguments: args });
 const section = (id, order, operations) => ({ id, step_order: order, step_type: 'web',
   action: id, expected_result: id + ' confirmed', automation_code: compileRecordedProgram(operations).source });

@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
-const {normalizeFlowPlan}=require('../../backend/lib/automationFlowPlanning');
+const {normalizeFlowPlan}=require("../../backend/lib/build/automationFlowPlanning");
 
 const baseline={id:'automation',automated:'yes',app_type_id:'app',app_type_kind:'web',project_id:'project',revision:4,
  automation_start_url:'https://selected.example/',automation_status:'ready'};

@@ -1,4 +1,4 @@
-const profiles = require('../../shared/workflowSpecialists.json');
+const profiles = require('@hellotest/contracts/agents/workflowSpecialists.json');
 const tasks = require('../../shared/workflowNativeTasks.json');
 const executionConfiguration = require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration');
 

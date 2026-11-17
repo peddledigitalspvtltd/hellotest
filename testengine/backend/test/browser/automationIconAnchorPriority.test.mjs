@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { captureAutomationBrowserSnapshot, registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 import { AutomationObservedSubjects } from '../../dist/lib/automationObservedSubjects.js';
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const { inspectExecutablePlan } = require('../../../../services/automation/backend/services/automationReadiness.service.js');
 const html = '<!doctype html><title>Large employee workspace fixture</title><header>'
   + Array.from({ length: 56 }, (_, index) => {

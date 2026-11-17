@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -25,8 +26,8 @@ api.testCases.get=async id=>({...([item,other,empty,manualSource].find(value=>va
 window.executionCreates=[];window.executionStarts=[];window.localCreates=[];window.batchBuilds=[];
 api.executions.create=async input=>{window.executionCreates.push(input);return{id:'saved-remote'}};
 api.executions.get=async id=>({id,project_id:'p',app_type_id:'a',status:'queued'});
-api.executions.start=async id=>{window.executionStarts.push(id);return{id}};
-api.executions.createLocalRun=async input=>{window.localCreates.push(input);return{id:'saved-local'}};
+api.executions.start=async id=>{window.executionStarts.push(id);return{id,started:true,automated_case_count:1,queued_for_engine_count:1,execution_mode:'remote'}};
+api.executions.createLocalRun=async input=>{window.localCreates.push(input);return{id:'saved-local',started:true,automated_case_count:1,local_run_count:1,execution_mode:'local'}};
 api.testCases.buildAutomationBatch=async input=>{window.batchBuilds.push(input);return{transaction_id:'build-one'}};
 api.testCases.automationAgentActivity=async()=>null;api.testCases.automationBuildStatus=async()=>({id:'build-one',project_id:'p',app_type_id:'a',status:'completed',metadata:{generated:1,failed:1,output_test_case_ids:['case1'],retry_test_case_ids:['case2'],case_outcomes:[{test_case_id:'case1',status:'generated',title:'Checkout journey'},{test_case_id:'case2',status:'incomplete',code:'AUTOMATION_DEPENDENCY_MISSING',title:'Orders API',blocked_steps:[{step_id:'s2',step_order:1,reason:'An API credential is required.',required_parameters:['@t.apiKey']}]}],manual_step_progress:[{test_case_id:'case1',manual_test_case_id:'manual-source',manual_step_id:'m1',section_step_id:'s1',step_order:1,action:'Manual checkout entry',expected_result:'Manual checkout is visible',instruction_status:'saved',status:'completed'}],step_progress:[{test_case_id:'case1',step_id:'s1',step_order:1,action:'Open checkout',expected_result:'Checkout is visible',status:'completed',instruction_status:'saved',preview_artifact_id:'parent-preview'}]}});
 api.testCases.automationAgentPreview=async()=>({schema_version:1,kind:'section_preview',test_case_id:'case1',step_id:'s1',step_order:1,step_type:'web',automation_code:'await page.goto("https://app.test");',object_references:[],parameter_references:[],validation_status:'validated',save_status:'draft',verification_status:'unverified'});
@@ -42,7 +43,7 @@ const client=new QueryClient`);
     browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
     page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', route => { errors.push('Unexpected API: ' + route.request().url()); return route.abort(); });
+    await page.route('**/api/**', async route => {if (await fulfillAutomationFixtureRequest(page, route)) return; errors.push('Unexpected API: ' + route.request().url()); return route.abort(); });
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
     await page.getByRole('checkbox', { name: 'Select Orders API', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Run local', exact: true }).count(), 0);

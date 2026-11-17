@@ -14,15 +14,15 @@ import { buildPlaywrightArtifact, createPlaywrightExecutionOptions } from '../..
 import { assertTypeScriptExportCompiles } from '../../../../services/automation/test/browser/playwrightExportFixture.mjs';
 const require = createRequire(import.meta.url);
 const { parseExpressionAt } = require('acorn');
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent');
-const { createBrowserParameterResolver } = require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const { nativeConstraintValiditySource } = require('../../../../services/automation/backend/lib/automationNativeValidity');
-const { fieldValidationStateSource } = require('../../../../services/automation/backend/lib/automationFieldValidity');
-const { createRetainedAssertionContract } = require('../../../../services/automation/backend/lib/automationRetainedAssertions');
-const { compileRecordedProgram } = require('../../../../services/automation/backend/lib/automationRecordedProgram');
-const { normalizeGeneratedProgram } = require('../../../../services/automation/backend/lib/automationGeneratedProgram');
-const { exactLinearCoverage } = require('../../../../services/automation/backend/lib/automationActionReconciliation');
-const { deriveProgramTools } = require('../../../../services/automation/backend/lib/automationProgramTools');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent");
+const { createBrowserParameterResolver } = require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters");
+const { nativeConstraintValiditySource } = require("../../../../services/automation/backend/lib/build/automationNativeValidity");
+const { fieldValidationStateSource } = require("../../../../services/automation/backend/lib/build/automationFieldValidity");
+const { createRetainedAssertionContract } = require("../../../../services/automation/backend/lib/browser/automationRetainedAssertions");
+const { compileRecordedProgram } = require("../../../../services/automation/backend/lib/browser/automationRecordedProgram");
+const { normalizeGeneratedProgram } = require("../../../../services/automation/backend/lib/build/automationGeneratedProgram");
+const { exactLinearCoverage } = require("../../../../services/automation/backend/lib/build/automationActionReconciliation");
+const { deriveProgramTools } = require("../../../../services/automation/backend/lib/build/automationProgramTools");
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
   ? Object.fromEntries(Object.entries(value).filter(([key]) => !['start', 'end', 'loc', 'raw'].includes(key)).map(([key, item]) => [key, stable(item)])) : value;
 const parsed = result => JSON.parse(result.content.find(part => part.type === 'text').text);

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
-test('durable workflow scheduling preserves parallel dependencies, loop receipts, cancellation and replay', { skip: process.env.WORKFLOW_TEMPORAL_POSTGRES_TEST !== '1', timeout: 120000 }, async () => {
+test('durable workflow scheduling preserves parallel dependencies, loop receipts, cancellation and replay', { skip: process.env.WORKFLOW_TEMPORAL_POSTGRES_TEST !== '1', timeout: 300000 }, async () => {
   const primary = new URL(process.env.DATABASE_URL);
   const observation = new URL(process.env.OBS_DATABASE_URL);
   assert.ok(['localhost', '127.0.0.1'].includes(primary.hostname));

@@ -12,8 +12,8 @@ import {createPrivilegedRunGuard,resolveTestEngineSharedSecret} from '../../../.
 const require=createRequire(new URL('../../../../testengine/backend/package.json',import.meta.url));
 const localRequire=createRequire(import.meta.url);
 const Fastify=require('fastify');
-const {connectAutomationBrowser,runAutomationBrowserAgent}=localRequire('../../backend/lib/automationBrowserAgent.js');
-const {createBrowserParameterResolver}=localRequire('../../backend/lib/automationBrowserParameters.js');
+const {connectAutomationBrowser,runAutomationBrowserAgent}=localRequire("../../backend/lib/browser/automationBrowserAgent.js");
+const {createBrowserParameterResolver}=localRequire("../../backend/lib/parameters/automationBrowserParameters.js");
 
 test('real MCP work becomes a backend-issued Playwright Test spec that replays in a fresh runner with private inputs, repository aliases and API captures',{timeout:90000},async t=>{
  const prior=process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;

@@ -105,6 +105,7 @@ function createRuntimeHealthService({
   cache = defaultCache,
   objectStorage = defaultObjectStorage,
   fetchImpl = globalThis.fetch,
+  repositoryRuntime = null,
   getTelemetryState = () => require("../tracing").getState(),
   now = () => Date.now(),
   version = apiPackage.version,
@@ -347,12 +348,17 @@ function createRuntimeHealthService({
       includeOptional ? optionalChecks() : []
     ]);
     const checks = [...required, ...optional];
+    let repositoryAnalysis;
+    if(repositoryRuntime){
+      try{const value=await runWithTimeout(repositoryRuntime,probeTimeoutMs,'Repository analysis runtime');repositoryAnalysis={available:value?.available===true,detail:sanitizeError(value?.detail||'Repository analysis runtime checked.',secrets)};}catch{repositoryAnalysis={available:false,detail:'Repository analysis runtime is unavailable.'};}
+    }
 
     return {
       status: aggregateStatus(checks),
       checked_at: new Date().toISOString(),
       version,
       service: "hellotest-api",
+      ...(repositoryAnalysis?{capabilities:{repository_analysis:{...repositoryAnalysis,status:repositoryAnalysis.available?'ready':'unavailable'}}}:{}),
       checks
     };
   };
@@ -369,7 +375,10 @@ module.exports = {
   HEALTH_STATUSES,
   aggregateStatus,
   createRuntimeHealthService,
-  runtimeHealthService: createRuntimeHealthService(),
+  runtimeHealthService: createRuntimeHealthService({repositoryRuntime:async()=>{
+    if(!require('../runtime/capabilities').isCapabilityEnabled('agentic'))return {available:false,detail:'Agentic capability is not deployed.'};
+    return require('@hellotest/agentic/repository-runtime').runtimeStatus();
+  }}),
   sanitizeEndpoint,
   sanitizeError
 };

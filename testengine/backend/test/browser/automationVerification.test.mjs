@@ -8,7 +8,7 @@ import Fastify from 'fastify';
 import {createRequire} from 'node:module';
 import {runAutomationVerification,registerAutomationVerification} from '../../dist/lib/automationVerification.js';
 import {compileRecordedProgram} from '../../dist/lib/automationVerificationProgram.js';
-const require=createRequire(import.meta.url),{runVerificationPipeline}=require('../../../../services/automation/backend/lib/automationVerificationPipeline.js');
+const require=createRequire(import.meta.url),{runVerificationPipeline}=require("../../../../services/automation/backend/lib/verification/automationVerificationPipeline.js");
 const op=(name,args)=>({name,arguments:args});
 const section=operations=>({step_id:'one',action:'Enter the full name',expected_result:'Full name is entered without errors',operations,automation_code:compileRecordedProgram(operations).source});
 const request=(start_url,sections,parameters={})=>({schema_version:1,verification_id:randomUUID(),lease_token:randomUUID(),start_url,sections:sections.map(({action,expected_result,...row})=>row),parameters,replay_policy:{mode:'authorized_run',allow_mutations:true},timeout_ms:15000});

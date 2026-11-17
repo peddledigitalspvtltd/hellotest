@@ -1,5 +1,5 @@
 const transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service');
-const workspace=require('../lib/automationWorkspacePreview');
+const workspace=require("../lib/build/automationWorkspacePreview");
 const MIME='application/vnd.hellotest.automation-build-data+json';
 const invalid=()=>Object.assign(new Error('Resolved build data is unavailable for this activity.'),{statusCode:404});
 const identifier=value=>typeof value==='string'&&value.length>0&&value.length<=200&&!/[\u0000-\u001f\u007f]/.test(value);

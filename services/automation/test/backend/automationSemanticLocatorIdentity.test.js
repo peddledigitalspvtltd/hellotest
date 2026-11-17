@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
-const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
+const { createAutomationSemanticReviewer } = require("../../backend/lib/browser/automationSemanticReview");
+const { recordBrowserOperation } = require("../../backend/lib/browser/automationBrowserRecording");
 
 const pretty = "getByRole('textbox', { name: 'Joined Date* Joined Date*', exact: true })";
 const compact = 'getByRole("textbox",{name:"Joined Date* Joined Date*",exact:true})';

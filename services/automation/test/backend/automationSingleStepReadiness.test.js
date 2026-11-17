@@ -1,3 +1,4 @@
+const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,7 +12,7 @@ const normalizeText = value => value == null ? null : String(value).trim();
 function singleStepFixture() {
   const allocations = [], envelopes = [], jobs = [];
   const dependencies = {
-    require: name => { assert.equal(name, './automationReadiness.service'); return readiness; },
+    require: name => { if (name.startsWith("@hellotest/contracts/")) return require(name); assert.equal(name, './automationReadiness.service'); return readiness; },
     selectProject: { get: async () => ({ id: 'project' }) }, selectAppType: { get: async () => ({ id: 'app', type: 'web' }) },
     resolveEngineStepType: value => value || 'web', normalizeText, normalizeRichText: value => value || '', normalizeStringRecord: value => value || {},
     uuid: () => { const id = `allocated-${allocations.length + 1}`;allocations.push(id);return id; },
@@ -21,7 +22,7 @@ function singleStepFixture() {
     workspaceTransactionService: { createTransaction: async input => ({ ...input, id: 'transaction' }), appendTransactionEvent: async () => {} },
     insertJob: { run: async (...args) => jobs.push(args) }
   };
-  const body = source.slice(source.indexOf('async function queueSingleStepDispatch('), source.indexOf('\nasync function getQueuedJob('));
+  const body = implementationFunctionSource('dispatch/executionPlanning','queueSingleStepDispatch');
   const queue = new Function(...Object.keys(dependencies), `${body}\nreturn queueSingleStepDispatch;`)(...Object.values(dependencies));
   const input = { execution: { id: 'execution', project_id: 'project', app_type_id: 'app' }, caseSnapshot: { test_case_id: 'case', test_case_title: 'Login' }, integration: { id: 'engine', config: {} },
     stepSnapshot: { snapshot_step_id: 'step', step_order: 1, step_type: 'web', expected_result: 'The entered account is retained',
@@ -72,15 +73,15 @@ test('the common envelope adapts saved Web hooks without adding setup assertions
   ] };
   const before = JSON.stringify(hook);
   const dependencies = {
-    executionWithCaseEnvironment: require('../../backend/lib/automationExecutionEnvironment').executionWithCaseEnvironment,
+    executionWithCaseEnvironment: require("../../backend/lib/build/automationExecutionEnvironment").executionWithCaseEnvironment,
     configurationTargetsForRead, resolveAutomationCaseType, normalizeText, normalizeEngineBrowser: value => value,
     normalizeInteger: (value, fallback) => value == null ? fallback : Number(value), normalizeSessionMode: (_value, fallback) => fallback,
     resolveExecutionPolicy: async () => ({}), resolveCaseDataSetContext: () => null, resolveExecutionHooks: () => [hook], preserveFrozenEngineEnvelope: value => value,
     normalizeStoredReferenceList: () => [], normalizeTestEngineWebEngine: () => 'playwright', buildManualSpec: () => ({}), configuredRepairBrief: async () => ({}),
     normalizeStringRecord: value => value || {}, toEngineKeyValueEntries: value => value || [],
-    require: name => { assert.equal(name, '../lib/automationMobileConfiguration');return require('../../backend/lib/automationMobileConfiguration'); }
+    require: name => { if (name.startsWith("@hellotest/contracts/")) return require(name); assert.equal(name, '../lib/build/automationMobileConfiguration');return require("../../backend/lib/build/automationMobileConfiguration"); }
   };
-  const body = source.slice(source.indexOf('const buildEngineEnvelope ='), source.indexOf('const summarizeWarnings ='));
+  const body = implementationFunctionSource('dispatch/engineEnvelope','buildEngineEnvelope');
   const buildEnvelope = new Function(...Object.keys(dependencies), `${body}\nreturn buildEngineEnvelope;`)(...Object.values(dependencies));
   const envelope = await buildEnvelope({ engineRunId: 'run', execution: {id: 'execution'}, project: {id: 'project'}, appType: {type: 'web'},
     caseSnapshot: {test_case_id: 'case', test_case_title: 'Login'}, steps: [{step_type: 'web'}], integration: {config: {}} });

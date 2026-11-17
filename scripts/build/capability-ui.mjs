@@ -1,8 +1,9 @@
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { artifactInventory, hostRequirements, namespaceArtifacts } from './capability-ui-contract.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'services/platform/frontend/package.json'));
 const { build } = require('vite');
@@ -82,5 +83,14 @@ const result = await build({
 const output = result.output || result[0].output;
 const entry = output.find(file => file.type === 'chunk' && file.isEntry);
 mkdirSync(outDir, { recursive: true });
-writeFileSync(resolve(outDir, 'manifest.json'), JSON.stringify({ protocol: 1, capability: owner, version: metadata.version, entry: entry.fileName, styles: output.filter(file => file.type === 'asset' && file.fileName.endsWith('.css')).map(file => file.fileName) }, null, 2) + '\n');
+// Rollup's filename hash can omit source-map metadata. Namespace the complete
+// byte inventory so a capability-only release never overwrites an old hashed
+// file with different bytes. Relative imports stay within this complete bundle.
+const release = namespaceArtifacts(artifactInventory(output, file => readFileSync(resolve(outDir, file))));
+for (const file of output) {
+  const destination = resolve(outDir, release.prefix, file.fileName);
+  mkdirSync(dirname(destination), { recursive: true });
+  renameSync(resolve(outDir, file.fileName), destination);
+}
+writeFileSync(resolve(outDir, 'manifest.json'), JSON.stringify({ protocol: 1, capability: owner, version: metadata.version, entry: release.prefix + '/' + entry.fileName, styles: output.filter(file => file.type === 'asset' && file.fileName.endsWith('.css')).map(file => release.prefix + '/' + file.fileName), host: hostRequirements(output), artifacts: release.artifacts }, null, 2) + '\n');
 console.log(`Built ${metadata.name}@${metadata.version}: ${outDir}`);

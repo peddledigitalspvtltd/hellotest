@@ -49,7 +49,7 @@ import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/li
 import { preparePairedBrowserBuild } from "./lib/pairedBrowserBuild";
 import { startPairedRecording, finishPairedRecording, isPairedRecording } from "./lib/pairedRecorder";
 import { startPairedLocalExecution } from "./lib/pairedLocalExecution";
-import { cancelPairedLocalRun } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
+import { cancelPairedLocalRun } from "@hellotest/automation/frontend/lib/localAgentPairing";
 import type { ExecutionAiAnalysis } from "./lib/executionLogs";
 import { API_BASE_URL, BatchQueueResponse, PagedResult, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 

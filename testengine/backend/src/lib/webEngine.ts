@@ -267,6 +267,7 @@ type WebSession = {
   expectHidden: (target: string, options?: WebElementOptions) => Promise<void>;
   expectEnabled: (target: string, options?: WebElementOptions) => Promise<void>;
   expectText: (target: string | null, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) => Promise<void>;
+  expectValue: (target: string, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) => Promise<void>;
   text: (target: string, options?: WebElementOptions & { trim?: boolean }) => Promise<string>;
   value: (target: string, options?: WebElementOptions) => Promise<string>;
   screenshot: (label: string) => Promise<StepEvidence>;
@@ -1907,6 +1908,13 @@ class PlaywrightWebSession implements WebSession {
     else await assertion.toContainText(expected, { timeout: normalized.timeoutMs });
   }
 
+  async expectValue(target: string, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) {
+    const locator = await this.resolveLocator(target, "attached", true);
+    const expectedValue = options?.match === "equals" ? expected : new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    try { await playwrightExpect(locator).toHaveValue(expectedValue, { timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) }); }
+    catch { throw new Error(`Expected ${target} value to ${options?.match === "equals" ? "equal" : "contain"} the expected value before the assertion timeout.`); }
+  }
+
   async text(target: string, options?: WebElementOptions & { trim?: boolean }) {
     const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
     const value = (await prepared.locator.textContent({ timeout: prepared.options.timeoutMs })) || "";
@@ -2544,52 +2552,44 @@ class SeleniumWebSession implements WebSession {
     await this.driverOrThrow.wait(until.urlContains(stripWrappingQuotes(expected)), clampTimeout(options?.timeoutMs, this.timeouts.assertion));
   }
 
-  async expectVisible(target: string, _options?: WebElementOptions) {
-    const element = await this.resolveElement(target);
-    const visible = await element.isDisplayed();
-
-    if (!visible) {
-      throw new Error(`Expected ${target} to be visible`);
-    }
+  private async waitForAssertion(check: () => Promise<boolean>, message: string, options?: WebElementOptions) {
+    const driver = this.driverOrThrow;
+    // Explicit assertion polling owns the deadline; an implicit wait for every
+    // candidate locator would multiply it and delay cancellation/error results.
+    await driver.manage().setTimeouts({ implicit: 0 });
+    try {
+      await driver.wait(async () => {
+        try { return await check(); }
+        catch { return false; }
+      }, clampTimeout(options?.timeoutMs, this.timeouts.assertion), message);
+    } finally { await driver.manage().setTimeouts({ implicit: this.timeouts.action }).catch(() => undefined); }
   }
 
-  async expectHidden(target: string, _options?: WebElementOptions) {
-    try {
-      const element = await this.resolveElement(target);
-      const visible = await element.isDisplayed();
-      if (visible) {
-        throw new Error(`Expected ${target} to be hidden`);
-      }
-    } catch (error) {
-      if (error instanceof Error && /^Expected /.test(error.message)) {
+  async expectVisible(target: string, options?: WebElementOptions) {
+    await this.waitForAssertion(async () => (await this.resolveElement(target)).isDisplayed(), `Expected ${target} to be visible before the assertion timeout.`, options);
+  }
+
+  async expectHidden(target: string, options?: WebElementOptions) {
+    await this.waitForAssertion(async () => {
+      try { return !(await (await this.resolveElement(target)).isDisplayed()); }
+      catch (error) {
+        // A missing or detached element is hidden. Other driver failures must
+        // keep polling and eventually fail instead of becoming a false pass.
+        if (error instanceof Error && /Unable to locate|no such element|stale element/i.test(error.message)) return true;
         throw error;
       }
-    }
+    }, `Expected ${target} to be hidden before the assertion timeout.`, options);
   }
 
-  async expectEnabled(target: string, _options?: WebElementOptions) {
-    const element = await this.resolveElement(target);
-    const enabled = await element.isEnabled();
-
-    if (!enabled) {
-      throw new Error(`Expected ${target} to be enabled`);
-    }
+  async expectEnabled(target: string, options?: WebElementOptions) {
+    await this.waitForAssertion(async () => (await this.resolveElement(target)).isEnabled(), `Expected ${target} to be enabled before the assertion timeout.`, options);
   }
 
   async expectText(target: string | null, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) {
-    if (!target) {
-      const source = await this.driverOrThrow.getPageSource();
-      if (!source.includes(expected)) {
-        throw new Error(`Expected the page to include "${expected}"`);
-      }
-      return;
-    }
-
-    const actual = await this.text(target);
-    const passed = options?.match === "equals" ? actual === expected : actual.includes(expected);
-    if (!passed) {
-      throw new Error(`Expected ${target} to contain "${expected}" but found "${actual}"`);
-    }
+    await this.waitForAssertion(async () => {
+      const actual = target ? await this.text(target) : await this.driverOrThrow.getPageSource();
+      return options?.match === "equals" ? actual === expected : actual.includes(expected);
+    }, `Expected ${target || "the page"} text to ${options?.match === "equals" ? "equal" : "contain"} the expected text before the assertion timeout.`, options);
   }
 
   async text(target: string, options?: WebElementOptions & { trim?: boolean }) {
@@ -2601,6 +2601,13 @@ class SeleniumWebSession implements WebSession {
   async value(target: string, _options?: WebElementOptions) {
     const element = await this.resolveElement(target);
     return (await element.getAttribute("value")) || "";
+  }
+
+  async expectValue(target: string, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) {
+    await this.waitForAssertion(async () => {
+      const actual = String(await (await this.resolveElement(target)).getAttribute("value") ?? "");
+      return options?.match === "equals" ? actual === expected : actual.includes(expected);
+    }, `Expected ${target} value to ${options?.match === "equals" ? "equal" : "contain"} the expected value before the assertion timeout.`, options);
   }
 
   async screenshot(label: string) {
@@ -2918,12 +2925,7 @@ const buildBindings = (
     text: async (target: string, options?: WebElementOptions & { trim?: boolean }) => session.text(resolveTarget(target), options),
     value: async (target: string, options?: WebElementOptions) => session.value(resolveTarget(target), options),
     expectValue: async (target: string, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) => {
-      const actual = await session.value(resolveTarget(target), options);
-      const resolvedExpected = interpolateText(expected, context);
-      const passed = options?.match === "equals" ? actual === resolvedExpected : actual.includes(resolvedExpected);
-      if (!passed) {
-        throw new Error(`Expected ${target} value to contain "${resolvedExpected}" but found "${actual}"`);
-      }
+      await session.expectValue(resolveTarget(target), interpolateText(expected, context), options);
     },
     captureText: async (target: string, parameter: string, options?: WebElementOptions & { trim?: boolean }) => {
       const captured = await session.text(resolveTarget(target), options);

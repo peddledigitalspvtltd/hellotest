@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {recordedLocatorSource,compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {deriveProgramTools}=require('../../backend/lib/automationProgramTools');
-const {projectModelSnapshot,resolveModelToolRequest,browserObservedTargetFeedback}=require('../../backend/lib/automationBrowserModelTargets');
+const {recordedLocatorSource,compileRecordedProgram}=require("../../backend/lib/browser/automationRecordedProgram");
+const {deriveProgramTools}=require("../../backend/lib/build/automationProgramTools");
+const {projectModelSnapshot,resolveModelToolRequest,browserObservedTargetFeedback}=require("../../backend/lib/browser/automationBrowserModelTargets");
 
 test('one terminal semicolon normalizes only a complete supported locator expression',()=>{
  for(const source of ['page.getByText("Log Out", {exact:true})','getByRole("link",{name:"Log Out"})',

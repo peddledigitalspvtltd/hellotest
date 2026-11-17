@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { planAutomationFlow } = require('../../backend/lib/automationFlowPlanning');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
+const { planAutomationFlow } = require("../../backend/lib/build/automationFlowPlanning");
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/', ...value }) }] });
 const click = { name: 'browser_click', arguments: { locator: '#save' } };

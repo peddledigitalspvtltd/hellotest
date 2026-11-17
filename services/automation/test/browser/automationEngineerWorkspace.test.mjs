@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
@@ -56,7 +57,7 @@ async function runFixture(mode, run) {
     page.setDefaultTimeout(15_000);page.setDefaultNavigationTimeout(60_000);
     await page.addInitScript(image => {window.fixtureCapture=image;window.copies=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.copies.push(text)}})}, capturedImage);
     const errors = [];page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', route => {errors.push('Unexpected API ' + route.request().url());return route.abort()});
+    await page.route('**/api/**', async route => {if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API ' + route.request().url());return route.abort()});
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
     await mkdir('/tmp/qaira-engineer-workspace', { recursive: true });
     await run(page);
@@ -271,11 +272,13 @@ test('Build Error follows the selected manual step, retains resolved history and
   await expect(workspace.getByLabel('Selected step test data')).toContainText('@r.mobile');
   await expect(workspace.getByLabel('Selected step test data')).toContainText('Configure these parameter values');
   await expect(activity.locator('.automation-agent-failure')).toHaveCount(0);
-  await expect(workspace.getByText('The email address input could not be found on this page.',{exact:true})).toHaveCount(0);
+  await expect(workspace.locator('.automation-engineer-build-error-notice')).toContainText('The email address input could not be found on this page.');
+  await expect(workspace.getByText('The email address input could not be found on this page.',{exact:true})).toHaveCount(1);
   await page.evaluate(()=>{window.currentActivity.status='running';window.currentActivity.metadata.current_phase='automation.agent.action.failed';window.currentActivity.metadata.phase_message='The email address input could not be found on this page.'});
   await activity.getByRole('button',{name:'Refresh activity',exact:true}).click();
   await expect(activity.locator('.automation-agent-live-progress')).toHaveCount(0);
-  await expect(activity.getByText('The email address input could not be found on this page.',{exact:true})).toHaveCount(0);
+  await expect(activity.locator('.automation-agent-failure')).toHaveCount(0);
+  await expect(workspace.locator('.automation-engineer-build-error-notice')).toContainText('The email address input could not be found on this page.');
   await page.evaluate(()=>window.currentActivity.status='failed');await activity.getByRole('button',{name:'Refresh activity',exact:true}).click();
   const errorTab=workspace.getByRole('tab',{name:'Build Error (3)',exact:true});
   await expect(errorTab).toBeVisible();

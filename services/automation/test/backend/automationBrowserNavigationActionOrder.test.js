@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { browserActionOrderFeedback, browserCurrentActionPolicy } = require('../../backend/lib/automationBrowserActionOrder');
+const { browserActionOrderFeedback, browserCurrentActionPolicy } = require("../../backend/lib/browser/automationBrowserActionOrder");
 const execution = (action = 'Navigate http://localhost:8080/auth', extra = {}) => ({ required: true, step_id: 'current',
   source_obligations: [{ id: 'current', source: 'section', action, expected_result: 'The sign-in form is displayed' }], ...extra });
 const inspect = (name = 'browser_fill', active = execution()) => browserActionOrderFeedback({ request: { name, arguments: { locator: '#private-field', value: 'private-literal-input' } }, execution: active });
@@ -88,7 +88,7 @@ test('URL bytes classify the action only and never enter executable navigation o
 });
 
 test('the browser actor blocks a later fill during navigation, then checks and saves the current goal without replay', async () => {
-  const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
+  const { runAutomationBrowserAgent } = require("../../backend/lib/browser/automationBrowserAgent");
   const calls = [], saves = [], observations = [];
   const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'http://localhost:8080/auth', ...value }) }] });
   const page = () => receipt({ observation_id: 'login-page', title: 'Sign in', scope: 'body', accessibility: '- textbox "Email"', elements: [

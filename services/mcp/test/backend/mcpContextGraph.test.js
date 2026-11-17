@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { createRequire } = require('node:module');
-const memory = require('../../backend/contextGraph');
+const memory = require('../../backend/contextTraceTools');
 const traces = require('@hellotest/platform/backend/src/utils/llmTraceContext');
 const actor = { user: { id: 'reader' }, projectId: 'project', clientId: 'host' };
 const fail = (message, statusCode, code) => Object.assign(new Error(message), { statusCode, code, publicMessage: message });
@@ -50,6 +50,11 @@ test('context graph rejects foreign endpoints, dangling links and identities rem
   await assert.rejects(fixture({ bounded: value => ({ ...value, nodes: value.nodes.map(node => ({...node,id:'redacted'})),edges:value.edges.map(edge=>({...edge,source:'redacted',target:'redacted'})) }) }).boundary.explore(actor, { trace_id: 'trace' }), { code: 'MCP_CONTEXT_GRAPH_BUDGET' });
 });
 
+test('context graph accepts the service visualization budget after relationship expansion',async()=>{
+ const value={...graph(),nodes:Array.from({length:100},(_,index)=>({id:`node-${index}`})),edges:Array.from({length:200},(_,index)=>({id:`edge-${index}`,source:`node-${index%100}`,target:`node-${(index+1)%100}`})),timeline:[]};
+ const result=await fixture({value}).boundary.explore(actor,{trace_id:'trace'});assert.equal(result.nodes.length,100);assert.equal(result.edges.length,200);
+});
+
 test('canonical numeric graph identities survive actual MCP text redaction without bypassing prose policy',async()=>{
  const {bounded}=require('../../backend/backplane');
  const task='41111111-1111-4111-8111-111111111111',source='55555555-5555-4555-8555-555555555555',edge='42424242-4242-4242-8242-424242424242';
@@ -72,6 +77,11 @@ test('recording binds delivered evidence to verified identity and trusted featur
   assert.equal(calls[0].packet, input); assert.equal(calls[0].packet.evidence[0].content, '[Redacted] delivered excerpt');
   assert.deepEqual(result.retrieval.context_graph, { status: 'recorded', trace_id: 'context-trace', recorded_at: '2026-11-01T00:00:00Z' });
   assert.equal(input.retrieval.context_graph, undefined, 'The original evidence packet is immutable.');
+});
+test('sampled-out trace receipts remain explicit and never trigger a decision write',async()=>{
+  const input=packet(),result=await memory.rememberContext(actor,input,{service:()=>({recordContext:async()=>({status:'sampled_out',trace_id:null,sample_rate:0.1})})});
+  assert.deepEqual(result.retrieval.context_graph,{status:'sampled_out',sample_rate:0.1});
+  assert.deepEqual(await memory.rememberDecision({projectId:'project',user:actor.user,packet:result,event:{type:'OUTCOME_RECORDED'}}),{status:'sampled_out'});
 });
 test('signed remote attribution wins over unrelated transport traces and preserves workflow task lineage', async () => {
   const calls = [], input = packet();
@@ -107,7 +117,7 @@ test('observed outcome writes use exact native receipt IDs and cannot invalidate
 
 test('real SDK advertises and calls context graph tools without granting history access through arguments', async t => {
   const f = fixture(), filename = require.resolve('../../backend/mcpServer'), local = createRequire(filename), module = { exports: {} };
-  const mocks = { './contextGraph': { ...memory, createContextGraph: () => f.boundary }, './backplane': { bounded: value => value, auditFailure: () => {} },
+  const mocks = { './contextTraceTools': { ...memory, createContextGraph: () => f.boundary }, './backplane': { bounded: value => value, auditFailure: () => {} },
     './projections': { entities: { projects: {} } }, './auth': { permit: async () => {}, fail }, './gateway': { installTransport: () => {} },
     '@hellotest/platform/backend/src/db': { prepare: () => ({ run: async () => {} }) } };
   new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(name => mocks[name] || local(name), module, module.exports);

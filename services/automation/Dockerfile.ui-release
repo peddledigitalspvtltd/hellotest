@@ -1,0 +1,14 @@
+# A capability-only release layers validated build artifacts onto an unchanged,
+# inspected API base. The release tool pins both local references to image IDs.
+ARG AUTOMATION_UI_ASSET_IMAGE=scratch
+ARG VALIDATED_API_BASE=scratch
+FROM ${AUTOMATION_UI_ASSET_IMAGE} AS automation-assets
+FROM ${VALIDATED_API_BASE}
+ARG VALIDATED_API_BASE_ID
+ARG AUTOMATION_UI_MANIFEST_SHA256
+LABEL io.hellotest.ui-release.owner="automation" \
+      io.hellotest.ui-release.base-image-id=$VALIDATED_API_BASE_ID \
+      io.hellotest.ui-release.manifest-sha256=$AUTOMATION_UI_MANIFEST_SHA256
+# COPY merges the new hashed files; old hashed chunks remain available to tabs
+# that loaded the previous manifest. Other capabilities and runtime files stay.
+COPY --from=automation-assets --chown=node:node /capability-ui/automation/ /app/capability-ui/automation/

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { explicitFieldValidationRequirement, nativeValueCoverageRequirements, nativeValueCoverageIssues } = require('../../backend/lib/automationExpectedResultCoverage');
-const { maskParameterReferences, referencedParameterNames } = require('../../backend/lib/automationBrowserParameters');
+const { explicitFieldValidationRequirement, nativeValueCoverageRequirements, nativeValueCoverageIssues } = require("../../backend/lib/build/automationExpectedResultCoverage");
+const { maskParameterReferences, referencedParameterNames } = require("../../backend/lib/parameters/automationBrowserParameters");
 
 const goal = (expected_result, id = 'current') => ({ id, expected_result });
 const operation = (assertion, tag = 'input', locator = '#field', inputType = 'text') => ({ name: 'browser_assert', arguments: { assertion, locator, ...(assertion === 'value' ? { value: '@r.input' } : {}) },

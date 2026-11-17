@@ -240,7 +240,7 @@ The overlay connects to the configured Temporal server; it does not create an ep
 
 Each assessment stores revision-bound nodes, typed edges, provenance, evidence references and its source scope. Native Story, Test Case, assertion, run, result, Defect, relationship and membership changes write an outbox event in the same database transaction. The AI worker processes these events every five seconds, invalidates older assessments and appends deletion tombstones without rewriting historical edges. Consumers are idempotent. Processed delivery metadata expires after 30 days; historical graph snapshots remain. Pending changes and changes processed during capture prevent a snapshot from being shown as current. Reading a saved agent review checks current source permissions and refreshes its graph freshness status.
 
-Before deploying this revision, run `npm --prefix services/platform/backend run migrate` with the application and observation database URLs configured, then restart the relevant services. Main schema compatibility is version 5; observation schema compatibility is version 2. Verify-mode API and durable worker processes refuse to start against an older schema.
+Before deploying this revision, run `npm --prefix services/platform/backend run migrate` with the application and observation database URLs configured, then restart the relevant services. Main schema compatibility is version 24; observation schema compatibility is version 3. Verify-mode API and durable worker processes refuse to start against an older schema.
 
 ### Approved release policies
 

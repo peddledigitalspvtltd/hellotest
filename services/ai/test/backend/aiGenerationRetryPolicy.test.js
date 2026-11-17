@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isAiCapacityError, isRetryableLlmError } = require('../../backend/services/aiGenerationRetryPolicy');
+const { isAiCapacityError, isRetryableLlmError } = require('@hellotest/contracts/runtime/retry');
 const fs = require('node:fs');
 const { createRequire } = require('node:module');
 

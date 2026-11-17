@@ -11,7 +11,7 @@ import {
   IconSparkles,
   IconTrash
 } from "@tabler/icons-react";
-import { AiEvidenceButton, AiEvidenceFlyout } from "@hellotest/agentic/frontend/components/AgenticExperience";
+import { AiEvidenceButton, AiEvidenceFlyout } from "@hellotest/ai/agent-experience";
 import { AiProposalCompare } from "./AiProposalCompare";
 import { SelectionToggleIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import type { AiStoryEvidenceSource } from "@hellotest/platform/frontend/src/lib/api";

@@ -1,11 +1,28 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const db=require('@hellotest/platform/backend/src/db'),obsDb=require('@hellotest/platform/backend/src/obsDb');
 const batches=require('../../backend/services/batchProcess.service');
-const builder=require('@hellotest/automation/backend/services/aiAutomationBuilder.service');
+const builder=require('@hellotest/automation/build');
 const workspace=require('@hellotest/platform/backend/services/workspaceTransaction.service');
-const generator=require('@hellotest/automation/backend/services/automationGenerator.service');
+const generator=require('@hellotest/automation/generator');
 const clone=value=>structuredClone(value);
 const deferred=()=>{let resolve;const promise=new Promise(yes=>{resolve=yes;});return {promise,resolve};};
+const {setImmediate:nextTurn}=require('node:timers/promises');
+
+// The fake database has no referenced socket. Give async rollback/control-plane
+// work explicit event-loop turns around the one simulated watchdog deadline;
+// otherwise an unref'ed production watchdog can leave this fixture with only a
+// pending Promise and a cancellation instead of an assertion about settlement.
+async function advanceWatchdog(t,work,milliseconds){
+ let outcome;
+ work.then(value=>{outcome={value};},error=>{outcome={error};});
+ await nextTurn();
+ assert.equal(outcome,undefined,'The blocked database operation must remain pending before its watchdog');
+ t.mock.timers.tick(milliseconds);
+ for(let turn=0;!outcome&&turn<20;turn++)await nextTurn();
+ assert.ok(outcome,'The watchdog must settle after its deadline without advancing another mocked timer');
+ if(outcome.error)throw outcome.error;
+ return outcome.value;
+}
 
 function fixture(t,{expired=true,queued=false,onRenew}={}){
  let state={jobs:[{id:'build',transaction_id:'activity',operation:'automation_build',status:queued?'queued':'running',lease_owner:'old-worker',expired,attempts:1,payload:{app_type_id:'app',test_case_ids:['case']}},
@@ -88,7 +105,7 @@ test('a renewal watchdog terminalizes the same running owner promptly outside it
  t.mock.timers.enable({apis:['setTimeout','setInterval','Date'],now:Date.now()});
  const reached=deferred();const f=fixture(t,{expired:false,queued:true,onRenew:({controls})=>{assert.equal(controls.openTransactions,1);reached.resolve();return new Promise(()=>{});}});
  let builds=0;t.mock.method(builder,'buildAutomationBatch',async({execution_guard})=>{builds++;return obsDb.transaction(async()=>{await execution_guard.ensureOwnership();assert.fail('A late lease acknowledgement cannot resume the Build');})();});
- const work=batches.processQueuedJobs();await reached.promise;t.mock.timers.tick(10_000);await work;
+ const work=batches.processQueuedJobs();await reached.promise;await advanceWatchdog(t,work,10_000);
  assert.equal(builds,1);assert.equal(f.read().jobs[0].status,'failed');assert.equal(f.read().activity.status,'failed');assert.equal(f.read().activity.metadata.error_code,'AUTOMATION_BUILD_LEASE_RENEWAL_TIMEOUT');assert.equal(f.read().events.length,1);assert.equal(f.controls.openTransactions,0);
  const failed=f.sql.findIndex(row=>row.text.startsWith('UPDATE batch_process_jobs SET status=\'failed\''));assert.ok(f.sql.slice(0,failed).some(row=>row.text==='ROLLBACK'),'The business transaction releases before independent terminal recovery');
 });
@@ -103,7 +120,7 @@ test('unavailable recovery storage is bounded and a late checkout cannot change 
  t.mock.timers.enable({apis:['setTimeout','setInterval','Date'],now:Date.now()});
  const f=fixture(t),waiting=deferred(),reached=deferred(),connect=obsDb.pool.connect;
  t.mock.method(obsDb.pool,'connect',()=>{reached.resolve();return waiting.promise;});
- const work=batches.processQueuedJobs();await reached.promise;t.mock.timers.tick(3_000);await work;
+ const work=batches.processQueuedJobs();await reached.promise;await advanceWatchdog(t,work,3_000);
  assert.equal(f.read().jobs[0].status,'running');assert.equal(f.read().activity.status,'running');assert.equal(f.read().events.length,0);
  waiting.resolve(await connect());await new Promise(resolve=>setImmediate(resolve));
  assert.equal(f.read().jobs[0].status,'running');assert.equal(f.read().events.length,0);assert.equal(f.sql.filter(row=>row.text==='BEGIN').length,0,'The aborted recovery cannot start a late transaction');

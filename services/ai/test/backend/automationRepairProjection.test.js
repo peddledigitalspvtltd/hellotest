@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {repairProjection,MAX_PROJECTION_BYTES}=require('../../backend/services/automationRepairContext');
+const {repairProjection,MAX_PROJECTION_BYTES}=require('../../../automation/backend/services/automationRepairContext');
 const {minimalContext}=require('../../../agentic/backend/services/agentMinimalContext');
 
 function fixture(){

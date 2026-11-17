@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {resolveSecretReferences,buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+const {resolveSecretReferences,buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const env='HELLOTEST_R_PASSWORD',secret='synthetic-password-for-native-dispatch-only';
 const references={'@r.password':env},secrets={[env]:secret},values={'r.first':'Alex','r.last':"O'Neil",'r.template':'Welcome','r.literal':'@r.next','r.next':'expanded-only-if-authored','r.email':'reader@r.first.test','r.url':'https://app.test/next'};

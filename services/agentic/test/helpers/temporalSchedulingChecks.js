@@ -25,7 +25,7 @@ exports.run = async ({ db, workflow, user }) => {
   const control = require('../../backend/workflows/temporal/control');
   const activities = require('../../backend/workflows/temporal/activities');
   const runtime = require('../../backend/services/agenticWorkflowExecution.service');
-  const operations = require('../../backend/workflows/nodeOperations');
+  const operations = require('../../backend/workflows/nodeRegistry').get('transform').implementation;
   const workflowsPath = require.resolve('../../backend/workflows/temporal/workflows');
   let worker, workerTask, originalError;
   const dispatches = [], activeBranches = new Set();
@@ -175,7 +175,8 @@ exports.run = async ({ db, workflow, user }) => {
     assert.equal(cancelledFinal.status, 'cancelled');
     assert.equal(dispatches.filter(item => item.run_id === cancelledRun.id && item.node_id === 'output').length, 0);
     assert.equal((await db.prepare('SELECT COUNT(*)::int AS n FROM llm_request_traces WHERE run_id IN (?,?,?,?,?)').get(parallelRun.id, loopRun.id, nestedRun.id, uncertainRun.id, cancelledRun.id)).n, 0, 'Pure control/data workflows do not invoke a provider.');
-    return { parallel_overlap: maximumBranches, ordered_fan_in: true, loop_batches: 3, nested_batches: 6, loop_ack_recovery: true, nested_ack_recovery: true, uncertain_loop_preserved_without_replay: true, cancellation: true, replay: true };
+    const triggerResume=await require("./triggerResumeChecks").run({db,workflow,user,control,finish,cancelledRun,dispatches});
+    return { ...triggerResume, parallel_overlap: maximumBranches, ordered_fan_in: true, loop_batches: 3, nested_batches: 6, loop_ack_recovery: true, nested_ack_recovery: true, uncertain_loop_preserved_without_replay: true, cancellation: true, replay: true };
   } catch (error) { originalError = error; throw error; }
   finally {
     const failures = [];

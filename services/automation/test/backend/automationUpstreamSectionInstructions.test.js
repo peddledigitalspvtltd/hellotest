@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {deterministicSectionInstructions,mapGeneratedSectionInstructions}=require('../../backend/lib/automationUpstreamSectionSource');
-const {validSavedInstructionMapping,prepareSteps,RESPONSE_SCHEMA}=require('../../backend/lib/automationInstructionMapping');
+const {deterministicSectionInstructions,mapGeneratedSectionInstructions}=require("../../backend/lib/upstream/automationUpstreamSectionSource");
+const {validSavedInstructionMapping,prepareSteps,RESPONSE_SCHEMA}=require("../../backend/lib/build/automationInstructionMapping");
 const step={id:'entry',step_order:1,step_type:'web',action:'Enter the configured name and verify the result',expected_result:'The authored input state is retained.'};
 
 test('complete native display mapping preserves exact arguments, waits, negation, soft semantics and source provenance without a model call',async()=>{
@@ -47,4 +47,15 @@ test('the deterministic path retains cancellation and access guards before retur
  await assert.rejects(mapGeneratedSectionInstructions({step,source,signal:controller.signal,complete:async()=>{calls++;}}),{name:'AbortError'});
  await assert.rejects(mapGeneratedSectionInstructions({step,source,guard:async()=>{throw Object.assign(new Error('Access revoked'),{statusCode:403});},complete:async()=>{calls++;}}),{statusCode:403});
  assert.equal(calls,0);
+});
+
+test('an unavailable display mapper preserves each validated source operation as custom code without another generation',async()=>{
+ const source='if (params["r.enabled"]) { await page.locator("button").click(); }';
+ let calls=0;
+ const result=await mapGeneratedSectionInstructions({step,source,complete:async()=>{calls++;throw Object.assign(new Error('Quota unavailable'),{code:'LLM_QUOTA_EXCEEDED',statusCode:429});}});
+ assert.equal(calls,1);
+ assert.equal(result.instruction_mapping_warning.display_mode,'custom_source');
+ assert.ok(validSavedInstructionMapping(result.automation_instructions,{source,stepId:step.id}));
+ assert.equal(result.automation_instructions.instructions.length,prepareSteps([{...step,automation_code:source}])[0].operations.length);
+ assert.ok(result.automation_instructions.instructions.every(row=>row.label==='Run custom code'));
 });

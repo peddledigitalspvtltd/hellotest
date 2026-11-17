@@ -1,3 +1,5 @@
+import {useQuery} from "@tanstack/react-query";
+import {agenticApi} from "../api.client";
 import { WorkflowOperationFields } from "./WorkflowOperationFields";
 import { NodeAiSettings, nodeAiDefaults, type NodeAiConfiguration } from './NodeAiConfiguration';
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
@@ -62,6 +64,8 @@ export type WorkflowNodeInspectorProps = {
 };
 export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const { node, result: recordedResult, run, editable, expanded, incoming } = props;
+  const repositoryCatalog=useQuery({queryKey:["repository-agent-catalog"],queryFn:({signal})=>agenticApi.repositoryAgents.catalog({signal}),staleTime:60000,retry:1});
+  const repositoryUnavailable=repositoryCatalog.data?.capabilities?.repository_analysis===false || repositoryCatalog.data?.runtime.available===false;
   const [iteration, setIteration] = useState("latest");
   const iterations = Array.isArray(recordedResult?.iterations) ? recordedResult.iterations.filter((value): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value))) : [];
   const snapshot = iteration === "latest" ? undefined : iterations[Number(iteration)];
@@ -292,8 +296,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       </h3>
       {!EXECUTABLE_NODE_KINDS.has(kind) && (
         <p className="studio-notice">
-          This node is available for graph previews. It cannot execute in a
-          review workflow.
+          This node kind is unsupported. Replace it with a registered executable step.
         </p>
       )}
       <fieldset disabled={!editable || props.busy}>
@@ -316,7 +319,6 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             {Object.entries(nodeKindLabels).map(([value, label]) => (
               <option value={value} key={value}>
                 {label}
-                {EXECUTABLE_NODE_KINDS.has(value) ? "" : " · preview only"}
               </option>
             ))}
           </select>
@@ -402,6 +404,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         )}
         {kind === "repositoryAgent" && (
           <>
+            {repositoryUnavailable && <p role="alert">{repositoryCatalog.data?.runtime.detail || "Repository analysis is unavailable on this worker. The saved source-agent selection is preserved."}</p>}
             <label><span>LLM provider</span><select value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}>{props.providers.map(provider => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select><small>An active model must review the extracted source findings.</small></label>
             <label>
               <span>Source agent</span>
@@ -411,8 +414,9 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                   props.onChange({ repositoryAgentType: event.target.value })
                 }
               >
-                <option value="">Choose a source agent</option>
-                {REPOSITORY_AGENTS.map((agent) => (
+                <option value="">{repositoryUnavailable ? "Repository analysis unavailable" : "Choose a source agent"}</option>
+                {repositoryUnavailable && Boolean(node.data.repositoryAgentType) && <option value={String(node.data.repositoryAgentType)}>{String(node.data.repositoryAgentType)} · unavailable</option>}
+                {(repositoryUnavailable ? [] : REPOSITORY_AGENTS).map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
                   </option>

@@ -6,7 +6,7 @@ const requirementDesignService = require("@hellotest/manual/backend/services/req
 const testCaseService = require("@hellotest/testing/backend/services/testCase.service");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
-const { isAiCapacityError, isRetryableLlmError } = require("./aiGenerationRetryPolicy");
+const { isAiCapacityError, isRetryableLlmError } = require("@hellotest/contracts/runtime/retry");
 
 const DEFAULT_CASES_PER_REQUIREMENT = 3;
 const DEFAULT_PARALLEL_REQUIREMENTS = 1;

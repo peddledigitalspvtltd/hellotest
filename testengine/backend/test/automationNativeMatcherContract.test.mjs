@@ -6,9 +6,9 @@ import { assertAutomationAsyncOwnership } from '../dist/lib/automationAsyncOwner
 import { inspectReadOnlyAutomationProgram } from '../dist/lib/automationRecoveryPolicy.js';
 
 const require = createRequire(import.meta.url);
-const { normalizeGeneratedProgram, hasExecutableAssertion, joinGeneratedAssertions, preserveGeneratedAssertions } = require('../../../services/automation/backend/lib/automationGeneratedProgram');
+const { normalizeGeneratedProgram, hasExecutableAssertion, joinGeneratedAssertions, preserveGeneratedAssertions } = require("../../../services/automation/backend/lib/build/automationGeneratedProgram");
 const { inspectExecutablePlan } = require('../../../services/automation/backend/services/automationReadiness.service');
-const { stampObservation, reconcileAction } = require('../../../services/automation/backend/lib/automationActionReconciliation');
+const { stampObservation, reconcileAction } = require("../../../services/automation/backend/lib/build/automationActionReconciliation");
 const argumentsByMatcher = {
   toBeAttached: '', toBeChecked: '', toBeDisabled: '', toBeEditable: '', toBeEmpty: '', toBeEnabled: '', toBeFocused: '', toBeHidden: '', toBeInViewport: '', toBeVisible: '',
   toContainClass: '"active"', toContainText: '"Ready"', toHaveAccessibleDescription: '"Search the catalog"', toHaveAccessibleErrorMessage: '"Enter a code"', toHaveAccessibleName: '"Search"',
@@ -27,7 +27,7 @@ test('independently packaged CJS admission and TS runtime matcher catalogs stay 
   return [...literal.matchAll(/['"](to[A-Z]\w*)['"]/g)].map(match=>match[1]).sort();
  };
  const native=Object.keys(argumentsByMatcher).sort();
- assert.deepEqual(matcherSet('../../../services/automation/backend/lib/automationGeneratedProgram.js','locatorMatchers'),native);
+ assert.deepEqual(matcherSet("../../../services/automation/backend/lib/build/automationGeneratedProgram.js",'locatorMatchers'),native);
  assert.deepEqual(matcherSet('../src/lib/automationAsyncOwnership.ts','locatorMatchers'),native);
  assert.deepEqual(matcherSet('../src/lib/automationRecoveryPolicy.ts','matchers'),[...native,'toBe','toEqual','toContain','toMatch'].sort());
 });

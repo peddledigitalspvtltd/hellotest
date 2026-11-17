@@ -6,9 +6,9 @@ import {chromium} from 'playwright';
 import {captureAutomationBrowserSnapshot,assertAutomationBrowserCondition} from '../../dist/lib/automationMcp.js';
 import {AutomationObservedSubjects} from '../../dist/lib/automationObservedSubjects.js';
 const require=createRequire(import.meta.url);
-const {projectModelSnapshot,resolveModelToolRequest,browserObservedTargetFeedback}=require('../../../../services/automation/backend/lib/automationBrowserModelTargets.js');
-const {compileRecordedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools.js');
+const {projectModelSnapshot,resolveModelToolRequest,browserObservedTargetFeedback}=require("../../../../services/automation/backend/lib/browser/automationBrowserModelTargets.js");
+const {compileRecordedProgram}=require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const {deriveProgramTools}=require("../../../../services/automation/backend/lib/build/automationProgramTools.js");
 const locator='getByText("Log Out", { exact: true })';
 const observation=snapshot=>({tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify(snapshot)}]}});
 

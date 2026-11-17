@@ -1,6 +1,6 @@
 const {createHash}=require('node:crypto');
-const {validSavedInstructionMapping}=require('../lib/automationInstructionMapping');
-const {PREVIEW_MIME,MAX_ARTIFACT_BYTES}=require('../lib/automationWorkspacePreview');
+const {validSavedInstructionMapping}=require("../lib/build/automationInstructionMapping");
+const {PREVIEW_MIME,MAX_ARTIFACT_BYTES}=require("../lib/build/automationWorkspacePreview");
 
 /** Optional projection of the already-authorized current source. The mapping
  * stays in protected, retained build artifacts, never in test-data options. */

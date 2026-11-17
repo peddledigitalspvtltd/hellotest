@@ -4,10 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 test("direct Test Engine dispatch sends the centrally resolved shared secret", async () => {
-  const source = await fs.readFile(
-    path.join(__dirname, "../../backend/services/testEngineDispatch.service.js"),
-    "utf8"
-  );
+  const source = require('../helpers/implementationSource').implementationSource('dispatch/executionPlanning');
 
   assert.match(
     source,

@@ -5,23 +5,16 @@ const {extractReferences,proofFor,createProjection}=require('../../backend/servi
 const {reachableGraph,packGraph}=require('../../backend/services/knowledgeGraphPacking');
 const {witnessVisible}=require('../../backend/services/knowledgeGraphEvidence');
 
-const node=id=>({id,entity_type:'text',entity_key:`native-${id}`,title:`Source ${id}`,aliases:[]});
-function fixture({ids=['source-A','source-B','source-C','source-D'],links=[['source-A','source-B'],['source-B','source-C'],['source-C','source-D']],revokeFinal=[],content='A recorded relationship.'}={}){
-  const nodes=ids.map(node),calls=[];let reads=0;
-  const edges=links.map(([source,target],index)=>({id:`edge-${index}`,source_node_id:source,target_node_id:target,relation_type:'RELATED_TO',provenance_type:'HUMAN_VERIFIED',source_kind:'text',source_key:`native-${source}`,source_title:source,source_aliases:[],target_kind:'text',target_key:`native-${target}`,target_title:target,target_aliases:[],chunk_id:`chunk-${index}`,document_id:`document-${index}`,evidence_source_id:source,document_version:1,version_hash:'version-hash',span_start:0,span_end:Array.from(content).length,content,heading:'Related context',char_start:0,char_end:content.length,evidence_source_kind:'text',evidence_source_ref_id:`native-${source}`,evidence_title:source,source_hash:'source-hash',effective_from:'2026-01-01T00:00:00Z',effective_to:null}));
-  const store={prepare(sql){return {get:async(...args)=>{calls.push({sql,args});if(sql.includes('FROM users'))return{id:'actor'};throw Error(`Unexpected get ${sql}`);},all:async(...args)=>{calls.push({sql,args});if(sql.includes('SELECT nodes.id')){reads++;const requested=new Set(args.filter(arg=>typeof arg==='string'&&(ids.includes(arg)||arg.startsWith('native-'))));return nodes.filter(row=>(!requested.size||requested.has(row.id)||requested.has(row.entity_key))&&!(reads>1&&revokeFinal.includes(row.id)));}if(sql.includes('JOIN LATERAL')){const id=args.find(arg=>ids.includes(arg));return edges.filter(edge=>(edge.source_node_id===id||edge.target_node_id===id)&&!args.includes(edge.id)).slice(0,args.at(-1));}throw Error(`Unexpected all ${sql}`);}};}};
-  const auth={predicate:()=>({sql:'TRUE /* source document fragment ACL */',params:[]}),applicationContextPredicate:()=>"TRUE /* immutable permission profile */",getEvidenceAccess:async({evidence})=>({allowed:evidence,partial:false})};
-  const graph=createGraph({db:store,authorization:auth,permissions:{hasPermission:async()=>true},features:{getFeatureKeysForPermission:()=>[],areEnabled:async()=>true},projectAccess:{getProject:async()=>({id:'project'})}});
-  return {graph,calls,edges,nodes};
-}
+const {fixture}=require('./graphFixture');
 const request={projectId:'project',user:{id:'actor'},seeds:['source-A'],maxTokens:8000};
 
 test('bounded graph expands each node once and applies endpoint/proof ACL and current-version gates before fanout LIMIT',async()=>{
   const {graph,calls}=fixture();const result=await graph.expand({...request,hops:3,fanout:2,maxEdges:3});
   assert.equal(result.edges.length,3);assert.equal(result.nodes.length,4);assert.ok(result.stats.frontier_queries<=3);
   const queries=calls.filter(call=>call.sql.includes('JOIN LATERAL'));
-  assert.equal(new Set(queries.map(call=>call.args.find(arg=>String(arg).startsWith('source-')))).size,queries.length);
-  for(const {sql,args}of queries){assert.match(sql,/proof_documents\.is_active=TRUE/);assert.match(sql,/proof_indexes\.is_current=TRUE/);assert.match(sql,/origins\.required_permission IS NULL/);assert.match(sql,/targets\.required_permission IS NULL/);assert.match(sql,/source document fragment ACL/);assert.match(sql,/provenance_type IN\('DETERMINISTIC','SOURCE_EXPLICIT','HUMAN_VERIFIED'\)/);assert.ok(sql.indexOf('targets.required_permission')<sql.lastIndexOf('LIMIT ?'));assert.ok(args.at(-1)<=2);assert.ok(args.includes('knowledge.view'));}
+  const expanded=queries.flatMap(call=>JSON.parse(call.args.find(arg=>typeof arg==='string'&&arg.startsWith('['))));
+  assert.equal(new Set(expanded).size,expanded.length,'no node is expanded twice');assert.ok(queries.length<=3,'at most one query per hop');
+  for(const {sql,args}of queries){assert.match(sql,/proof_documents\.is_active=TRUE/);assert.match(sql,/proof_indexes\.is_current=TRUE/);assert.match(sql,/origins\.required_permission IS NULL/);assert.match(sql,/targets\.required_permission IS NULL/);assert.match(sql,/source document fragment ACL/);assert.match(sql,/provenance_type IN\('DETERMINISTIC','SOURCE_EXPLICIT','HUMAN_VERIFIED'\)/);assert.ok(sql.indexOf('targets.required_permission')<sql.indexOf('ranked.fanout_rank<=?'),'every ACL gate is applied before the per-node fanout window');assert.match(sql,/PARTITION BY anchored\.anchor_id/);assert.ok(args.at(-1)<=2);assert.ok(args.includes('knowledge.view'));}
   assert.ok(result.edges.every(edge=>edge.path.every(id=>result.nodes.some(node=>node.id===id))));
   assert.ok(result.edges.every(edge=>edge.evidence_ids.every(id=>result.evidence.some(hit=>hit.citation.id===id))));
 });
@@ -78,49 +71,63 @@ test('every declared native Story and Defect link retains its typed witness afte
   }
 });
 
+test('large native associations become dedicated structured relationship pages with exact spans',()=>{
+  const {serializeRequirement,buildRelationshipChunks}=require('../../backend/services/knowledgeRag.service')._internals;
+  const ids=Array.from({length:121},(_,index)=>`case-${index}`);
+  const serialized=serializeRequirement({id:'story',title:'Checkout'},ids);
+  const pages=buildRelationshipChunks({source_kind:serialized.source_kind,metadata:serialized.metadata},7);
+  const records=pages.flatMap(page=>page.relationship_records);
+  assert.equal(records.length,121);
+  assert.ok(pages.length>1,'the relationship index is paged independently from prose chunks');
+  for(const page of pages)for(const record of page.relationship_records){
+    assert.equal(Array.from(page.content).slice(record.span_start,record.span_end).join(''),`${record.label}: ${record.ref_id}`);
+    assert.ok(proofFor([page],{...record,marker:record.label}),'the projector uses the structured span, not a private label parser');
+  }
+});
+
 test('bounded native association projection reports omitted links instead of claiming exhaustive construction',async()=>{
   const {serializeRequirement}=require('../../backend/services/knowledgeRag.service')._internals;
   const ids=Array.from({length:100},(_,index)=>'case-'+index);
   const source={...serializeRequirement({id:'story',title:'Checkout'},ids,121),id:'source',project_id:'project'};
   assert.equal(source.metadata.linked_test_case_count,121);
   assert.equal(source.metadata.indexed_linked_test_case_count,100);assert.equal(source.metadata.linked_test_cases_truncated,true);
-  assert.match(source.content,/first 100 of 121 linked Test Cases/);
+  assert.match(source.content,/loaded 100 of 121 linked Test Cases/);
   const writes=[];
   const store={prepare:sql=>({run:async(...args)=>{writes.push({sql,args});return{changes:1};},get:async()=>undefined})};
   const result=await createProjection({db:store}).syncDocument({projectId:'project',source,document:{id:'document',version:1,checksum_sha256:'hash'},chunks:[]});
   assert.equal(result.partial,true);assert.equal(result.omitted_reference_count,21);
   assert.equal(writes.find(write=>write.sql.includes('SET metadata=metadata')).args[0].projection_omitted_references,21);
-  const oversized={...source,metadata:{linked_test_case_ids:[...ids,'case-101']}};
-  const capped=await createProjection({db:store}).syncDocument({projectId:'project',source:oversized,document:{id:'document',version:1,checksum_sha256:'hash'},chunks:[]});
-  assert.equal(capped.partial,true);assert.equal(capped.omitted_reference_count,1);
+  const oversized={...source,metadata:{linked_test_case_ids:[...ids,'case-101'],linked_test_case_count:101}};
+  const complete=await createProjection({db:store}).syncDocument({projectId:'project',source:oversized,document:{id:'document',version:1,checksum_sha256:'hash'},chunks:[]});
+  assert.equal(complete.partial,true);assert.equal(complete.omitted_reference_count,0,"all 101 structured links reach projection; partial reflects missing witness chunks only");
 });
 test('large document graph projection is bounded and cannot cancel valid canonical ingestion or overwrite curated aliases',async()=>{
-  const writes=[];const store={prepare(sql){return{run:async(...args)=>{writes.push({sql,args});return{changes:1};},get:async()=>{throw Error('No native references should be queried');}};}};
+  const writes=[];const store={prepare(sql){return{run:async(...args)=>{writes.push({sql,args});return{changes:1};},get:async()=>{if(sql.includes('FROM ai_knowledge_sources'))throw Error('No native references should be queried');return undefined;}};}};
   const source={id:'source',project_id:'project',source_kind:'file',source_ref_id:'file-id',title:'Large document',metadata:{}};
   const chunks=Array.from({length:3001},(_,index)=>({id:`chunk-${index}`,source_id:source.id,document_id:'document',content:'A permitted document passage.'}));
   const result=await createProjection({db:store}).syncDocument({projectId:'project',source,document:{id:'document',version:1,checksum_sha256:'hash'},chunks});
-  assert.equal(result.partial,true);assert.equal(result.omitted_chunk_count,1);assert.equal(writes.filter(write=>write.sql.includes('INSERT INTO ai_knowledge_graph_chunk_entities')).length,1);assert.equal(writes.find(write=>write.sql.includes('jsonb_to_recordset')).args[2].length,3000);assert.ok(!writes[0].sql.includes('aliases='));
+  assert.equal(result.partial,false);assert.equal(result.omitted_chunk_count,0);assert.equal(writes.filter(write=>write.sql.includes('INSERT INTO ai_knowledge_graph_chunk_entities')).length,1);assert.equal(writes.find(write=>write.sql.includes('jsonb_to_recordset')).args[2].length,3001);const nodeUpsert=writes.find(write=>write.sql.includes('INSERT INTO ai_knowledge_graph_nodes'));assert.ok(nodeUpsert.sql.includes('jsonb_array_elements(ai_knowledge_graph_nodes.aliases'),'existing (curated) aliases are merged');assert.ok(!/aliases\s*=\s*EXCLUDED\.aliases/.test(nodeUpsert.sql),'aliases are never replaced');
 });
 
-test('backfill reports the full omitted fragment count while loading at most 3001 bodies and skips counting small documents',async()=>{
+test('backfill loads all normal relationship pages and only counts a document at the hard safety ceiling',async()=>{
   for(const total of[24,9001]){
     const queries=[],writes=[];
     const source={id:'source',project_id:'project',source_kind:'file',source_ref_id:'file-id',title:'Large document',metadata:{}};
-    const chunks=Array.from({length:Math.min(total,3001)},(_,index)=>({id:`chunk-${index}`,source_id:'source',document_id:'document',content:'A permitted document passage.'}));
+    const chunks=Array.from({length:total},(_,index)=>({id:`chunk-${index}`,source_id:'source',document_id:'document',content:'A permitted document passage.'}));
     const store={prepare(sql){return{
-      get:async(...args)=>{queries.push({sql,args});if(sql.includes('COUNT(*)'))return{count:total};if(sql.includes('graph_document_version'))return{...source,document_id:'document',graph_document_version:1,graph_version_hash:'hash'};throw Error(`Unexpected graph get: ${sql}`);},
+      get:async(...args)=>{queries.push({sql,args});if(sql.includes('COUNT(*)'))return{count:total};if(sql.includes('graph_document_version'))return{...source,document_id:'document',graph_document_version:1,graph_version_hash:'hash'};if(sql.includes('FROM ai_knowledge_graph_nodes')||sql.includes('FROM ai_knowledge_graph_projection_states'))return undefined;throw Error(`Unexpected graph get: ${sql}`);},
       all:async(...args)=>{queries.push({sql,args});if(sql.includes('SELECT documents.id'))return[{id:'document'}];if(sql.includes('FROM ai_knowledge_chunks'))return chunks;throw Error(`Unexpected graph all: ${sql}`);},
       run:async(...args)=>{writes.push({sql,args});return{changes:1};}
     };},transaction:task=>()=>task()};
     const result=await createProjection({db:store}).reconcilePage({projectId:'project',limit:1});
-    const omitted=Math.max(0,total-3000),projection=result.results[0];
+    const omitted=0,projection=result.results[0];
     assert.equal(projection.omitted_chunk_count,omitted);assert.equal(projection.partial,omitted>0);
     assert.equal(writes.find(write=>write.sql.includes('SET metadata=metadata')).args[0].projection_omitted_fragments,omitted);
     const bodyReads=queries.filter(query=>query.sql.includes('SELECT id,document_id,source_id,content'));
-    assert.equal(bodyReads.length,1);assert.match(bodyReads[0].sql,/LIMIT 3001/);
+    assert.equal(bodyReads.length,1);assert.match(bodyReads[0].sql,/LIMIT 50001/);
     const counts=queries.filter(query=>query.sql.includes('COUNT(*)'));
-    assert.equal(counts.length,total>3000?1:0);assert.ok(counts.every(query=>!query.sql.includes('content')));
-    assert.equal(writes.find(write=>write.sql.includes('jsonb_to_recordset')).args[2].length,Math.min(3000,total));
+    assert.equal(counts.length,0);assert.ok(counts.every(query=>!query.sql.includes('content')));
+    assert.equal(writes.find(write=>write.sql.includes('jsonb_to_recordset')).args[2].length,total);
   }
 });
 

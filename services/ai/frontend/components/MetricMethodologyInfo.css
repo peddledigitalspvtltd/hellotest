@@ -1,3 +1,5 @@
+@import "../../../platform/frontend/src/shared/components/ui-tokens.css";
+
 .metric-methodology-info.info-tooltip-trigger {
   width: 1rem !important;
   min-width: 1rem !important;

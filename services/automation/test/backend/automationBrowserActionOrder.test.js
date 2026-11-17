@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { browserActionOrderFeedback } = require('../../backend/lib/automationBrowserActionOrder');
+const { browserActionOrderFeedback } = require("../../backend/lib/browser/automationBrowserActionOrder");
 
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', ...value }) }] });
 const target = (extras = {}) => ({ tag: 'button', accessible_name: 'Private signup label', attributes: { type: 'submit' },

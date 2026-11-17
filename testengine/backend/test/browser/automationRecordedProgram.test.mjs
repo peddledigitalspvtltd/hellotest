@@ -9,9 +9,9 @@ import { resolveRepositoryLocator } from '../../dist/lib/repositoryLocator.js';
 import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../dist/lib/testEngineSecurity.js';
 
 const require = createRequire(import.meta.url);
-const { compileRecordedProgram, recordedLocatorSource } = require('../../../../services/automation/backend/lib/automationRecordedProgram.js');
-const { connectAutomationBrowser } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { createBrowserParameterResolver } = require('../../../../services/automation/backend/lib/automationBrowserParameters.js');
+const { compileRecordedProgram, recordedLocatorSource } = require("../../../../services/automation/backend/lib/browser/automationRecordedProgram.js");
+const { connectAutomationBrowser } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
+const { createBrowserParameterResolver } = require("../../../../services/automation/backend/lib/parameters/automationBrowserParameters.js");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 test('compiler locator rendering has the same method, arguments and explicit index as the actual TestEngine resolver', () => {

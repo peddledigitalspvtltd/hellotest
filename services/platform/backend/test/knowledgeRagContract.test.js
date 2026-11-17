@@ -98,7 +98,7 @@ test("Qdrant query applies project, current-version, model, and ACL filters befo
       queryVector: Array.from({ length: 8 }, (_, index) => index / 10),
       embeddingModel: "model-1",
       allowedPermissions: ["feedback.view"],
-      authorizedChunkIds: ["chunk-1"],
+      aclPrincipals: ["PROJECT:project-1", "USER:user-1"],
       sourceKinds: ["bug"]
     });
     assert.equal(result.hits[0].chunk_id, "chunk-1");
@@ -107,10 +107,11 @@ test("Qdrant query applies project, current-version, model, and ACL filters befo
     assert.deepEqual(body.filter.must.slice(0, 5), [
       { key: "project_id", match: { value: "project-1" } },
       { key: "is_current", match: { value: true } },
-      { has_id: ["chunk-1"] },
       { key: "embedding_model", match: { value: "model-1" } },
-      { key: "allowed_scope", match: { any: ["__public__", "feedback.view"] } }
+      { key: "allowed_scope", match: { any: ["__public__", "feedback.view"] } },
+      { key: "acl_allow_principals", match: { any: ["PROJECT:project-1", "USER:user-1"] } }
     ]);
+    assert.equal(JSON.stringify(body.filter).includes("has_id"), false, "Qdrant must not depend on a capped PostgreSQL fragment allowlist");
     assert.equal(queryRequest.options.headers["api-key"], "test-key");
   } finally {
     global.fetch = originalFetch;
@@ -415,15 +416,21 @@ test("grounded assistant builds useful deterministic retrieval queries without a
 });
 
 test("grounded assistant scores evidence sufficiency without treating quantity as proof", () => {
-  const weak = assistant._internals.assessEvidenceSufficiency([{ citation: { id: "K-1" }, source_id: "source-a", score: 0.2 }]);
+  const question = "How does checkout handle expired credit cards?";
+  const weak = assistant._internals.assessEvidenceSufficiency([{ citation: { id: "K-1" }, source_id: "source-a", score: 0.2,
+    title: "General notes", content: "One passage with unrelated project notes." }], { question });
   const strong = assistant._internals.assessEvidenceSufficiency([
-    { citation: { id: "K-1" }, source_id: "source-a", score: 0.9, retrieval_query_match_count: 2 },
-    { citation: { id: "K-2" }, source_id: "source-b", score: 0.85, retrieval_query_match_count: 2 },
-    { citation: { id: "K-3" }, source_id: "source-c", score: 0.8 }
-  ]);
-  assert.equal(weak.status, "weak");
+    { citation: { id: "K-1" }, source_id: "source-a", score: 0.9, retrieval_query_match_count: 2,
+      title: "Checkout payment handling", content: "Checkout rejects expired credit cards and asks the customer to use a valid card." },
+    { citation: { id: "K-2" }, source_id: "source-b", score: 0.85, retrieval_query_match_count: 2,
+      title: "Card retry policy", content: "For an expired credit card, checkout does not retry the payment." },
+    { citation: { id: "K-3" }, source_id: "source-c", score: 0.8,
+      title: "Payment validation", content: "Expired cards fail validation during checkout." }
+  ], { question });
+  assert.equal(weak.status, "partial");
   assert.equal(weak.requires_more_context, true);
   assert.ok(strong.score > weak.score);
+  assert.equal(strong.status, "covered");
   assert.equal(strong.requires_more_context, false);
 });
 
@@ -525,7 +532,7 @@ test("reviewed Smart Context stays bounded, sanitized, source-pinned, and citati
 
 test("retrieval and grounded assistant contracts honor exact Smart Context source ids", async () => {
   const [ragSource, assistantSource, knowledgeSource] = await Promise.all([
-    readSource("../../../knowledge/backend/services/knowledgeRag.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeSearch.service.js"),
     Promise.all([readSource("../../../chatbot/backend/services/knowledgeAssistant.service.js"), readSource("../../../knowledge/backend/services/knowledgeRetrieval.service.js")]).then(parts => parts.join("\n")),
     readSource("../../../knowledge/backend/services/aiKnowledge.service.js")
   ]);
@@ -860,10 +867,14 @@ test("Knowledge Repo RAG routes are explicitly permissioned", () => {
 });
 
 test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay aligned", async () => {
-  const [schema, bootstrap, rag, routes, legacy, openapi, features, app, backgroundTasks, agentic, contextOrchestrator, attachments, sourceLifecycle, productHelp] = await Promise.all([
+  const [schema, bootstrap, ragFacade, ingestion, search, collections, overview, routes, legacy, openapi, features, app, backgroundTasks, agentic, contextOrchestrator, attachments, sourceLifecycle, productHelp, ontology, applicationSerializers, embeddingRuntime] = await Promise.all([
     readSource("../instance-setup-data/schema-setup/schema.sql"),
     readSource("../src/db/bootstrap.js"),
     readSource("../../../knowledge/backend/services/knowledgeRag.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeIngestion.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeSearch.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeCollections.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeOverview.service.js"),
     Promise.all([readSource("../../../knowledge/backend/routes/knowledge.routes.js"), readSource("../../../chatbot/backend/routes/chatbot.routes.js"), readSource("../../../knowledge/backend/http/requestScope.js")]).then(parts => parts.join("\n")),
     readSource("../../../knowledge/backend/services/aiKnowledge.service.js"),
     readSource("../../../../openapi.yaml"),
@@ -874,8 +885,16 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
     readSource("../../../ai/backend/services/aiContextOrchestrator.service.js"),
     readSource("../services/attachment.service.js"),
     readSource("../../../knowledge/backend/services/knowledgeSourceLifecycle.service.js"),
-    readSource("../../../knowledge/backend/services/knowledgeProductCatalog.service.js")
+    readSource("../../../knowledge/backend/services/knowledgeProductCatalog.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeOntology.js"),
+    readSource("../../../knowledge/backend/services/knowledgeApplicationSerializers.service.js"),
+    readSource("../../../knowledge/backend/services/knowledgeEmbeddingRuntime.service.js")
   ]);
+  const rag = [ragFacade, ingestion, search, collections, overview, applicationSerializers, embeddingRuntime].join("\n");
+  assert.match(ragFacade, /createKnowledgeIngestionService/);
+  assert.match(ragFacade, /createKnowledgeSearchService/);
+  assert.doesNotMatch(ragFacade, /const search = async/);
+  assert.doesNotMatch(ragFacade, /const ingest = async/);
 
   for (const table of [
     "ai_knowledge_collections",
@@ -903,7 +922,7 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   assert.match(rag, /const searchMany/);
   assert.match(rag, /assertRecordSourcePermissions/);
   for (const permission of ["requirement.view", "testcase.view", "run.view", "feedback.view"]) {
-    assert.match(rag, new RegExp(permission.replace(".", "\\.")));
+    assert.match(ontology, new RegExp(permission.replace(".", "\\.")));
   }
   assert.match(rag, /assertLlmIntegrationProjectScope/);
   assert.match(rag, /sources\.required_permission IS NULL/);
@@ -924,13 +943,13 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   assert.match(rag, /status IN \('completed', 'completed_with_warnings'\)/);
   assert.match(attachments, /downloadManagedKnowledgeObject/);
   assert.match(rag, /processLegacyKnowledgeSyncOutbox/);
-  assert.match(rag, /FROM execution_results WHERE execution_id = \?/);
+  assert.match(applicationSerializers, /FROM execution_results WHERE execution_id = \?/);
   assert.match(rag, /context_permission_profile/);
   const runProjection = require("../../../knowledge/backend/services/knowledgeRag.service")._internals.serializeExecution.toString();
   assert.match(runProjection, /Failure details, result logs and execution snapshots require live, permission-checked context retrieval/);
   assert.doesNotMatch(runProjection, /row\.test_data_set_snapshot|row\.test_environment_snapshot|row\.test_configuration_snapshot|result\.logs/);
   assert.match(rag, /postgresql-fts-only/);
-  assert.match(rag, /usageKey: "ai\.knowledge\.assistant"/);
+  assert.match(embeddingRuntime, /usageKey: "ai\.knowledge\.assistant"/);
   assert.match(rag, /UPDATE ai_knowledge_documents SET is_active = FALSE/);
   assert.doesNotMatch(rag, /DELETE FROM ai_knowledge_sources/);
   assert.match(rag, /Apache Tika output exceeded the configured extraction limit/);

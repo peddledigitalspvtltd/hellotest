@@ -314,7 +314,9 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_queue ON test_engine_jobs (status, engine_class, app_type_kind, engine_host, created_at ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_case ON test_engine_jobs (execution_id, test_case_id)`,
   `CREATE INDEX IF NOT EXISTS idx_test_engine_jobs_execution_created_at ON test_engine_jobs (execution_id, created_at DESC)`,
-  `DROP INDEX IF EXISTS idx_test_engine_jobs_exec`
+  `DROP INDEX IF EXISTS idx_test_engine_jobs_exec`,
+  ...require('@hellotest/agentic/backend/agents/activitySchema'),
+  ...require('@hellotest/agentic/backend/agents/activityTransactionSchema')
 ];
 
 const executeStatements = () => obsDb.transaction(async () => {

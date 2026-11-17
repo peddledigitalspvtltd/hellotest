@@ -1,9 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const rules=require('../../backend/services/automationRepairRules');
+const rules=require('../../../automation/backend/services/automationRepairRules');
 const execution=require('../../../knowledge/backend/services/knowledgeExecution.service');
 const diagnostics=require('../../../platform/backend/src/domain/executionStepEvidence');
 const aiText=require('../../../platform/backend/src/security/aiTextPolicy');
-const code=fs.readFileSync(require.resolve('../../backend/services/automationRepair.service'),'utf8');
+const code=fs.readFileSync(require.resolve('../../../automation/backend/services/automationRepair.service'),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 function fixture(){
  const reads=[],writes=[],created=[];
@@ -68,7 +68,7 @@ function fixture(){
   if(id.endsWith('/optionalEvidenceAccess.service'))return {getOptionalEvidenceAccess:async(user,project,codes)=>Object.fromEntries(codes.map(code=>[code,true]))};
   if(id.endsWith('/execution.service'))return executions;if(id.endsWith('/executionStepEvidence'))return diagnostics;
   if(id.endsWith('/aiTextPolicy'))return aiText;if(id.endsWith('/knowledgeExecution.service'))return execution;
-  if(id==='./automationRepairRules')return rules;if(id==='./automationRepairContext')return require('../../backend/services/automationRepairContext');
+  if(id==='./automationRepairRules')return rules;if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
   throw Error('Unexpected module: '+id);
  }});
  const service=module.exports,prepare=()=>service.prepare({projectId:'project',appTypeId:'app',user:{id:'reviewer'},input:{test_case_id:'case',execution_id:'failed'}});

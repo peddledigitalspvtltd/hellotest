@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import Fastify from 'fastify';
 import { registerAutomationMcp } from '../../dist/lib/automationMcp.js';
 const require = createRequire(import.meta.url);
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
+const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../../../../services/automation/backend/lib/browser/automationBrowserAgent.js");
 const { inspectExecutablePlan } = require('../../../../services/automation/backend/services/automationReadiness.service.js');
 const html = hidden => '<!doctype html><title>Partial target fixture</title>' + Array.from({ length: 130 }, (_, index) => `<input aria-label="Earlier field ${index}" style="position:fixed;left:${index % 13 * 50}px;top:${Math.floor(index / 13) * 20}px;width:40px;height:15px">`).join('')
   + `<a id="addEmployeeButton" style="position:fixed;left:700px;top:105px;width:25px;height:25px;${hidden ? 'display:none' : ''}"><i>add</i></a>`;

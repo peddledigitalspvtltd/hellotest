@@ -1,8 +1,8 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {createHash}=require('node:crypto');
-const {mapPlaywrightInstructions,prepareSteps,validateMappingResponse,validSavedInstructionMapping,RESPONSE_SCHEMA}=require('../../backend/lib/automationInstructionMapping');
-const {sectionPreview}=require('../../backend/lib/automationWorkspacePreview');
+const {mapPlaywrightInstructions,prepareSteps,validateMappingResponse,validSavedInstructionMapping,RESPONSE_SCHEMA}=require("../../backend/lib/build/automationInstructionMapping");
+const {sectionPreview}=require("../../backend/lib/build/automationWorkspacePreview");
 const code='await page.getByLabel("Email", {exact:true}).fill(params["t.email"]);\nawait expect(page.getByRole("alert")).not.toContainText("Invalid", {timeout:1234});';
 const steps=[{step_id:'login',automation_code:code,action:'Sign in',expected_result:'No invalid warning'}];
 function responseFor(prepared){return {schema:RESPONSE_SCHEMA,steps:prepared.map(step=>({step_id:step.step_id,source_sha256:step.source_sha256,instructions:step.operations.map(operation=>({operation_id:operation.operation_id,kind:operation.kind,depth:operation.depth,label:operation.kind==='assertion'?'Verify warning':'Type',args:operation.kind==='assertion'?['does not contain Invalid','timeout 1234 ms']:['Email','@t.email']}))}))};}

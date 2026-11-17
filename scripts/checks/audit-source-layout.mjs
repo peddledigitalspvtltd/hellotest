@@ -23,6 +23,38 @@ const intentionallyRepeatedNames = new Set([
 ]);
 const intentionalRepeatedBasenameGroups = new Map([
   [
+    ["services/agentic/backend/workflows/nodes/errorHandler.js", "services/platform/backend/src/plugins/errorHandler.js"].sort().join("\n"),
+    "The workflow kind keeps its canonical registry identity; the Fastify plugin independently sanitizes HTTP errors."
+  ],
+  [
+    ["services/agentic/frontend/components/AgentActivity.tsx", "services/ai/frontend/components/AgentActivity.tsx"].sort().join("\n"),
+    "AI owns the common activity component; the Agentic file preserves its existing explicit public compatibility export without a second implementation."
+  ],
+  [
+    ["services/agentic/frontend/components/AgentEvidenceScope.tsx", "services/ai/frontend/components/AgentEvidenceScope.tsx"].sort().join("\n"),
+    "AI owns permission-scoped evidence selection; the Agentic file is the existing public compatibility export, not a second picker implementation."
+  ],
+  [
+    ["services/automation/frontend/lib/automationStepOptions.ts", "testengine/backend/src/lib/automationStepOptions.ts"].sort().join("\n"),
+    "The browser authoring adapter reads and writes the saved directive; the worker adapter interprets the same bounded directive for execution. Their runtime-specific return contracts differ."
+  ],
+  [
+    ["services/automation/test/backend/automationExpectedResultCoverage.test.js", "services/platform/backend/test/automationExpectedResultCoverage.test.js"].sort().join("\n"),
+    "Automation tests executable native proof coverage; the Platform suite independently verifies managed instruction ownership, migration and trusted model phase projection."
+  ],
+  [
+    ["services/chatbot/backend/services/assistant/validation.js", "services/platform/backend/services/sampleData/validation.js"].sort().join("\n"),
+    "The assistant module reauthorizes answer evidence; the installer module validates setup record identities and interrupted ingestion. They are separate lifecycle contracts."
+  ],
+  [
+    ["services/contracts/agents/index.d.ts", "services/contracts/engine/index.d.ts", "services/contracts/evidence/index.d.ts", "services/contracts/workflow/index.d.ts"].sort().join("\n"),
+    "Each portable contracts subpath has its own conventional public declaration entrypoint. Exact paths preserve package export resolution and keep added mirrors reviewable."
+  ],
+  [
+    ["services/testing/frontend/lib/pairedLocalExecution.ts", "testengine/backend/src/lib/pairedLocalExecution.ts"].sort().join("\n"),
+    "The browser dispatch client and Node worker receipt/route adapter implement opposite sides of the paired execution protocol; neither can replace the other runtime owner."
+  ],
+  [
     [
       "services/agentic/backend/agents/catalog.js",
       "services/platform/backend/src/domain/catalog.js"

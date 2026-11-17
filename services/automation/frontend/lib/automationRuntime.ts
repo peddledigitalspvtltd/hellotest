@@ -33,7 +33,7 @@ export function getDefaultAutomationStepType(steps: Array<{ step_type?: string |
   return types.find((type) => type !== "api") || types[0];
 }
 
-export function getRecorderPlatform(steps: Array<{ id: string; step_type?: string | null }>, targetStepId: string, fallback = "web") {
+export function getRecorderPlatform(steps: Array<{ id: string; step_type?: string | null }>, targetStepId: string, fallback = "web"): AutomationCaseType {
   const selected = targetStepId ? steps.filter((step) => step.id === targetStepId) : steps;
   const types = getAutomationRuntimeTypes(selected, fallback);
   // API setup does not turn a native case into a browser recording session.

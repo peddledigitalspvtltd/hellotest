@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {parse}=require('acorn');
-const {bindUpstreamSourceParameters:bind,validateUpstreamSourceBoundary:boundary,selectUpstreamSourceParameterValues:selectValues}=require('../../backend/lib/automationUpstreamSourceBindings');
+const {bindUpstreamSourceParameters:bind,validateUpstreamSourceBoundary:boundary,selectUpstreamSourceParameterValues:selectValues}=require("../../backend/lib/upstream/automationUpstreamSourceBindings");
 
 test('versioned tab URLs bind public record data while schema and native index remain exact',async()=>{
   const source='await web.switchTab({index:1,identity:{schema:"hellotest.tab-identity.v1",url:"https://app.test/record?id=Alice"}});';
@@ -48,7 +48,7 @@ test('changed template fragments retain backticks, dollar interpolation escapes 
     assert.equal(after.quasis[1].value.raw,before.quasis[1].value.raw,'an unchanged fragment retains its exact escaping');
     const evaluate=(input,node)=>new Function('params',`return (${input.slice(node.start,node.end)});`)({'r.first':'Alex'});
     assert.equal(evaluate(result.source,after).replace(result.references[0],'Onboarding - India'),evaluate(source,before));
-    require('../../backend/lib/automationUpstreamEngineer').preserveNativeActions(result.source,source,{parameterValues,secretBindings:{}},true);
+    require("../../backend/lib/upstream/automationUpstreamEngineer").preserveNativeActions(result.source,source,{parameterValues,secretBindings:{}},true);
   }
 });
 
@@ -64,14 +64,14 @@ test('public URL prefixes close their scoped names before path suffixes and reta
   const result=bind({source,parameterValues});
   assert.equal(result.source,source.replaceAll('"https://app.example/client/#/dashboard"','"@r.[orangehrm_url]client/#/dashboard"'));
   assert.doesNotMatch(result.source,/@r\.orangehrm_urlclient/);assert.deepEqual(result.references,['@r.[orangehrm_url]']);
-  const {parameterTemplateParts}=require('../../backend/lib/automationParameterTemplates');
+  const {parameterTemplateParts}=require("../../backend/lib/parameters/automationParameterTemplates");
   const resolved=parameterTemplateParts('@r.[orangehrm_url]client/#/dashboard').map(part=>part.key?parameterValues[part.key]:part.literal).join('');
   assert.equal(resolved,base+'client/#/dashboard');
-  require('../../backend/lib/automationUpstreamEngineer').preserveNativeActions(result.source,source,{parameterValues,secretBindings:{}},true);
+  require("../../backend/lib/upstream/automationUpstreamEngineer").preserveNativeActions(result.source,source,{parameterValues,secretBindings:{}},true);
 });
 
 test('adjacent suffix characters, authored references and replacement fragments never become merged parameter names',()=>{
-  const {parameterTemplateParts}=require('../../backend/lib/automationParameterTemplates');
+  const {parameterTemplateParts}=require("../../backend/lib/parameters/automationParameterTemplates");
   const parameterValues={'r.base':'prefix/','r.end':'<END>','r.path':'client'};
   for(const suffix of ['client','42','_more','-more','@r.path','<END>']){
     const source=`await expect(page.getByRole("status")).toHaveText(${JSON.stringify('prefix/'+suffix)});`;
@@ -136,7 +136,7 @@ test('public values equal to form labels bind inputs and assertions without chan
   const source='await page.getByRole("textbox", {name:"Username",exact:true}).fill("Username");\nawait expect(page.getByRole("textbox", {name:"Username",exact:true})).toHaveValue("Username");';
   const result=bind({source,parameterValues});
   assert.equal(result.source,'await page.getByRole("textbox", {name:"Username",exact:true}).fill("@r.username");\nawait expect(page.getByRole("textbox", {name:"Username",exact:true})).toHaveValue("@r.username");');
-  const {preserveNativeActions}=require('../../backend/lib/automationUpstreamEngineer');
+  const {preserveNativeActions}=require("../../backend/lib/upstream/automationUpstreamEngineer");
   const bindings={parameterValues,secretBindings:{}};
   assert.doesNotThrow(()=>preserveNativeActions(result.source,source,bindings,true));
   assert.throws(()=>preserveNativeActions(result.source.replace('name:"Username"','name:"@r.username"'),source,bindings,true),error=>error.code==='AUTOMATION_UPSTREAM_SOURCE_CHANGED','a synthesized locator change still fails native-action equivalence');

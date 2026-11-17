@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createUpstreamPrivateBindingScope}=require('../../backend/lib/automationUpstreamPrivateBindings');
-const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+const {createUpstreamPrivateBindingScope}=require("../../backend/lib/upstream/automationUpstreamPrivateBindings");
+const {buildWithUpstreamPlaywright}=require("../../backend/lib/upstream/automationUpstreamEngineer");
 const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 
 const secret='synthetic-private-value-kept-off-model-wire',env='HELLOTEST_R_PASSWORD',blankEnv='HELLOTEST_R_EMPTY';
