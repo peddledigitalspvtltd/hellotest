@@ -23,6 +23,7 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
     if (name.endsWith("/db")) return database;
     if (name.endsWith("/obsDb")) return {transaction:callback=>callback, prepare: () => ({get:async()=>undefined, all: async () => [], run: async () => ({ changes: 1 }) }) };
     if(name.endsWith('/repositoryScreenIdentity'))return require("../../backend/lib/build/repositoryScreenIdentity");
+    if(name.endsWith('/automationBuildEnvironment'))return require("../../backend/lib/build/automationBuildEnvironment");
     if(name.endsWith('/automationRecorderPlan'))return require("../../backend/lib/recording/automationRecorderPlan");
     if(name.endsWith('/recordingImport.service'))return {load:async()=>null,commit:async(_input,_caseId,save)=>save()};
     if(name.endsWith('/automationRecorderReadiness'))return require("../../backend/lib/recording/automationRecorderReadiness");
@@ -46,7 +47,8 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
     if (name.endsWith("/resilientHttpClient")) return { resilientHttpRequest: async (url, init) => {
       const body = init.body ? JSON.parse(init.body) : null;
       requests.push({ url, body });
-      if (body) recorderSession = { id: "session", platform: body.platform_name, actions: recordingActions };
+      if (body) recorderSession = { id: "session", status: "running", platform: body.platform_name, actions: recordingActions };
+      if (url.endsWith('/stop')) recorderSession = { ...recorderSession, status: 'stopped' };
       return Response.json(recorderSession);
     } };
     if (name.endsWith("/testStep.service")) return {
@@ -107,6 +109,34 @@ test("selected recording actions retain capture order and are never duplicated",
   assert.ok(code.indexOf("x: 10") < code.indexOf("x: 30"));
   assert.equal((code.match(/x: 30/g) || []).length, 1);
   assert.doesNotMatch(code, /x: 20/);
+});
+
+test("excluded recorder actions preserve actions captured since the review poll", async () => {
+  const f = recorderFixture({ steps: [{ id: "ios", step_order: 1, step_type: "ios" }], recordingActions: [
+    { index: 1, type: "tap", locator: "point:10,10" }, { index: 2, type: "tap", locator: "point:20,20" },
+    { index: 3, type: "tap", locator: "point:30,30" }
+  ] });
+  await f.startRecorderSession({ test_case_id: "case", recorder_mode: "local", recorder_target: "mobile", target_step_id: "ios", created_by: "author" });
+  const result = await f.finishRecorderSession({ test_case_id: "case", recorder_session_id: "session", transaction_id: "transaction", excluded_action_indices: [2], created_by: "author" });
+  assert.equal(result.recorder_session.action_count, 2);
+  assert.match(f.updates[0].automation_code, /x: 10[\s\S]*x: 30/);
+  assert.doesNotMatch(f.updates[0].automation_code, /x: 20/);
+});
+
+test("discard closes a recording after the plan changed without applying actions", async () => {
+  const f = recorderFixture({ steps: [{ id:"ios", step_order:1, step_type:"ios", action:"Original action" }],
+    recordingActions:[{ index:1, type:"tap", locator:"point:10,10" }] });
+  await f.startRecorderSession({ test_case_id:"case", recorder_mode:"local", recorder_target:"mobile", target_step_id:"ios", created_by:"author" });
+  f.steps[0].action = "Edited while recording";
+  const result = await f.finishRecorderSession({ test_case_id:"case", recorder_session_id:"session", transaction_id:"transaction",
+    included_action_indices:[], created_by:"author" });
+  assert.equal(result.discarded,true);
+  assert.equal(result.generated_step_count,0);
+  assert.equal(f.requests.filter(request => request.url.endsWith('/stop')).length,1);
+  assert.deepEqual(f.updates,[]);
+  assert.deepEqual(f.creates,[]);
+  assert.equal(f.transactions[0].status,'cancelled');
+  assert.equal(f.steps[0].action,'Edited while recording');
 });
 
 test("missing action selection and null coordinates fail before step writes", async () => {

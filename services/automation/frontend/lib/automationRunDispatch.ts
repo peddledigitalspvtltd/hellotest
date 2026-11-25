@@ -41,8 +41,9 @@ export function assertAutomationDispatchAccepted(response: unknown, receipt: Pen
 
 /** A lost HTTP response can hide a successful start. Inspect durable state first. */
 export async function retrySavedAutomationRun(receipt: PendingAutomationRun, read: (id: string) => Promise<{ id: string; project_id: string; app_type_id?: string | null; status: string | null }>, start: (id: string) => Promise<unknown>) {
+  if (receipt.retryAllowed === false) throw new AutomationStartError(receipt, new Error("Open the saved execution to review its dispatch evidence."));
   const current = await read(receipt.id);
-  if (current.id !== receipt.id || current.project_id !== receipt.projectId || current.app_type_id !== receipt.appTypeId) throw new Error("The saved execution is outside this application.");
+  if (current.id !== receipt.id || current.project_id !== receipt.projectId || current.app_type_id !== receipt.appTypeId) throw new AutomationStartError({ ...receipt, retryAllowed: false }, new Error("The saved execution is outside this application."));
   const status = String(current.status || "").trim().toLowerCase();
   if (!status) throw new Error("The saved execution has no current status. Open its evidence before retrying.");
   if (status !== "queued") return { ...receipt, alreadyStarted: true };
@@ -50,12 +51,22 @@ export async function retrySavedAutomationRun(receipt: PendingAutomationRun, rea
 }
 
 /** Creation owns initial dispatch. Read its receipt, never start it a second time. */
-export async function verifyCreatedAutomationRun(receipt: PendingAutomationRun, read: (id: string) => Promise<{ id: string; project_id: string; app_type_id?: string | null; status: string | null }>) {
+export async function verifyCreatedAutomationRun(receipt: PendingAutomationRun, read: (id: string) => Promise<{ id: string; project_id: string; app_type_id?: string | null; status: string | null }>, dispatchNotice?: string) {
   let current;
   try { current = await read(receipt.id); }
-  catch (error) { throw new AutomationStartError({ ...receipt, retryAllowed: false }, error); }
+  catch (error) { throw new AutomationStartError(receipt, error); }
   if (current.id !== receipt.id || current.project_id !== receipt.projectId || current.app_type_id !== receipt.appTypeId) throw new AutomationStartError({ ...receipt, retryAllowed: false }, new Error("The saved execution is outside this application."));
-  if (current.status === "queued") throw new AutomationStartError(receipt, new Error("The saved execution is still queued. Check its evidence or resume this same run."));
-  if (!["running", "completed", "completed_with_errors", "paused"].includes(String(current.status))) throw new AutomationStartError({ ...receipt, retryAllowed: false }, new Error("Open the saved execution to inspect its current outcome."));
+  if (current.status === "queued") throw new AutomationStartError(receipt, new Error(dispatchNotice || "The saved execution is still queued. Check its evidence or resume this same run."));
+  if (!["running", "completed", "completed_with_errors", "paused"].includes(String(current.status))) throw new AutomationStartError({ ...receipt, retryAllowed: false }, new Error(dispatchNotice || "Open the saved execution to inspect its current outcome."));
   return receipt;
+}
+
+export async function confirmReviewedAutomationRun(response: { id: string; started?: boolean; dispatch_notice?: string }, receipt: Omit<PendingAutomationRun, "id">, read: Parameters<typeof verifyCreatedAutomationRun>[1]) {
+  const savedRun = { ...receipt, id: response.id };
+  if (receipt.mode === "local" || response.started === true) {
+    assertAutomationDispatchAccepted(response, { ...savedRun, retryAllowed: false });
+  } else {
+    await verifyCreatedAutomationRun(savedRun, read, response.dispatch_notice);
+  }
+  return { id: savedRun.id, mode: savedRun.mode, count: savedRun.caseIds.length };
 }

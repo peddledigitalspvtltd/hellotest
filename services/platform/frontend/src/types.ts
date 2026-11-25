@@ -1,5 +1,6 @@
 export type { AiDesignPreviewResponse, AiCaseAuthoringPreviewResponse } from "./types/authoring";
 import type {User, Role} from './types/identity';
+import type { AgentGuardrail } from "@hellotest/contracts/agents";
 export type {User, Role} from './types/identity';
 export type AutomationAgentContextOptions = { context_scopes?: string[]; inputs?: Record<string,string>; smart_context?: {query?:string;source_ids?:string[];source_kinds?:string[];reviewed_context?:string} };
 export type AutomationCaseType = "web" | "api" | "android" | "ios" | "unified";
@@ -1085,6 +1086,22 @@ export type AiBugTriageRecommendation = {
   current_priority: "Highest" | "High" | "Medium" | "Low" | "Lowest";
   recommended_priority: "Highest" | "High" | "Medium" | "Low" | "Lowest";
   explanation: string;
+  failure_context?: {
+    state: "identified" | "ambiguous" | "unavailable";
+    detail: string;
+    attempt?: {
+      run_id: string;
+      result_id: string;
+      test_case_id: string;
+      test_case_title: string;
+      status: string;
+      step_id?: string;
+      step_order?: number;
+      step_action?: string;
+    };
+  };
+  corrections?: Array<{ field: string; before: string | string[]; after: string | string[]; rationale: string; evidence_refs: string[] }>;
+  approval?: { token: string; comment: string };
   signals: AiBugTriageSignal[];
   evidence_refs: string[];
   readiness: {
@@ -2854,6 +2871,7 @@ export type AgenticWorkflow = {
   updated_at?: string;
 };
 
+export type AgenticWorkflowFailureResolution = { cause: string; action: string; owner: string; retry: string };
 export type AgenticWorkflowFailureDetails = {
   code?: string;
   provider_failure_code?: string;
@@ -2865,6 +2883,8 @@ export type AgenticWorkflowFailureDetails = {
   retryable?: boolean;
   retry_after_ms?: number;
   operation_id?: string;
+  verification_id?: string;
+  resolution?: AgenticWorkflowFailureResolution;
   outcome_unknown?: boolean;
   reconciliation_required?: boolean;
   generation_received?: boolean;
@@ -2905,7 +2925,7 @@ export type AgenticWorkflowReadiness = {
   target_node_id?: string | null;
   ready: boolean;
   execution_mode: "review";
-  blockers: Array<{ node_id: string | null; node_name: string | null; message: string }>;
+  blockers: Array<{ node_id: string | null; node_name: string | null; message: string; code?: string; resolution?: AgenticWorkflowFailureResolution }>;
   warnings: string[];
   limits: { max_steps: number; max_specialists: number; timeout_ms: number; input_limit_bytes: number; max_loop_batches?: number; max_loop_node_executions?: number };
   steps: Array<{ node_id: string; name: string; kind: string; specialist_id: string | null }>;
@@ -2955,7 +2975,7 @@ export type QualityEvidenceReport = {
   };
 };
 
-export type AutomationRepairSummary = {id?:string;project_id?:string;status:string;detail:string;patch?:{before:string;after:string;rationale:string;hash:string}};
+export type AutomationRepairSummary = {id?:string;project_id?:string;status:string;detail:string;patch?:{kind?:'replace_api_url'|'replace_locator'|'replace_instructions';before:string;after:string;rationale:string;hash:string}};
 export type AgentStructuredArtifact = {
   target_id?: string; target_revision?: number; kind: "story" | "test_case" | "defect" | "run" | "automation";
   title: string; description: string; priority: string; citation_ids: string[]; addressed_finding_ids?: string[];
@@ -2982,7 +3002,7 @@ export type AgenticAssistantResult = {
   quality_assessment?: QualityEvidenceReport;
   execution_status?: string;
   publication_status?: string;
-  verification?: { verifier_version: string; status: "passed" | "needs_input"; checks: Array<{ id: string; passed: boolean; label: string }>; semantic_review: string; limitations: string[] };
+  verification?: { verifier_version: string; status: "passed" | "needs_input" | "needs_correction"; checks: Array<{ id: string; passed: boolean; label: string }>; semantic_review: string; limitations: string[] };
   model_execution?: { trace_id?: string | null; trace_capture?: string | null; effective_model: string; prompt_hash: string; model_calls: number; max_model_calls: number; agent_version: number; agent_definition_hash?: string; usage_unknown_calls?: number; revision_rounds?: number; usage?: { input_tokens?: number | null; output_tokens?: number | null; total_tokens?: number | null } | null };
 
   readiness?: {
@@ -3026,6 +3046,7 @@ export type AgenticAssistantSessionResponse = {
   result: AgenticAssistantResult;
   citations: AgenticAssistantCitation[];
   guardrails: string[];
+  guardrail_rules?: AgentGuardrail[];
   provenance: {
     provider: string;
     degraded?: boolean;
@@ -3057,6 +3078,12 @@ export type AgenticAssistantSavedSessionResponse = Omit<AgenticAssistantSessionR
   result: AgenticAssistantResult | null;
   session_state: "completed" | "running" | "failed" | "unavailable";
   message: string;
+  failure_details?: {
+    code: string;
+    message: string;
+    category: string;
+    validation_errors?: Array<{ path?: string; issue?: string; keyword?: string; required_property?: string; message?: string }>;
+  } | null;
   provenance: Omit<AgenticAssistantSessionResponse["provenance"], "input_fingerprint"> & {
     input_fingerprint: string | null;
     cancelled?: boolean;
@@ -3810,6 +3837,11 @@ export type TraceabilityRunHistoryItem = {
   test_case_title: string;
   result_status: ExecutionResult["status"];
   defects: string[];
+  duration_ms?: number | null;
+  result_started_at?: string | null;
+  result_ended_at?: string | null;
+  data_set_iteration_index?: number | null;
+  data_set_iteration_key?: string | null;
   result_created_at?: string | null;
   started_at?: string | null;
   ended_at?: string | null;

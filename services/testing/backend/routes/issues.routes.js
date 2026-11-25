@@ -8,8 +8,21 @@ const projectService = require("@hellotest/platform/backend/public/projectAccess
 const workspace = require("../services/issueWorkspace.service");
 const { issueMetadata } = require("@hellotest/platform/backend/src/utils/nativeIssueMetadata");
 const { shouldPaginate } = require("@hellotest/platform/backend/src/utils/pagination");
+const triageDecision = require("../services/issueTriageDecision.service");
 
 function registerFeedbackRoutes(fastify, basePath) {
+  const triageEvidenceAccess = (req, projectId) => {
+    const checks = new Map();
+    return async (permission) => {
+      if (!checks.has(permission)) {
+        checks.set(permission, fastify.requirePermission(permission, { projectId })(req).then(() => true, error => {
+          if (error.statusCode === 403) return false;
+          throw error;
+        }));
+      }
+      return checks.get(permission);
+    };
+  };
   const validateReporter = async (req, projectId, previousReporterId) => {
     if (req.body.user_id === undefined) return;
     const reporterId = typeof req.body.user_id === "string" ? req.body.user_id.trim() : "";
@@ -56,15 +69,42 @@ function registerFeedbackRoutes(fastify, basePath) {
     }
     const project = await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("feedback.manage", { projectId: project.id })(req);
-    return aiBugTriageService.preview({
+    const canViewEvidence = triageEvidenceAccess(req, project.id);
+    const preview = await aiBugTriageService.preview({
       project,
       issueIds: req.body.issue_ids,
       user: req.user,
       integrationId: req.body.integration_id,
       promptGuidance: req.body.prompt_guidance,
       smartContext: req.body.smart_context,
-      images: req.body.images
+      images: req.body.images,
+      canViewEvidence
     });
+    const canPost = !req.apiKey && await canViewEvidence("comment.create");
+    return {
+      ...preview,
+      triage: preview.triage.map((item) => {
+        const { record_fingerprint, context_fingerprint, ...recommendation } = item;
+        return canPost ? { ...recommendation, approval: triageDecision.prepare(item, { projectId: project.id, userId: req.user.id }) } : recommendation;
+      })
+    };
+  });
+
+  fastify.post(`${basePath}/:id/ai-triage-apply`, async (req) => {
+    await fastify.authenticate(req);
+    if (req.apiKey) throw Object.assign(new Error("Approve Defect triage in the signed-in workspace."), { statusCode: 403 });
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      token: { required: true, type: "string", maxLength: triageDecision.MAX_TOKEN_LENGTH },
+      apply_corrections: { required: true, type: "boolean" }
+    }, req.body || {});
+    if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
+      throw Object.assign(new Error("AI-assisted Defect drafting and triage are disabled for the workspace."), { statusCode: 403 });
+    }
+    const project = await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("feedback.manage", { projectId: project.id })(req);
+    await fastify.requirePermission("comment.create", { projectId: project.id })(req);
+    return triageDecision.apply({ token: req.body.token, issueId: req.params.id, projectId: project.id, user: req.user, applyCorrections: req.body.apply_corrections, canViewEvidence: triageEvidenceAccess(req, project.id) });
   });
 
   const prepareImport = async req => {

@@ -4,18 +4,20 @@ import { type ApiAutomationSourceResult } from "../../components/ApiAutomationSo
 
 import { automationAgentRequest } from "@hellotest/ai/frontend/components/AutomationAgentSetup";
 import { reviewedAutomationStartUrl } from "../../lib/automationStartUrl";
+import { automationBuildRuntimeRequest } from "../../lib/automationBuildPipeline";
+import { getAutomationBuildRuntimeTypes } from "../../lib/automationRuntime";
 
 import { useMutation } from "@tanstack/react-query";
 
 import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { emptyAutomationMetadata, type AutomationMetadata } from "../../components/AutomationCaseMetadata";
-import { getAutomationSchedule, isAutomationPrecondition, seedAutomationPlan } from "../../lib/automationPlan";
+import { getAutomationSchedule, isAutomationPrecondition, seedAutomationPlan, shouldSeedLinkedAutomationPlan } from "../../lib/automationPlan";
 import { automationCaseMappingStatus } from "../../lib/automationStepPersistence";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { normalizeAutomationParameterValues } from "../../lib/automationWorkspaceSupport";
 
-export function useAutomationCaseCreation(ports:ActionPorts){
+export function useAutomationCaseCreation(ports:ActionPorts, engineerPath?: string){
 const {
     automationCreateParameters,
     automationApiSourceParameters,
@@ -46,7 +48,6 @@ const {
     importedApiPlanReady,
     agentScheduledAt,
     createSourcesQuery,
-    testCases,
     projectId,
     automationModules,
     reviewBuildParameters,
@@ -142,8 +143,9 @@ const createAutomationCase = useMutation({
         const sourceCases = sources.map((source) => source.testCase);
         const source = sourceCases[0];
         const preconditionGroupId = `automation-preconditions-${crypto.randomUUID()}`;
+        const includeLinkedBehavior = shouldSeedLinkedAutomationPlan(metadata.automationCaseType, automationCreationMode, importedApiPlanReady);
         const steps = [
-            ...(metadata.automationCaseType === "api" ? [] : seedAutomationPlan(sources, () => `automation-${crypto.randomUUID()}`)),
+            ...(includeLinkedBehavior ? seedAutomationPlan(sources, () => `automation-${crypto.randomUUID()}`) : []),
             ...authoredSteps.map((step) => ({
                 action: step.action,
                 expected_result: step.expected_result,
@@ -173,7 +175,7 @@ const createAutomationCase = useMutation({
             execution_hooks: sourceCases.flatMap(item => item.execution_hooks || []).filter((hook, index, hooks) => hooks.findIndex(other => other.phase === hook.phase && other.target_kind === hook.target_kind && other.target_id === hook.target_id) === index).map((hook, index) => ({ ...hook, id: `source-hook-${index + 1}` })),
             test_case_type: source?.test_case_type || "functional",
             test_data_set_ids: metadata.dataSetId ? [metadata.dataSetId] : [],
-            test_data_options: { ...source?.test_data_options, override_shared_sections: source?.test_data_options?.override_shared_steps !== false, shared_data_kind: "sections" as const, private_parameter_names: [...new Set([...(source?.test_data_options?.private_parameter_names || []), ...automationApiSourcePrivateNames])] },
+            test_data_options: { ...source?.test_data_options, ...(selectedExecutionEnvironmentId ? { test_environment_id: selectedExecutionEnvironmentId } : {}), override_shared_sections: source?.test_data_options?.override_shared_steps !== false, shared_data_kind: "sections" as const, private_parameter_names: [...new Set([...(source?.test_data_options?.private_parameter_names || []), ...automationApiSourcePrivateNames])] },
             priority: Number(metadata.priority) || 3,
             status: metadata.status,
             requirement_id: metadata.requirementIds[0],
@@ -212,9 +214,7 @@ const createAutomationCase = useMutation({
                         test_case_ids: [result.id],
                         integration_id: buildAgentSelection.integrationId || undefined,
                         agent_context: automationAgentRequest(buildAgentSelection),
-                        allow_browser_actions: allowBrowserActions,
-                        browser_location: buildBrowserLocation,
-                        ...buildPipelineOptions,
+                        ...automationBuildRuntimeRequest(getAutomationBuildRuntimeTypes(steps, metadata.automationCaseType), buildBrowserLocation, allowBrowserActions, buildPipelineOptions),
                         scheduled_at: scheduledAt,
                         start_url: requestedStartUrl,
                         additional_context: [
@@ -247,14 +247,14 @@ const createAutomationCase = useMutation({
         next.delete("repository");
         next.delete("agent_activity");
         next.set("case", id);
-        next.set("tab", mode === "blank" ? "steps" : "build");
+        next.set("tab", mode === "blank" && !engineerPath ? "steps" : "build");
         if (mode === "record")
             next.set("build_method", "record");
         else
             next.delete("build_method");
         if (transactionId)
             next.set("agent_activity", transactionId);
-        navigate({ pathname: "/automation", search: next.toString() }, { replace: true, state: { automationNotice: { tone, message } } });
+        navigate({ pathname: engineerPath || "/automation", search: next.toString() }, { replace: true, state: { automationNotice: { tone, message } } });
     },
     onError: (error) => showError(error, "Unable to create automation case.")
 });

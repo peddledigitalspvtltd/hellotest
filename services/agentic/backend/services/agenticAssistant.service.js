@@ -6,6 +6,10 @@ const presentation = require("./agentOutcomePresentation");
 const responseContract = require("./agentResponseContract");
 const agentRegistry = require("../agents/agentRegistry.service");
 const agentContract = require("../agents/agentDefinition");
+const agentGuardrails = require("../agents/agentGuardrails");
+const agentDescriptors = require("../agents/agentDescriptors.service");
+const { revisionFeedback, providerUsage, aggregateUsage, correctableOutputError, outputErrorIssues, recordFailure } = require('./agentReviewDiagnostics');
+const { resolveCaseEvidenceInput, assertPinnedCaseScope, assertTaskEnvironment } = require('./agentReviewScope');
 const { policy: specialistPolicy, instructionFor } = require("../workflows/specialistPolicy");
 const aiKnowledgeService = require("@hellotest/knowledge/backend/services/aiKnowledge.service");
 const integrationService = require("@hellotest/integration/backend/services/integration.service");
@@ -163,35 +167,6 @@ const collectCandidateCitationIds = (candidate) => [...new Set([
   ...['findings', 'deliverables', 'artifacts', 'sections', 'tables', 'charts'].flatMap(key => Array.isArray(candidate?.[key]) ? candidate[key] : [])
     .flatMap((item) => Array.isArray(item?.citation_ids) ? item.citation_ids : [])
 ].map((item) => normalizeText(typeof item === "string" ? item : item?.id, 255)).filter(Boolean))];
-
-function revisionFeedback(candidate, issues, round) {
-  // Prior model output remains explicitly untrusted proposal data. Keep whole
-  // objects, or omit them with a recorded limit; never slice serialized JSON.
-  const draft = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
-    ? Object.fromEntries(['response', 'findings', 'deliverables', 'artifacts', 'evidence_gaps'].filter(key => Object.hasOwn(candidate, key)).map(key => [key, candidate[key]])) : null;
-  const retained = draft && Buffer.byteLength(JSON.stringify(draft)) <= 12000 ? draft : null;
-  return { round, issues: issues.slice(0, 20), previous_draft: retained, previous_draft_omitted: Boolean(draft && !retained), draft_status: 'untrusted_proposal' };
-}
-function providerUsage(value) {
-  const fields = { input_tokens: 'prompt_tokens', output_tokens: 'completion_tokens', total_tokens: 'total_tokens' };
-  return value && typeof value === 'object' ? Object.fromEntries(Object.entries(fields).map(([name, key]) => {const count=value[key]??value[name];return [name,
-    Number.isSafeInteger(count) && count >= 0 ? count : null];})) : null;
-}
-function aggregateUsage(records) {
-  const keys = ['input_tokens', 'output_tokens', 'total_tokens'];
-  return { usage: Object.fromEntries(keys.map(key => [key, records.length && records.every(record => record.usage?.[key] != null)
-    ? records.reduce((sum, record) => sum + record.usage[key], 0) : null])),
-    usage_unknown_calls: records.filter(record => keys.some(key => record.usage?.[key] == null)).length };
-}
-const correctableOutputError = error => error instanceof SyntaxError || ['AI_INVALID_JSON', 'AI_INVALID_RESPONSE', 'AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error?.code);
-function outputErrorIssues(error) {
-  if (['AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error.code) || error.code === 'AI_INVALID_RESPONSE' && error.validation_errors?.length) return (error.validation_errors?.length ? error.validation_errors : [{ path: 'output', keyword: 'published_schema_constraint' }]).slice(0, 5).map(item => ({
-    path: normalizeText(item.path, 255), issue: normalizeText(item.keyword, 80) || 'published_schema_constraint',
-    ...(typeof item.required_property === 'string' ? { required_property: normalizeText(item.required_property, 120) } : {})
-  }));
-  return [{ path: error.validation_path || 'output', issue: error instanceof SyntaxError || error.code === 'AI_INVALID_JSON'
-    ? 'valid_json_object_required' : 'native_artifact_fields_or_references_invalid' }];
-}
 
 const normalizeResult = (candidate, fallback, citations = [], { allowUncited = false, artifactTargets = [], requireMetadata = false, testCaseTypes, pinnedStoryId } = {}) => {
   if (presentation.presentationIssues(candidate, citations).length) return fallback;
@@ -551,7 +526,8 @@ exports.listSessions = async ({ project_id, app_type_id, limit = 20 } = {}, user
     include_global: false,
     limit: Math.max(1, Math.min(100, Number.isInteger(requestedLimit) ? requestedLimit : 20))
   });
-  return summaries.map(row => ({ ...row, description: null, metadata: Object.fromEntries(["mode", "agent_id", "agent_name", "progress", "generation_mode", "agent_version"].filter(key => Object.hasOwn(row.metadata || {}, key)).map(key => [key, row.metadata[key]])) }));
+  return summaries.filter(row => !row.metadata?.trial || row.created_by === user?.id)
+    .map(row => ({ ...row, description: null, metadata: Object.fromEntries(["mode", "agent_id", "agent_name", "progress", "generation_mode", "agent_version", "trial"].filter(key => Object.hasOwn(row.metadata || {}, key)).map(key => [key, row.metadata[key]])) }));
 };
 
 const normalizeSavedReviewResult = (value, citations = []) => {
@@ -622,7 +598,11 @@ exports.getSession = async (id, user) => {
   }
   await projectService.getProject(transaction.project_id, user?.id);
   if (!await permissionService.hasPermission(user, "agentic_workflow.view", transaction.project_id)) throw agentError("Permission required: agentic_workflow.view", 403);
-  const metadata = toPlainRecord(transaction.metadata);
+  const metadata = { ...toPlainRecord(transaction.metadata) };
+  if (metadata.trial && transaction.created_by !== user?.id && !await permissionService.hasPermission(user, "agentic_workflow.manage", transaction.project_id)) {
+    throw agentError("Draft trials are available to their author and project agent managers.", 403);
+  }
+  if (metadata.rejected_draft && !await permissionService.hasPermission(user, "ops.view", transaction.project_id)) delete metadata.rejected_draft;
   const requiredEvidencePermissions = Array.isArray(metadata.evidence_permissions) ? metadata.evidence_permissions
     : [...new Set((metadata.context_scopes || []).flatMap(scope => ({ stories: ["requirement.view"], "test-cases": ["testcase.view"], runs: ["run.view", "result.view"], bugs: ["feedback.view"], automation: ["automation.view"], knowledge: ["knowledge.view"] }[scope] || [])))];
   const currentEvidenceAccess = await getOptionalEvidenceAccess(user, transaction.project_id, requiredEvidencePermissions);
@@ -645,10 +625,12 @@ exports.getSession = async (id, user) => {
     result: complete ? savedResult : null,
     citations: Array.isArray(metadata.citations) ? metadata.citations : [],
     guardrails: Array.isArray(metadata.guardrails) ? metadata.guardrails : [],
+    guardrail_rules: metadata.agent_descriptor?.guardrails || [],
+    failure_details: state === "failed" ? metadata.error_details || null : null,
     session_state: state,
     message: state === "completed" ? "Saved specialist review loaded."
       : state === "running" ? "This review is still in progress. Its outcome will appear when it completes."
-        : state === "failed" ? metadata.cancelled ? "This review was cancelled before completion." : "This review failed before producing a saved outcome. Start a new review to retry."
+        : state === "failed" ? metadata.cancelled ? "This review was cancelled before completion." : metadata.error_details?.message || "The review failed. Check the saved activity for the last completed step."
           : "The saved outcome for this review is unavailable. Start a new review to regenerate it.",
     provenance: {
       provider: metadata.provider || "HelloTest evidence engine",
@@ -666,21 +648,7 @@ exports.getSession = async (id, user) => {
   };
 };
 
-const resolveCaseEvidenceInput = async ({inputs,user,projectId,appTypeId}) => {
-  if(!/^(?:AT[_-][0-9]+|TC[_-]?[0-9]+)$/i.test(inputs.test_case_id||''))return inputs;
-  const access=await getOptionalEvidenceAccess(user,projectId,['testcase.view']);
-  if(!access['testcase.view'])throw agentError('Test Case evidence access is required to resolve this case reference.',403);
-  const scoped=await require('@hellotest/platform/backend/services/entityScope.service').resolveEntityScope({entityType:'test_case',entityId:inputs.test_case_id,projectId,appTypeId,allowDisplayId:true});
-  return {...inputs,test_case_id:scoped.entityId};
-};
-const assertPinnedCaseScope = async ({ projectId, appTypeId, evidenceScope }) => {
-  if (!evidenceScope.test_case_id || Object.keys(evidenceScope).length < 2) return;
-  const filter = evidenceScopes.predicate('test_case', 't', evidenceScope);
-  const row = await require('@hellotest/platform/backend/src/db').prepare(`SELECT t.id FROM test_cases t JOIN app_types a ON a.id = t.app_type_id
-    WHERE a.project_id = ? AND (? = '' OR t.app_type_id = ?)${filter.sql} LIMIT 1`).get(projectId, appTypeId || '', appTypeId || '', ...filter.params);
-  if (!row) throw agentContract.fail('The selected Test Case does not belong to the combined evidence scope. Choose matching records.', 'AGENT_EVIDENCE_SCOPE_MISMATCH');
-};
-const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, context_scopes, smart_context, integration_id, history, workflow_policy, agent_version, inputs } = {}) => {
+const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, context_scopes, smart_context, integration_id, history, workflow_policy, agent_version, inputs, trialDefinition } = {}) => {
   const startedAt = Date.now();
   const projectId = normalizeText(project_id, 255);
   const appTypeId = normalizeText(app_type_id, 255) || null;
@@ -694,20 +662,28 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     if (!app || app.project_id !== projectId) throw agentError('The selected application does not belong to this project.', 403);
   }
   if (integration_id && !await permissionService.hasPermission(user,'integration.view',projectId)) throw agentError('Model selection requires integration access.',403);
-  const registered = workflow_policy?.agent_definition || (String(agent_id || "").startsWith("agent-") ? await agentRegistry.resolve(agent_id, agent_version, projectId) : null);
+  const trial = Boolean(trialDefinition);
+  if (trial && !await permissionService.hasPermission(user, "agentic_workflow.manage", projectId)) throw agentError("Permission required: agentic_workflow.manage", 403);
+  const registered = trialDefinition || workflow_policy?.agent_definition || (String(agent_id || "").startsWith("agent-") ? await agentRegistry.resolve(agent_id, agent_version, projectId) : null);
   if (agent_id && !registered && !AGENT_CATALOG[agent_id]) throw agentError("Choose a supported workspace specialist.");
   const normalizedAgentId = agent_id || "quality-orchestrator";
   const definition = registered?.definition;
-  const runtimeInputs = await resolveCaseEvidenceInput({inputs:{ ...toPlainRecord(workflow_policy?.connected_input?.request), ...toPlainRecord(workflow_policy?.connected_input?.input), ...toPlainRecord(inputs) },user,projectId,appTypeId});
+  const customProfile = definition?.feature_id ? Object.entries(specialistProfiles).find(([, profile]) => profile.featureId === definition.feature_id) : null;
+  const receivedInputs = { ...toPlainRecord(workflow_policy?.connected_input?.request), ...toPlainRecord(workflow_policy?.connected_input?.input), ...toPlainRecord(inputs) };
+  const runtimeInputs = await resolveCaseEvidenceInput({inputs:definition ? agentContract.validateInputs(definition, receivedInputs) : receivedInputs,user,projectId,appTypeId});
+  if (runtimeInputs.environment_id && definition?.input_fields?.some(field => field.type === 'environment')) {
+    await assertTaskEnvironment({ environmentId: runtimeInputs.environment_id, projectId, appTypeId, user });
+  }
   const evidenceScope = evidenceScopes.normalize(runtimeInputs);
-  if (definition) agentContract.validateInputs(definition, runtimeInputs);
   return nodeAiConfiguration.runAgent({ id: normalizedAgentId, registered, policy: workflow_policy }, () => execution.bounded(async () => {
   if (definition && !workflow_policy) workflow_policy = { ...specialistPolicy(agentContract.toNodeData(definition)), custom_task: true,
-    connected_input: inputs || {}, agent_definition: registered };
+    connected_input: runtimeInputs, agent_definition: registered };
   const policy = workflow_policy || specialistPolicy({ agentId: normalizedAgentId });
   workflow_policy = policy;
   // Validate complete supplied data before optional retrieval can incur work.
-  const preparedWorkflowInput=policy.connected_input&&Object.keys(policy.connected_input).length?suppliedInputEvidence(policy.connected_input):null;
+  const defaultedInputs = definition ? Object.fromEntries(Object.entries(runtimeInputs).filter(([key]) => !Object.hasOwn(receivedInputs, key))) : {};
+  const connectedInput = Object.keys(defaultedInputs).length ? { ...policy.connected_input, defaulted_task_inputs: defaultedInputs } : policy.connected_input;
+  const preparedWorkflowInput=connectedInput&&Object.keys(connectedInput).length?suppliedInputEvidence(connectedInput):null;
   const preparedTaskInput=!policy.connected_input&&Object.keys(runtimeInputs).length?suppliedInputEvidence(runtimeInputs):null;
   const agent = { ...(definition ? { name: definition.name, objective: definition.objective } : workflow_policy?.custom_task ? { name: policy.agent_name || "Custom AI", objective: "Perform the configured task and selected skills using supplied input. Preserve input provenance." } : AGENT_CATALOG[normalizedAgentId]),
     configurationKey: /^ai\.agentic\.repository\.(object_repository|api_tests|repository_knowledge|component_tests)$/.test(policy.configuration_key || "") ? policy.configuration_key : `ai.agentic.${normalizedAgentId}`,
@@ -725,13 +701,20 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     max_output_tokens: Math.min(agent.limits.max_output_tokens, governedProfile.config.max_output_tokens),
     timeout_ms: Math.min(definition?.limits.timeout_ms || SESSION_TIMEOUT_MS, executionPolicy.timeout_ms)
   };
+  if (trial) agent.limits = { ...agent.limits, max_model_calls: Math.min(agent.limits.max_model_calls, 2),
+    max_output_tokens: Math.min(agent.limits.max_output_tokens, 4000), timeout_ms: Math.min(agent.limits.timeout_ms, 90000) };
   return execution.bounded(async () => {
   const outcomeContract = artifacts.outcomeContract(normalizedAgentId, definition);
   const governedContext = governedProfile.config.context;
   const scopes = normalizeScopes(definition ? policy.context_scopes : context_scopes || policy.context_scopes);
   const contextRoute = aiContextOrchestrator.planContext({
     prompt: `${normalizedPrompt}\nSelected task identifiers: ${JSON.stringify(runtimeInputs).slice(0, 2000)}`,
-    agentId: policy.configuration_key?.startsWith("ai.agentic.repository.") ? policy.configuration_key.split(".").at(-1) : registered ? "quality-evaluator" : normalizedAgentId,
+    agentId: policy.configuration_key?.startsWith("ai.agentic.repository.") ? policy.configuration_key.split(".").at(-1) : normalizedAgentId,
+    ...(definition ? { specialist: {
+      input_type: "custom_agent_task", priority_scopes: scopes,
+      retrieval_focus: definition.objective, outcome_sections: ["findings", "evidence", "reviewable next items"],
+      decision_question: definition.objective, deliverable_contract: definition.output_contract.kind
+    } } : {}),
     requestedScopes: scopes,
     mode: normalizedMode,
     history: Array.isArray(history) ? history : []
@@ -741,7 +724,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     contextRoute.effective_scopes = scopes.filter(scope => scope === "knowledge" ? allowed.has("knowledge_search") : allowed.has("project_evidence"));
     contextRoute.live_scopes = contextRoute.effective_scopes.filter(scope => scope !== "knowledge");
     contextRoute.priority_scopes = contextRoute.priority_scopes.filter(scope => contextRoute.effective_scopes.includes(scope));
-    if (workflow_policy.custom_task) {
+    if (workflow_policy.custom_task && !definition) {
       contextRoute.priority_scopes = [];
       contextRoute.deliverable_contract = "Perform the user-configured task and skills on the supplied workflow input; cite that input as supplied data, never as independently verified project evidence.";
     }
@@ -752,8 +735,8 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   if (governedContext.mode === 'none') { contextRoute.effective_scopes = []; contextRoute.live_scopes = []; contextRoute.priority_scopes = []; contextRoute.requires_live_context = false; contextRoute.requires_indexed_context = false; }
   contextRoute.retrieval_focus = governedContext.focus;
   contextRoute.retrieval_query = `${normalizedPrompt}\n${governedContext.focus}`;
-  contextRoute.decision_question = normalizedPrompt;
-  contextRoute.deliverable_contract = governedProfile.config.prompt;
+  contextRoute.decision_question = definition?.objective || (policy.custom_task ? normalizedPrompt : contextRoute.decision_question);
+  contextRoute.deliverable_contract = definition ? governedProfile.config.prompt : contextRoute.deliverable_contract;
   contextRoute.evidence_scope = evidenceScope;
   const requestedScopes = contextRoute.effective_scopes;
   outcomeContract.context_scopes = requestedScopes;
@@ -768,19 +751,27 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   if (!await permissionService.hasPermission(user, "agentic_workflow.run", projectId)) throw agentError("Permission required: agentic_workflow.run", 403);
   execution.assertActive();
 
-  const agentDescriptor=require('../agents/agentDescriptors.service').build('workflow',normalizedAgentId,{name:agent.name,objective:agent.objective||agent.name,
+  const guardrailRules = agentGuardrails.workflow(definition ? customProfile?.[0] : normalizedAgentId, {
+    additional: workflow_policy?.guardrails, structured: definition?.guardrail_rules,
+    featureChecks: !trial && governedContext.mode !== 'none'
+  });
+  const guardrails = guardrailRules.map(rule => rule.text);
+  agent.guardrailRules = guardrailRules.filter(rule => rule.id !== 'author_guidance');
+  const agentDescriptor=agentDescriptors.build('workflow',normalizedAgentId,{name:normalizedAgentId==='automation-engineer'?'Automation Readiness Review':agent.name,objective:agent.objective||agent.name,
     instructions:[governedProfile.config.prompt,...(agent.skills||[]).map(skill=>skill.instructions),agent.outputInstructions].filter(value=>typeof value==='string'&&value.trim()),
-    tools:(policy.allowed_tools||[]).map(name=>({name,effect:'read'})),scopes:requestedScopes,output:definition?.output_contract||'agent-review/3',limits:agent.limits});
+    tools:(policy.allowed_tools||[]).map(name=>({name,effect:'read'})),guardrails:guardrailRules,scopes:requestedScopes,
+    output:definition?.output_contract || specialistProfiles[normalizedAgentId]?.contractVersion || 'agent-review/3',limits:agent.limits});
   const transaction = await workspaceTransactionService.createTransaction({
     project_id: projectId,
     app_type_id: appTypeId,
     category: "ai_agent",
-    action: normalizedMode === "chat" ? "chat" : "delegate",
+    action: trial ? "trial" : normalizedMode === "chat" ? "chat" : "delegate",
     status: "running",
-    title: `${agent.name} · ${normalizedMode === "chat" ? "Chat" : "Agent task"}`,
+    title: `${agent.name} · ${trial ? "Draft trial" : normalizedMode === "chat" ? "Chat" : "Agent task"}`,
     description: normalizedPrompt.slice(0, 500),
     metadata: {
       agent_descriptor:agentDescriptor,agent_descriptor_hash:agentDescriptor.descriptor_hash,
+      guardrails, ...(trial ? { trial: true } : {}),
       mode: normalizedMode,
       agent_id: normalizedAgentId,
       agent_name: agent.name,
@@ -798,6 +789,10 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   });
   const transactionId = transaction.id;
   let automationBrowser = null;
+  let lastRejectedDraft = null;
+  let trialSystemFrame = null;
+  let failureCitations = [];
+  const modelCallRecords=[];
   require("@hellotest/platform/backend/src/utils/llmTraceContext").update({ session_id: transactionId });
 
   try {
@@ -895,7 +890,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         citation: { id: "K-task-context", label: "Supplied domain context (unverified)", source_kind: "task_context" } }];
     }
     let qualityAssessment = null;
-    const featureProfile = definition?.feature_id ? Object.values(specialistProfiles).find(profile => profile.featureId === definition.feature_id) : !registered && !policy.custom_task ? specialistProfiles[normalizedAgentId] : null;
+    const featureProfile = customProfile?.[1] || (!registered && !policy.custom_task ? specialistProfiles[normalizedAgentId] : null);
     if (runtimeInputs.test_case_id && (normalizedAgentId === 'automation-engineer' || ['F06', 'F18'].includes(featureProfile?.featureId))) {
       await assertPinnedCaseScope({projectId,appTypeId,evidenceScope});
     }
@@ -912,17 +907,17 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     if (featureProfile?.verifier === "quality-evidence/1") {
       const assessment = await require("@hellotest/ai/services/qualityEvidence").assess({
         projectId, appTypeId, user, input: runtimeInputs, featureId: featureProfile.featureId,
-        scopes: policy.allowed_tools.includes("project_evidence") ? requestedScopes : []
+        scopes: policy.allowed_tools.includes("project_evidence") ? requestedScopes : [], persist: !trial
       });
       qualityAssessment = assessment.report;
       context.quality_checks = [{ id: "K-quality-checks", title: "Code-computed quality checks", content: JSON.stringify(assessment.projection),
         citation: { id: "K-quality-checks", label: "Code-computed quality checks", source_kind: "verified_calculation" } }];
     }
-    const repairService = featureProfile?.featureId === "F18" ? require("@hellotest/automation/repair") : null;
+    const repairService = !trial && featureProfile?.featureId === "F18" ? require("@hellotest/automation/repair") : null;
     const repairContext = repairService ? policy.allowed_tools.includes("project_evidence") && requestedScopes.includes("automation") && requestedScopes.includes("test-cases") && requestedScopes.includes("runs")
       ? await repairService.prepare({projectId,appTypeId,user,input:runtimeInputs}) : {status:"needs_evidence",detail:"Enable Automation, Test Cases and Runs as evidence scopes."} : null;
     if (repairContext) context.automation_repair = [{id:"K-automation-repair",title:"Pinned automation repair contract",content:JSON.stringify(repairContext.projection || repairContext),citation:{id:"K-automation-repair",label:"Pinned automation repair contract",source_kind:"authoritative_live_automation"}}];
-    const isAutomationSpecialist = normalizedAgentId === "automation-engineer" || featureProfile?.featureId === "F18";
+    const isAutomationSpecialist = !trial && (normalizedAgentId === "automation-engineer" || featureProfile?.featureId === "F18");
     if (governedContext.mode !== "none" && isAutomationSpecialist && runtimeInputs.test_case_id && requestedScopes.includes("automation") && requestedScopes.includes("test-cases")) {
       const builder=require("@hellotest/automation/build");
       const pinned=await builder.loadAutomationAgentCaseContext({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id});
@@ -933,10 +928,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       // context and can displace the actual failed section on small models.
       if(repairContext?.status === "eligible") delete pinned.sections;
       context.automation_case=[{id:"K-automation-case",title:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation",content:JSON.stringify(pinned),citation:{id:"K-automation-case",label:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation"}}];
-      try {
+      if (repairContext?.projection?.focus?.runtime !== 'api') try {
         const session=await builder.connectCaseBrowser({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id,environmentId:repairContext?.base?.environment_id || runtimeInputs.environment_id,
-          startUrl:runtimeInputs.start_url,allowBrowserActions:runtimeInputs.allow_browser_actions === true,
-          browser_driver:normalizedAgentId==='automation-engineer'?'playwright_mcp_upstream':'legacy_repair_mcp',signal:execution.current()?.signal});
+          startUrl:runtimeInputs.start_url,allowBrowserActions:!repairService && runtimeInputs.allow_browser_actions === true,signal:execution.current()?.signal});
         automationBrowser=session.browser;
         const observations=[];
         for(const [name,args] of [["browser_navigate",{url:session.startUrl}],["browser_snapshot",{}]]) {
@@ -946,7 +940,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         }
         automationBrowser.initialObservations=observations;
         context.playwright_browser=[{id:"K-playwright-browser",title:"Live Playwright MCP observations",content:JSON.stringify(observations),citation:{id:"K-playwright-browser",label:"Live Playwright MCP observations",source_kind:"observed_browser_evidence"}}];
-        await appendEvent(transactionId,{phase:"automation.mcp.ready",message:"Connected Playwright MCP and observed the selected application. Browser evidence is not a runner verification.",details:{server:automationBrowser.driver==='playwright_mcp_upstream'?'@playwright/mcp':'hellotest-playwright',browser_driver:automationBrowser.driver||'legacy_repair_mcp',tool_count:automationBrowser.tools.length}});
+        await appendEvent(transactionId,{phase:"automation.mcp.ready",message:"Connected Playwright MCP and observed the selected application. Browser evidence is not a runner verification.",details:{server:'@playwright/mcp',browser_driver:automationBrowser.driver,tool_count:automationBrowser.tools.length}});
       } catch(error) {
         await automationBrowser?.close();automationBrowser=null;
         contextLimitations.push(`Playwright MCP inspection is unavailable (${error.code || error.statusCode || "connection failed"}). No live browser verification is claimed.`);
@@ -963,6 +957,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     captureSourcePermissions(context);
     const contextCounts = countContext(context);
     const citations = buildCitations(context);
+    failureCitations = citations;
     await appendEvent(transactionId, {
       phase: "context",
       message: `Built bounded context from ${citations.length} workspace reference${citations.length === 1 ? "" : "s"}.`,
@@ -976,19 +971,10 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
     });
 
-    const guardrails = [
-      "Project and app-type scope enforced",
-      "Workspace evidence treated as untrusted content",
-      "Approved read-only retrieval only",
-      "Secrets and hidden reasoning excluded",
-      "Human approval required before artifact changes",
-      ...(workflow_policy?.guardrails ? [workflow_policy.guardrails] : []),
-      ...(workflow_policy ? [`Enabled retrieval tools: ${workflow_policy.allowed_tools.join(", ") || "none"}`] : [])
-    ];
     await appendEvent(transactionId, {
       phase: "guardrails",
       message: "Applied data, tool, prompt-injection, and human-approval boundaries.",
-      details: { guardrails, progress: 48 }
+      details: { guardrails, enabled_tools: policy.allowed_tools, progress: 48 }
     });
 
     // A deterministic baseline is used only for validation/readiness diagnostics.
@@ -1000,7 +986,6 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     const deadline = Math.min(Date.now() + MODEL_TIMEOUT_MS, startedAt + agent.limits.timeout_ms);
     const budget = policy.model_budget || { used: 0, max: agent.limits.max_model_calls };
     budget.max = Math.min(budget.max, agent.limits.max_model_calls);
-    const modelCallRecords = [];
     budget.onCall = async record => {
       modelCallRecords.push(record);
       await appendEvent(transactionId,{phase:"model.call",level:record.status === "failed" ? "warning" : "info",message:`${record.name} · model call ${record.attempt} ${record.status === "response_received" ? "response received" : record.status}.`,details:{name:record.name,trace_id:record.trace_id,attempt:record.attempt}});
@@ -1037,13 +1022,14 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     };
     const emitOutcomePreview = async (currentResult, message, progress) => {
       const onProgress = execution.current()?.onProgress;
-      if (!onProgress) return;
+      if (!onProgress || agentGuardrails.checks(currentResult, definition?.guardrail_rules).some(check => !check.passed)) return;
       await assertOutcomeEvidenceAccess();
       onProgress({ contract_type: 'AgentProgress', contract_version: '1.0', session_id: transactionId,
         phase: 'outcome.preview', message, progress,
         outcome_preview: Object.fromEntries(['headline', 'executive_summary', 'findings', 'artifacts', 'sections', 'tables', 'charts'].map(key => [key, currentResult[key]])) });
     };
-    const toolSession=!automationBrowser ? require('./specialistTools').createSpecialistTools({user,projectId,appTypeId,context,requestedScopes,policy,smartContext,evidenceScope,deadline,signal:execution.current()?.signal,maxCalls:4,
+    const toolSession=!automationBrowser ? require('./specialistTools').createSpecialistTools({user,projectId,appTypeId,context,requestedScopes,
+      policy: definition ? { ...policy, explicit_tool_selection: true } : policy,smartContext,evidenceScope,deadline,signal:execution.current()?.signal,maxCalls:4,
       assertAccess:assertOutcomeEvidenceAccess,onEvent:event=>appendEvent(transactionId,event),
       onEvidence:async item=>{
         const safe=sanitizeAiEvidence(item);
@@ -1057,7 +1043,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         boundedPayload.story_link_targets=artifactTargets.filter(target=>target.kind==='story_link');        boundedPayload.test_case_targets=artifactTargets.filter(target=>target.kind==='test_case');
       }}) : null;
     let result = baseline, modelObservation = null, repairPatch = null, contextReductionUsed = false;
-    let revisionRound = 0, outcomeRevisionRounds = 0, previousCandidate = null, previousRejectedHash = null, lastOutputIssues = [], lastOutputFailure = null;
+    let revisionRound = 0, outcomeRevisionRounds = 0, previousRejectedHash = null, lastOutputIssues = [], lastOutputFailure = null;
     const rejectedHashes = new Set();
     while (budget.used < budget.max && Date.now() < deadline && revisionRound <= executionPolicy.max_revision_rounds) {
       const repair = revisionRound > 0;
@@ -1066,13 +1052,11 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         if (repair) outcomeRevisionRounds += 1;
         const complete = toolPrompt => requestLlmResult({ user, projectId, integration, agent, mode: normalizedMode, prompt: normalizedPrompt, context,
           citations: suppliedCitations, history: Object.keys(evidenceScope).length ? [] : Array.isArray(history) ? history : [], contextRoute, knowledgeRetrieval,
-          promptPayload: toolPrompt || JSON.stringify(boundedPayload), assertEvidenceAccess: assertOutcomeEvidenceAccess, deadline, repair, budget, toolSession });
-        candidate = automationBrowser?.driver==='playwright_mcp_upstream' ? await require('@hellotest/automation/upstream').runUpstreamBrowserReview({
+          promptPayload: toolPrompt || JSON.stringify(boundedPayload), assertEvidenceAccess: assertOutcomeEvidenceAccess, deadline, repair, budget, toolSession,
+          ...(trial ? { onSystemFrame: frame => { trialSystemFrame = sanitizeAiText(frame).text; } } : {}) });
+        candidate = automationBrowser ? await require('@hellotest/automation/upstream').runUpstreamBrowserReview({
           prompt:JSON.stringify(boundedPayload),browser:automationBrowser,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
           initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-automationBrowser.initialObservations.length),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
-        }) : automationBrowser ? await require("@hellotest/automation/browser-agent").runAutomationBrowserAgent({
-          featureKey:agent.configurationKey,prompt:JSON.stringify(boundedPayload),browser:automationBrowser,parse:value=>value,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
-          initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-Math.max(0,automationBrowser.initialObservations.length-2)),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
         }) : await complete();
         const validatedRepair = repairContext?.status === "eligible" ? require("@hellotest/automation/repair").validatePatch(repairContext.base,candidate.automation_repair) : null;
         const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && !candidate.artifacts?.length && candidate.evidence_gaps?.length > 0;
@@ -1097,8 +1081,10 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
       if (result !== baseline) break;
       lastOutputIssues = issues;
-      previousCandidate = candidate || null;
+      const previousCandidate = candidate || null;
       previousRejectedHash = previousCandidate ? fingerprint(previousCandidate) : null;
+      const rejectedDraft = revisionFeedback(previousCandidate, issues, revisionRound + 1).previous_draft;
+      lastRejectedDraft = rejectedDraft ? sanitizeAiText(JSON.stringify(rejectedDraft)).text : null;
       if (previousRejectedHash && rejectedHashes.has(previousRejectedHash)) break;
       if (previousRejectedHash) rejectedHashes.add(previousRejectedHash);
       revisionRound += 1;
@@ -1110,7 +1096,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       if (lastOutputFailure?.generation_received === true) Object.assign(failure, { generation_received: true, retryable: false, nonRetryable: true });
       throw failure;
     }
-    const followupPlan = ((registered || !policy.custom_task) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result, {refineExisting:outcomeContract.refine_existing_proposals}) : []).slice(0, executionPolicy.max_followups);
+    const followupPlan = ((!trial && (registered || !policy.custom_task)) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result, {refineExisting:outcomeContract.refine_existing_proposals}) : []).slice(0, executionPolicy.max_followups);
     result.outcome_contract = outcomeContract;
     result.evidence_scope = evidenceScope;
     const primaryReview = {agent_id:normalizedAgentId,summary:result.executive_summary,findings:result.findings,recommendations:result.recommendations,evidence_gaps:result.evidence_gaps};
@@ -1262,6 +1248,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     result.readiness = buildEvidenceReadiness({ context, contextRoute, limitations });
     result.evidence_gaps = retainEvidenceGaps(result.evidence_gaps,result.readiness.limitations);
     result.verification = agentContract.verify(result, suppliedCitations, agent.acceptance);
+    const ruleChecks = agentGuardrails.checks(result, definition?.guardrail_rules);
     const finalOutcomeContract = {...outcomeContract, supplemental_artifact_kinds: [...new Set(completedKinds)]};
     const outcomeIssues = artifacts.outcomeIssues(result, finalOutcomeContract);
     result.outcome_contract = finalOutcomeContract;
@@ -1280,11 +1267,18 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       result.verification.checks.push({ id: "domain_snapshot", passed: true, label: "Domain calculations are pinned to the recorded evidence snapshot; they do not approve release." });
     }
     if (repairContext) {
-      result.automation_repair = await repairService.save(projectId,user,transactionId,repairContext,result.verification.status === "passed" ? repairPatch : null);
+      result.automation_repair = await repairService.save(projectId,user,transactionId,repairContext,
+        result.verification.status === "passed" && ruleChecks.every(check => check.passed) ? repairPatch : null);
       result.execution_status = "completed"; result.publication_status = "proposal";
       const typed = Boolean(result.automation_repair.id);
-      result.verification.checks.push({id:"typed_repair",passed:typed,label:typed?"A typed locator proposal preserves the authored assertions; runner verification is still required.":"No supported typed repair was produced. Supply current failure evidence or author the unsupported change."});
+      result.verification.checks.push({id:"typed_repair",passed:typed,label:typed?"The repair preserves the authored assertions and is ready for runner verification.":"No supported typed repair was produced. Supply current failure evidence or author the unsupported change."});
       if (!typed) { result.readiness.status="insufficient_evidence"; result.verification.status="needs_input"; }
+    }
+    result.verification.checks.push(...ruleChecks);
+    if (ruleChecks.some(check => !check.passed)) {
+      result.verification.status = "needs_correction";
+      result.readiness.status = "insufficient_evidence";
+      if (ruleChecks.some(check => check.id === 'exclude_email_addresses' && !check.passed)) result = agentGuardrails.redactEmails(result);
     }
     result.readiness.limitations = [...new Set([...result.readiness.limitations, ...overflowOutcomeNotes])];
     result.model_call_records = modelCallRecords;
@@ -1338,7 +1332,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     });
     const events = await workspaceTransactionService.listTransactionEvents(transactionId);
     const contextPacket = knowledgeRetrieval.context_packet;
-    if (contextPacket?.retrieval?.context_graph?.status === 'recorded') {
+    if (!trial && contextPacket?.retrieval?.context_graph?.status === 'recorded') {
       result.context_graph_outcome = await require('@hellotest/mcp/backend/contextTraceTools').rememberDecision({
         projectId, user, packet: contextPacket,
         event: { id: `agent-outcome:${transactionId}`, type: result.artifacts?.length ? 'PROPOSAL_PREPARED' : 'OUTCOME_RECORDED',
@@ -1353,6 +1347,8 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       result,
       citations,
       guardrails,
+      guardrail_rules: guardrailRules,
+      ...(trial ? { trial: { definition_hash: registered.definition_hash, descriptor_hash: agentDescriptor.descriptor_hash, system_frame: trialSystemFrame } } : {}),
       provenance: {
         prompt_template_version:result.model_execution.prompt_template_version,system_message_hash:result.model_execution.system_message_hash||null,prompt_hash:result.model_execution.prompt_hash||null,
         provider: integration?.name || "HelloTest evidence engine",
@@ -1367,19 +1363,8 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
     };
   } catch (error) {
-    const diagnostic = require('../workflows/runtimeEvents').failureInfo(error);
-    await workspaceTransactionService.appendTransactionEvent(transactionId, {
-      level: "error",
-      phase: "failed",
-      message: execution.current()?.signal?.aborted ? "The review was cancelled or exceeded its deadline." : "The agent review could not be completed. Retry the review.",
-      status: "failed",
-      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: diagnostic.message, error_details:diagnostic, validation_errors: diagnostic.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) },
-      details: { progress: 100 }
-    }).catch(() => null);
-    await workspaceTransactionService.updateTransaction(transactionId, {
-      status: "failed", completed_at: new Date().toISOString(),
-      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: diagnostic.message, error_details:diagnostic, validation_errors: diagnostic.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) }
-    }).catch(() => null);
+    await recordFailure({ transactionId, error, modelCallRecords, evidencePermissions, failureCitations,
+      lastRejectedDraft: definition?.guardrail_rules?.length ? null : lastRejectedDraft });
     throw error;
   } finally { await automationBrowser?.close(); }
   }, { timeoutMs: agent.limits.timeout_ms - (Date.now() - startedAt) });

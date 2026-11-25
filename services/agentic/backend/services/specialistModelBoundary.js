@@ -1,7 +1,11 @@
 // Shared specialist provider/structured-response boundary; native evidence verification remains with the feature.
 module.exports=function createSpecialistModelBoundary(deps){
 const {artifacts,normalizeText,integrationService,authorizeFreshEvidence,MODEL_TIMEOUT_MS,responseContract,dedupeInstructions,instructionFor,aiInstructionBlock,evidenceScopes,buildBoundedAgentPromptPayload,execution,agentContract,permissionService,agentError,fetchLlmWithRetry,resolveChatCompletionsUrl,appendEvent,providerUsage,JSON_MODE_FIELD,JSON_MODE_REJECTION,completionContent,extractJson,crypto}=deps;
-return async ({ user, projectId, integration, agent, mode, prompt, context, citations, history, contextRoute, knowledgeRetrieval, promptPayload, assertEvidenceAccess, deadline = Date.now() + MODEL_TIMEOUT_MS, repair = false, budget = { used: 0, max: 2 }, toolSession }) => {
+function hasApiRepairContext(context) {
+  try { return JSON.parse(context.automation_repair?.[0]?.content || '{}').focus?.runtime === 'api'; }
+  catch { return false; }
+}
+return async ({ user, projectId, integration, agent, mode, prompt, context, citations, history, contextRoute, knowledgeRetrieval, promptPayload, assertEvidenceAccess, deadline = Date.now() + MODEL_TIMEOUT_MS, repair = false, budget = { used: 0, max: 2 }, toolSession, onSystemFrame }) => {
   if (Object.keys(evidenceScopes.normalize(contextRoute?.evidence_scope)).length) {
     const scopedEvidence = Object.values(context).flat().some(item => {
       const kind = item?.source_kind || item?.citation?.source_kind;
@@ -25,6 +29,7 @@ return async ({ user, projectId, integration, agent, mode, prompt, context, cita
         JSON.stringify({ agent_intent: { name: agent.name, objective: agent.objective }, response_schema: responseContract.schema }),
         agent.customObjective ? "" : agent.instructions || "",
         ...(agent.skills || []).map(skill => [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.2"),String(skill.name),": ",String(instructionFor(skill,agent.configurationKey)),""].join('')),
+        ...(agent.guardrailRules || []).map(rule => rule.text),
         agent.guardrails && agent.guardrails !== require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current()?.config?.guardrails ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.3"),String(agent.guardrails),""].join('') : "",
         [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.4"),String(JSON.stringify(agent.acceptance || { require_evidence: true })),aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.5")].join(''),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.1"),
@@ -35,7 +40,7 @@ return async ({ user, projectId, integration, agent, mode, prompt, context, cita
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.evidenceScope"),
         artifacts.CONTRACT,
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.11"),
-        ...(context.automation_repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.38")] : []),
+        ...(context.automation_repair && !hasApiRepairContext(context) ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.38")] : []),
         ...(context.automation_repair ? ["Host-enforced automation repair contract: " + JSON.stringify(require("@hellotest/automation/repair").modelContract)] : []),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.12"),
         ...(repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.43")] : []),
@@ -83,6 +88,7 @@ return async ({ user, projectId, integration, agent, mode, prompt, context, cita
     if(prepared?.payload?.messages){
       preparedPromptHash=crypto.createHash('sha256').update(JSON.stringify(prepared.payload.messages)).digest('hex');
       assembledPrompt.hash=crypto.createHash('sha256').update(JSON.stringify({version:assembledPrompt.version,specialist_id:agent.id||agent.configurationKey||agent.name,system:prepared.payload.messages.filter(message=>['system','developer'].includes(message.role))})).digest('hex');
+      onSystemFrame?.(prepared.payload.messages.filter(message=>['system','developer'].includes(message.role)).map(message=>message.content).join('\n\n'));
     }
     if(promptSession)await appendEvent(promptSession,{phase:'prompt.assembled',message:'Versioned specialist provider instructions assembled.',details:{prompt_template_version:assembledPrompt.version,system_message_hash:assembledPrompt.hash},metadata:{prompt_template_version:assembledPrompt.version,system_message_hash:assembledPrompt.hash}});
     budget.used+=1;

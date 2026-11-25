@@ -192,15 +192,14 @@ test('the remaining source-generation callback cannot acquire retired actor enve
 });
 
 test('the upstream completion callback derives actor tools, review policy and repair limits from its host phase',async()=>{
- const begin=source.indexOf('const complete=async({prompt:input,phase,step,nativeTools,referenceImages,timeoutMs,beforeDispatch})=>'),end=source.indexOf('\n    let result;',begin);
- assert.ok(begin>0&&end>begin);
  const requests=[],traces=[];let checks=0;
- const assertAccess=async()=>{checks++;};
- const scope={assertAccess,browserParameters:{redactUpstream:input=>input.replaceAll('PRIVATE_FIXTURE','[private parameter value]')},
-  testCase:{project_id:'project'},created_by:'author',transaction_id:null,test_case_id:'case',automationCaseType:'web',knowledgeRows:{knowledge:[],context_transport:'not_required'},
-  requestChatCompletion:async options=>{requests.push(options);return'{}';},integration,buildFeature:key=>key,ai_feature:'ai.agentic.automation-engineer',execution_guard:undefined,
-  require:()=>({run:(context,callback)=>{traces.push(context);return callback();}})};
- const complete=new Function(...Object.keys(scope),`${source.slice(begin,end)};return complete;`)(...Object.values(scope));
+ const adapter=implementationFunctionSource('builder/programGeneration','browserModelCompletion');
+ const makeComplete=new Function('requestChatCompletion','require',`${adapter};return browserModelCompletion;`)(
+  async options=>{requests.push(options);return '{}';},
+  ()=>({run:(context,callback)=>{traces.push(context);return callback();}})
+ );
+ const complete=makeComplete({assertAccess:async()=>{checks++;},integration,featureKey:'ai.agentic.automation-engineer',
+  resolver:{redactUpstream:input=>input.replaceAll('PRIVATE_FIXTURE','[private parameter value]')}});
  const tools=[{name:'browser_click',inputSchema:{type:'object'}}],beforeDispatch=async()=>{};
  for(const phase of ['upstream_browser_actor','upstream_source','upstream_instruction_mapping','verification_repair'])
   await complete({prompt:'Inspect PRIVATE_FIXTURE',phase,step:{id:'current'},nativeTools:tools,timeoutMs:50000,beforeDispatch});

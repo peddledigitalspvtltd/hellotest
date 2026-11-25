@@ -18,7 +18,9 @@ export function parseApiRequestSource(source) {
         throw new Error("The request body must be a string. Encode JSON bodies as a JSON string.");
     if (request.validations !== undefined && (!Array.isArray(request.validations) || request.validations.some((item) => !item || !["status", "header", "header_present", "body_contains", "body_not_contains", "json_path", "json_schema", "response_time"].includes(item.kind))))
         throw new Error("Each assertion must have a supported validation kind.");
-    if (request.captures !== undefined && (!Array.isArray(request.captures) || request.captures.some((item) => !item || typeof item.path !== "string" || typeof item.parameter !== "string" || !item.parameter.trim())))
+    if (request.captures !== undefined && (!Array.isArray(request.captures) || request.captures.some((item) => !item || typeof item.path !== "string" || !item.path.trim() || typeof item.parameter !== "string" || !item.parameter.trim())))
         throw new Error("Each response capture needs a path and parameter.");
+    if (request.auth && request.auth.type !== "none" && (typeof request.auth.credential_reference !== "string" || !request.auth.credential_reference.trim()))
+        throw new Error("Choose a credential reference for this request's authentication.");
     return request;
 }

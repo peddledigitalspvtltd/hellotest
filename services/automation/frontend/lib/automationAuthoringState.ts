@@ -6,7 +6,7 @@ export type AuthoringBuildStatus = "submitting" | "queued" | "running" | "comple
 export type AuthoringBuild = { operationId: string; activityId?: string; caseIds: string[]; status: AuthoringBuildStatus; scheduledAt: string | null; startedAt: number };
 export type RecordingOrigin = { caseId: string; projectId: string; appTypeId: string; targetStepId: string; environmentId: string; configurationId: string; dataSetId: string; suiteId: string };
 export type RecordingParameterDraft = { caseValues: Record<string, string>; suiteValues: Record<string, string>; privateNames: string[]; overrideNames: string[] };
-export type AuthoringRecording = { operationId: string; origin: RecordingOrigin; options: RecorderStartOptions; session: RecorderSessionResponse | null; parameterBindings: Record<number, string>; privateValues: string[]; parameterDraft?: RecordingParameterDraft };
+export type AuthoringRecording = { operationId: string; origin: RecordingOrigin; options: RecorderStartOptions; session: RecorderSessionResponse | null; parameterBindings: Record<number, string>; excludedActionIndices?: number[]; privateValues: string[]; parameterDraft?: RecordingParameterDraft };
 export type AuthoringCaseState =
   | { phase: "idle"; lastBuild?: AuthoringBuild }
   | { phase: "building"; build: AuthoringBuild }
@@ -25,6 +25,7 @@ export type AutomationAuthoringAction =
   | { type: "record.session_updated"; caseId: string; session: RecorderSessionResponse }
   | { type: "record.parameters_changed"; caseId: string; operationId: string; parameterBindings: Record<number, string>; privateValues?: string[] }
   | { type: "record.parameter_draft_changed"; caseId: string; operationId: string; draft: RecordingParameterDraft }
+  | { type: "record.action_inclusion_changed"; caseId: string; operationId: string; index: number; included: boolean }
   | { type: "record.save_requested"; caseId: string; sessionId: string }
   | { type: "record.save_rejected"; caseId: string; sessionId: string }
   | { type: "record.saved"; caseId: string; sessionId: string }
@@ -111,6 +112,13 @@ export function automationAuthoringReducer(state: AutomationAuthoringSnapshot, a
       if (recording.session?.id !== action.session.id) return state;
       cases[action.caseId] = { ...before, recording: { ...recording, session: action.session } };
     } else if (action.type === "record.parameters_changed") cases[action.caseId] = { ...before, recording: { ...recording, parameterBindings: { ...action.parameterBindings }, privateValues: action.privateValues ? [...action.privateValues] : recording.privateValues } };
+    else if (action.type === "record.action_inclusion_changed") {
+      if (before.phase !== "recording" || recording.operationId !== action.operationId || !recording.session?.actions?.some(row => row.index === action.index)) return state;
+      const excluded = new Set(recording.excludedActionIndices || []);
+      if (action.included) excluded.delete(action.index);
+      else excluded.add(action.index);
+      cases[action.caseId] = { ...before, recording: { ...recording, excludedActionIndices: [...excluded] } };
+    }
     else if (action.type === "record.parameter_draft_changed") {
       // Keep only parameter state, with a finite bound; never silently truncate a value.
       if (Object.keys(action.draft.caseValues).length + Object.keys(action.draft.suiteValues).length > 2000 || JSON.stringify(action.draft).length > 4 * 1024 * 1024) throw new Error("Recording parameter context is too large. Save the data set before continuing.");

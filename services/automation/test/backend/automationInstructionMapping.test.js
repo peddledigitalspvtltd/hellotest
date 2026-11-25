@@ -90,5 +90,9 @@ test('saved Plan projections use exact retained source, exclude quarantined or f
   assert.deepEqual(projected[0].automation_instructions,mapping);assert.equal(input.steps[0].automation_instructions,undefined);
   assert.doesNotMatch(JSON.stringify(projected),/Do not expose/);
   rows=rows.slice(0,3);assert.equal((await service.attachInstructionMappings(input))[0].automation_instructions,undefined);
+  const rebuilt=(await service.attachInstructionMappings({...input,steps:[{...input.steps[0],step_type:'web'}]}))[0].automation_instructions;
+  assert.equal(rebuilt.source_sha256,mapping.source_sha256);
+  assert.match(rebuilt.instructions[0].detail,/getByLabel\("Email"/);
+  assert.doesNotMatch(JSON.stringify(rebuilt),/Do not expose/);
   const before=calls;await service.attachInstructionMappings({...input,projectId:null});assert.equal(calls,before,'a missing authorized project must not query artifacts');
 });

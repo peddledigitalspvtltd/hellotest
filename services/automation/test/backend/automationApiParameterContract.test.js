@@ -25,3 +25,13 @@ test('native URL/body/auth input roles cannot be replaced by literals or moved o
  }
  assert.doesNotThrow(()=>assertApiParameterBindings({...source,expected_result:'JSON id exists; capture @r.new_id'},request(),values),'Deferred response captures are outputs rather than supplied input bindings.');
 });
+
+test('structured request inputs preserve scoped bindings before an earlier API capture or external value exists', () => {
+  const step = { action: 'Read the newly created invoice', expected_result: 'Invoice is returned',
+    api_request: { url: '/invoices/@r.[invoice_id]', auth: { type: 'bearer', credential_reference: '@r.session' } } };
+  const generated = { ...step.api_request, url: '/invoices/example' };
+  assert.deepEqual(apiParameterBindingContext(step, {}).api_request.url, ['@r.invoice_id']);
+  assert.throws(() => assertApiParameterBindings(step, generated, {}), { code: 'AUTOMATION_API_PARAMETER_BINDING_DROPPED' });
+  assert.throws(() => assertApiParameterBindings(step, { ...step.api_request, url: '/invoices/@invoice_id' }, {}), { code: 'AUTOMATION_API_PARAMETER_BINDING_DROPPED' });
+  assert.doesNotThrow(() => assertApiParameterBindings(step, step.api_request, {}));
+});

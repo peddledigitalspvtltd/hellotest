@@ -32,7 +32,7 @@ const list = async ({ user, entityType, entityId, projectId }) => {
   return rows.map(serialize);
 };
 
-const create = async ({ user, entityType, entityId, projectId, body }) => {
+const create = async ({ user, entityType, entityId, projectId, body, commentId = uuid() }) => {
   const scope = await requireEntityPermission({
     user,
     permissionCode: "comment.create",
@@ -56,7 +56,7 @@ const create = async ({ user, entityType, entityId, projectId, body }) => {
     INSERT INTO entity_comments (id, project_id, entity_type, entity_id, body, created_by)
     VALUES (?, ?, ?, ?, ?, ?)
     RETURNING *
-  `).get(uuid(), scope.projectId, scope.entityType, scope.entityId, normalizedBody, user.id);
+  `).get(commentId, scope.projectId, scope.entityType, scope.entityId, normalizedBody, user.id);
   return serialize({
     ...row,
     author_name: user.name,

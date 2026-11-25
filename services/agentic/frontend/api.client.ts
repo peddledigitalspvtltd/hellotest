@@ -2,14 +2,15 @@ import { repositoryInspectionApi } from "@hellotest/automation/inspection-client
 import { requestAgentReview, evidenceScopeOptions } from "@hellotest/ai/review-client";
 import type { AgentProgress } from "@hellotest/ai/frontend/lib/assistantProgressStream";
 import { streamQualityProgress, type QualityStreamOptions } from './lib/qualityProgressStream';
-import type { AgentStructuredArtifact, TestDataSet, TestEnvironment } from '@hellotest/platform/frontend/src/types';
+import type { AgentStructuredArtifact, TestCase, TestDataSet, TestEnvironment } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
 import type { RepositoryAgentCatalog, RepositoryAgentPublicationStatus, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
 import type { AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticAssistantSavedSessionResponse, AgenticWorkflow, AgenticWorkflowRun, AgenticWorkflowReadiness, RecorderSessionResponse, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/lib/serviceEndpoints";
 import { API_BASE_URL, readRequestSession, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 
-import type { AgentDefinition, ProjectAgent } from "./agents/agentDefinitions";
+import type { AgentDefinition, ProjectAgent, ProjectAgentVersion } from "./agents/agentDefinitions";
+import type { AgentDescriptor } from "@hellotest/contracts/agents";
 import type { QualityAgentBaseline, QualityAgentCatalog, QualityAgentKind, QualityAgentLaunch, QualityAgentPlan, QualityAgentPlanInput, QualityAgentRun } from "./lib/qualityAgentContracts";
 
 type AgenticApiAgentTestInput = {
@@ -24,6 +25,7 @@ type AgenticApiAgentTestInput = {
 
 export type AgentProposalReceipt = { id: string; kind: 'story' | 'test_case' | 'defect' | 'run' | 'automation'; updated: boolean; proposal_index: number; saved: boolean; reused?: boolean };
 export type AgentEvidenceScopeOption = { id: string; label: string; description?: string };
+export type AgentScorecard = { key: string; runs: number; completed: number; drafts: number; accepted: number; median_duration_ms: number | null; duration_samples: number; median_tokens: number | null; token_samples: number; failure_codes: Record<string, number> };
 export const agenticApi = {
   evidenceScope: {
     options: evidenceScopeOptions,
@@ -33,6 +35,10 @@ export const agenticApi = {
   },
   workflowTestEnvironments: {
     list: (query: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<TestEnvironment[]>(`/test-environments${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
+  },
+  workflowManualCases: {
+    list: (query: {project_id:string;app_type_id:string;search?:string}, options?: {signal?:AbortSignal}) => request<{items:Array<Pick<TestCase,'id'|'title'|'display_id'>>}>(
+      `/test-cases${toQueryString({...query,exclude_automated:true,projection:'picker',include_page:true,include_total:false,page_size:25})}`, {signal:options?.signal,cache:'no-store'}),
   },
   agentProposals: {
     list: (sessionId: string) => request<Array<{ proposal_index: number; receipt: AgentProposalReceipt }>>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals`, { cache: 'no-store' }),
@@ -72,7 +78,11 @@ export const agenticApi = {
   },
   agentDefinitions: {
     list: (projectId: string, options?: { signal?: AbortSignal }) => request<ProjectAgent[]>(`/agentic-workflows/agents${toQueryString({ project_id: projectId })}`, { signal: options?.signal }),
-    save: (input: { project_id: string; definition: AgentDefinition; activate: boolean; expected_version?: number }, id?: string) => request<ProjectAgent>(`/agentic-workflows/agents${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+    save: (input: { project_id: string; definition: AgentDefinition; activate: boolean; expected_version?: number; trial_id?: string }, id?: string) => request<ProjectAgent>(`/agentic-workflows/agents${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+    descriptors: (projectId: string) => request<Array<AgentDescriptor & { descriptor_hash: string }>>(`/agent-runs/descriptors${toQueryString({ project_id: projectId })}`),
+    scorecards: (projectId: string, appTypeId?: string) => request<{ items: AgentScorecard[]; limit_per_system: number }>(`/agent-runs/scorecards${toQueryString({ project_id: projectId, app_type_id: appTypeId || undefined })}`),
+    versions: (agent: ProjectAgent) => request<{ current_version: number; active_version: number | null; versions: ProjectAgentVersion[] }>(`/agentic-workflows/agents/${encodeURIComponent(agent.id)}/versions${toQueryString({ project_id: agent.project_id })}`),
+    trial: (input: { project_id: string; app_type_id?: string; definition: AgentDefinition; prompt: string; inputs: Record<string, string> }, id?: string) => request<AgenticAssistantSessionResponse & { trial: { definition_hash: string; descriptor_hash: string; system_frame: string | null } }>(`/agentic-workflows/agents${id ? `/${encodeURIComponent(id)}` : ""}/trial`, { method: "POST", body: JSON.stringify(input) }, AI_REQUEST_TIMEOUT_MS),
     archive: (agent: ProjectAgent) => request<{ archived: boolean }>(`/agentic-workflows/agents/${encodeURIComponent(agent.id)}${toQueryString({ project_id: agent.project_id, version: agent.current_version })}`, { method: "DELETE" }),
   },
 workflowConnections: {
@@ -116,6 +126,8 @@ repositoryAgents: {
       requestBlob(`/repository-agents/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(name)}`)
   },
 agenticWorkflows: {
+    evidencePreview: (input: import("./agents/useAgentEvidencePreview").EvidencePreviewInput, signal: AbortSignal) =>
+      request<import("./agents/useAgentEvidencePreview").EvidencePreviewResult>("/agentic-assistant/evidence-preview", { method: "POST", body: JSON.stringify(input), signal }, 6_000),
     listSessions: (query: { project_id: string; app_type_id?: string; limit?: number }, options?: { signal?: AbortSignal }) =>
       request<WorkspaceTransaction[]>(`/agentic-assistant/sessions${toQueryString(query)}`, { signal: options?.signal }),
     getSession: (id: string, options?: { signal?: AbortSignal }) =>

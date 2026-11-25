@@ -4,6 +4,10 @@
  */
 export async function fulfillAutomationFixtureRequest(page, route) {
   const url = new URL(route.request().url());
+  if (url.pathname.endsWith('/automation/browser-preflight') && route.request().method() === 'POST') {
+    await route.fulfill({ json: { status: 'ready', browser: 'reachable' } });
+    return true;
+  }
   const authoring = url.pathname.match(/\/test-cases\/([^/]+)\/automation\/authoring-state$/);
   if (authoring && route.request().method() === 'GET') {
     await route.fulfill({contentType: 'application/json', body: JSON.stringify({case_id: decodeURIComponent(authoring[1]), state: 'idle', build: null, recording: null, can_build: true, can_record: true})});

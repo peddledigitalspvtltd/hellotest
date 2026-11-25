@@ -428,6 +428,7 @@ async function readMembership(storage,targetId,actor) {
  return selected;
 }
 function unavailableReason(method,path){
+ if(method==='POST'&&path.endsWith('/ai-triage-apply'))return 'Defect triage approval requires an interactive review and a short-lived token bound to the reviewer and Defect.';
  if(path.includes('/local-dispatch')||path.startsWith('/local-browser-bridges/')||path==='/automation/browser-bridges')return 'Paired local execution and browser control require a browser-origin handshake and a scoped machine grant; these credentials are not delegated to MCP clients.';
  if(method==='POST'&&path==='/agentic-workflows/:id/runs')return 'This legacy route synthesizes a completed workflow preview; use /agentic-workflows/:id/executions for actual execution.';
  if(path==='/agentic-quality/runs/:id/events')return 'This native endpoint streams server-sent events; use the bounded JSON run status tool and poll its durable identifier.';

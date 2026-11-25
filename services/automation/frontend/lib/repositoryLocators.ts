@@ -43,6 +43,13 @@ export function changeRepositoryFieldLocator(field:{locator:string;locatorKind:s
 type Member = { ref: string; entry: { id: string; test_case_id?: string | null; locator?: string | null;metadata?:{reference_aliases?:unknown;merged_into_entry_id?:unknown;observed_route_sha256?:unknown;instruction_usages?:unknown} } };
 type RepositoryStep = {id?:string;automation_source_sha256?:string|null;automation_context_sha256?:string|null;automation_code?:string|null;objectRefs?:string[]};
 export type RepositoryStepReferences = {targets:Set<string>;semanticLocators:Set<string>;sourceHashes:Map<string,string>;contextHashes:Map<string,string>};
+const repositoryTargetMethods = new Set([
+  "click", "dblclick", "rightClick", "hover", "fill", "type", "select", "selectOption", "check", "uncheck", "clear", "press",
+  "tap", "doubleTap", "longPress", "expectVisible", "expectHidden", "expectEnabled", "expectDisplayed", "expectNotDisplayed",
+  "expectValue", "waitForSelector", "waitForDisplayed", "waitForExist", "waitForEnabled", "text", "value", "captureText", "captureValue",
+  "uploadFile", "uploadLocalFile", "uploadRemoteFile", "setInputFiles", "drag"
+]);
+const nativeSelectorMethods = new Set(["focus", "textContent", "innerText", "inputValue", "getAttribute"]);
 const normalizeLocatorTree = (node:any,repository=false):any => {
   if (typeof node === "bigint") return String(node);
   if (!node || typeof node !== "object") return node;
@@ -112,12 +119,14 @@ export function collectRepositoryStepReferences(steps:RepositoryStep[],parameter
       const visit=(node:any):void=>{
         if(!node || typeof node!=="object")return;
         if(node.type === "CallExpression") {
-          const method=node.callee.type === "MemberExpression" ? node.callee.property.name : "",namespace=node.callee.object?.name;
+          const method=node.callee.type === "MemberExpression" ? (node.callee.computed ? node.callee.property.value : node.callee.property.name) : undefined;
+          const namespace=node.callee.object?.name;
           if(/^(?:getBy[A-Z]\w*|locator|nth|first|last)$/.test(method))semanticLocators.add(JSON.stringify(normalizeLocatorTree(node)));
           const locatorCall=["locator","$","$$"].includes(method);
-          const targetCall=["web","android","ios","mobile","page","driver"].includes(namespace) && ["click","dblclick","rightClick","hover","fill","type","select","selectOption","check","uncheck","clear","press","tap","doubleTap","longPress","expectVisible","expectHidden","expectEnabled","expectDisplayed","expectNotDisplayed","expectValue","waitForSelector","waitForDisplayed","waitForExist","waitForEnabled","text","value","captureText","captureValue","uploadFile","uploadLocalFile","uploadRemoteFile","drag"].includes(method);
-          const textAssertion=["web","android","ios","mobile"].includes(namespace) && method==="expectText" && node.arguments.length>1;
-          if(locatorCall || targetCall || textAssertion)add(node.arguments[0]);
+          const targetCall=["web","android","ios","mobile","page","driver","playwrightPage"].includes(namespace) && repositoryTargetMethods.has(method);
+          const nativeTargetCall=["page","playwrightPage"].includes(namespace) && nativeSelectorMethods.has(method);
+          const textAssertion=["web","android","ios","mobile"].includes(namespace) && method==="expectText" && node.arguments.length>1 && node.arguments[1].value!==null;
+          if(locatorCall || targetCall || nativeTargetCall || textAssertion)add(node.arguments[0]);
           if(targetCall && method==="drag")add(node.arguments[1]);
           if(["web","android","ios","mobile"].includes(namespace) && method==="aiStep")node.arguments[1]?.properties?.filter((property:any)=>["target","selector"].includes(property.key?.name)).forEach((property:any)=>add(property.value));
         }

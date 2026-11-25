@@ -6,6 +6,9 @@ function validate(node) {
     const { data = {} } = node;
     const kind = "loop";
     const errors = [];
+    if (data.loopItemFailure && (data.loopAction !== 'workflow' || !['continue','stop'].includes(data.loopItemFailure))) {
+        errors.push('Choose Stop workflow or Continue for failed batches in a connected loop.');
+    }
     const check = (task) => {
         try {
             task();

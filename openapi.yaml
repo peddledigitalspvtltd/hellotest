@@ -3582,6 +3582,8 @@ paths:
       summary: Classify and prioritize a bounded set of Defects without mutating records
       responses:
         "200": { description: Evidence-based triage recommendations with human-review provenance }
+  /issues/{id}/ai-triage-apply:
+    $ref: "#/paths/~1feedback~1{id}~1ai-triage-apply"
   /issues/export:
     post:
       tags: [Defects]
@@ -5926,10 +5928,66 @@ paths:
               properties:
                 project_id: { type: string }
                 activate: { type: boolean, default: false }
+                trial_id: { type: string, description: "A successful trial of this exact definition, when activating from Studio." }
                 definition: { type: object, description: "Name, objective, instructions, skills, allowed tools, context scopes, model connection, acceptance rules and bounded execution limits" }
       responses:
         "200": { description: Saved agent definition and version }
         "422": { description: Invalid definition or unavailable model }
+  /agentic-workflows/agents/trial:
+    post:
+      tags: [Agentic Workflows]
+      summary: Try an unsaved project agent definition
+      x-required-permissions: [agentic_workflow.manage, agentic_workflow.run]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, definition]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                definition: { type: object }
+                prompt: { type: string }
+                inputs: { type: object }
+      responses:
+        "200": { description: Trial review and definition hash }
+        "422": { description: Invalid definition, inputs or model response }
+  /agentic-workflows/agents/{agentId}/trial:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Agentic Workflows]
+      summary: Try a project agent’s current or edited definition
+      x-required-permissions: [agentic_workflow.manage, agentic_workflow.run]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                definition: { type: object }
+                prompt: { type: string }
+                inputs: { type: object }
+      responses:
+        "200": { description: Trial review and definition hash }
+        "422": { description: Invalid definition, inputs or model response }
+  /agentic-workflows/agents/{agentId}/versions:
+    get:
+      tags: [Agentic Workflows]
+      summary: List saved versions of a project agent
+      x-required-permissions: [agentic_workflow.manage]
+      parameters:
+        - { name: agentId, in: path, required: true, schema: { type: string } }
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Current version, active version and immutable saved definitions }
+        "404": { description: Agent unavailable in the requested project }
   /agentic-workflows/agents/{agentId}:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
@@ -5947,6 +6005,7 @@ paths:
                 project_id: { type: string }
                 expected_version: { type: integer, minimum: 1 }
                 activate: { type: boolean, default: false }
+                trial_id: { type: string, description: "A successful trial of this exact definition, when activating from Studio." }
                 definition: { type: object }
       responses:
         "200": { description: New immutable version }
@@ -6681,9 +6740,30 @@ paths:
   /feedback/ai-triage-preview:
     post:
       tags: [Defects]
-      summary: Execute feedback ai triage preview
+      summary: Review Defect fields and linked failure evidence before approving triage
       responses:
-        "200": { description: Successful response }
+        "200": { description: Recommendations and available comment approval for each Defect }
+  /feedback/{id}/ai-triage-apply:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Defects]
+      summary: Post approved AI triage and optionally apply evidence-backed corrections
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, token, apply_corrections]
+              properties:
+                project_id: { type: string }
+                token: { type: string, maxLength: 20000, description: Approval issued by the triage preview for this Defect }
+                apply_corrections: { type: boolean }
+      responses:
+        "200": { description: Posted Defect comment ID }
+        "403": { description: Triage or comment permission required }
+        "409": { description: Approval expired or the reviewed evidence changed }
   /feedback/import-preview:
     post:
       tags: [Defects]
@@ -9423,6 +9503,54 @@ paths:
           schema:
             type: string
             minLength: 1
+  /automation/browser-preflight:
+    post:
+      tags: [Automation]
+      summary: Check the Automation Engineer browser and authored inputs
+      operationId: review_post_automation_browser_preflight
+      description: Opens the reviewed Start URL in an isolated Test Engine browser. Checks configured build inputs and model selection before generation.
+      x-required-permissions: [automation.build, automation.ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [case_id, start_url]
+              properties:
+                case_id: { type: string }
+                start_url: { type: string }
+                test_environment_id: { type: string }
+                test_configuration_id: { type: string }
+                test_data_set_id: { type: string }
+                test_suite_id: { type: string }
+                integration_id: { type: string }
+      responses:
+        "200":
+          description: The selected browser opened the application.
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /automation/build-scorecard:
+    get:
+      tags: [Automation]
+      summary: Read measured Automation Engineer build outcomes
+      operationId: review_get_automation_build_scorecard
+      description: Aggregates up to 5,000 terminal build attempts in the last 30 days. Environment breakdown requires environment access.
+      x-required-permissions: [automation.view, automation.build]
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Project measures and authorized environment breakdowns.
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
   /test-cases/{id}/automation/authoring-state:
     get:
       tags:
@@ -9885,6 +10013,16 @@ paths:
           name: app_type_id
           required: false
           schema: *a1
+  /agent-runs/scorecards:
+    get:
+      tags: [Agentic Workflows]
+      summary: Summarize recent agent activity under the viewer’s project permissions
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+        - { name: app_type_id, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Run counts, observed timing and token medians, failure codes and accepted proposal counts }
+        "403": { description: Agent activity unavailable under current permissions }
   /agent-runs/{id}:
     get:
       tags:

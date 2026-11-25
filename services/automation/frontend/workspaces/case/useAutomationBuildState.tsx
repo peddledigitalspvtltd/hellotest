@@ -32,7 +32,7 @@ export function useAutomationBuildState(scope: AutomationCaseScope, selection: A
     const [builderContext, setBuilderContext] = useState("");
     const [allowBrowserActions, setAllowBrowserActions] = useState(true);
     const [buildBrowserLocation, setBuildBrowserLocation] = useState<"local" | "remote">("remote");
-    const [buildVerificationMode, setBuildVerificationMode] = useState<AutomationBuildVerificationChoice>("generate_only");
+    const [buildVerificationMode, setBuildVerificationMode] = useState<AutomationBuildVerificationChoice>("auto");
     const latestAgentActivityRef = useRef<AutomationAgentActivityRecord | null>(null);
     const handledAgentActivityRef = useRef(new Set<string>());
     const refreshingAgentActivityRef = useRef(new Set<string>());

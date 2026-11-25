@@ -5,8 +5,11 @@ import { QualityMetricStrip } from "@hellotest/dashboard/frontend/components/Qua
 import { AutomationOverlay } from "../../components/AutomationOverlay";
 import { AutomationBrowserBuildMode } from "../../components/AutomationBrowserBuildMode";
 import { AutomationRunReviewDialog } from "../../components/AutomationRunReviewDialog";
+import { AutomationCreateSuiteAction } from "../../components/AutomationCreateSuiteAction";
 import "../../components/AutomationWorkspace.css";
-import { getDefaultAutomationStepType } from "../../lib/automationRuntime";
+import { AUTOMATION_CASE_TYPES, getDefaultAutomationStepType } from "../../lib/automationRuntime";
+import { automationCatalogEvidence } from "../../lib/automationCatalogEvidence";
+import { EMPTY_AUTOMATION_CATALOG_FILTERS } from "../../lib/automationSelectionState";
 import { IconSettings } from "@tabler/icons-react";
 import { AddIcon, MousePointerIcon, OpenIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogActionMenu } from "@hellotest/platform/frontend/src/shared/components/CatalogActionMenu";
@@ -33,10 +36,8 @@ import { TileCardSkeletonGrid } from "@hellotest/platform/frontend/src/shared/co
 import { WorkspaceMasterDetail } from "@hellotest/platform/frontend/src/platform/components/WorkspaceMasterDetail";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
 import { buildHistoryStatusBreakdown } from "@hellotest/platform/frontend/src/shared/lib/tileProgressBreakdown";
-import { areFeatureFlagsEnabled } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
-import { hasPermission } from "@hellotest/platform/frontend/src/platform/lib/permissions";
 import type { AutomationCasesController } from './useAutomationCasesController';
-export function AutomationCasesView({controller}:{controller:AutomationCasesController}){
+export function AutomationCasesView({controller,engineer=false}:{controller:AutomationCasesController;engineer?:boolean}){
 const {
     authoring,
     confirmationDialog,
@@ -55,8 +56,7 @@ const {
     setAutomationCatalogViewMode,
     automationCatalogViewMode,
     activeAutomationCaseSearchCount,
-    setAutomationCaseSearch,
-    automationCaseSearch,
+    catalogFilters, filterCatalog,
     areAllFilteredAutomationCasesSelected,
     filteredAutomationCases,
     setSelectedAutomationCaseIds,
@@ -76,12 +76,8 @@ const {
     canCreateAutomationDraft,
     setIsCreateAutomationOpen,
     testCasesQuery,
-    executionResultsQuery,
     automatedCases,
-    session,
-    featureFlagsQuery,
     navigate,
-    historyByCaseId,
     selectAutomationCase,
     automationDisplayIdByCaseId,
     automationCaseListColumns,
@@ -146,6 +142,7 @@ const {
     automationCreateSteps,
     createSourcesQuery,
     creationIncompatibleRuntimes,
+    includeLinkedBehavior,
     creationAllowedStepTypes,
     applyApiSourceDraft,
     automationCreateParameters,
@@ -155,37 +152,49 @@ const {
 }=controller;
 const selectionBusy=automationActionTargetIds.some(id=>authoring.caseState(id).phase!=='idle');
 const batchBusy=batchBuildTargetIds.some(id=>authoring.caseState(id).phase!=='idle');
+const clearFilters = () => filterCatalog(EMPTY_AUTOMATION_CATALOG_FILTERS);
 return (<div className={`page-content page-content--automation${""}`}>
       {confirmationDialog}
           {(canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder) ? <RepositoryAgentSetup connection={inspectAgent}/> : null}
-      <PageHeader className={"automation-cases-page-header" + ("")} eyebrow={automationPageHeader.eyebrow} title={automationPageHeader.title} description={automationPageHeader.description} actions={(canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder) ? <RepositoryAgentStatus connection={inspectAgent}/> : undefined} meta={undefined}/>
+      {!engineer && <PageHeader className="automation-cases-page-header" eyebrow={automationPageHeader.eyebrow} title={automationPageHeader.title} description={automationPageHeader.description} actions={(canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder) ? <RepositoryAgentStatus connection={inspectAgent}/> : undefined} meta={undefined}/>}
 
-      {<>
+      {!engineer && <>
         {automationMetricsQuery.isError ? <div role="alert">Automation metrics could not be loaded. <button className="link-button" type="button" onClick={() => void automationMetricsQuery.refetch()}>Retry</button></div> : null}
         <QualityMetricStrip ariaLabel="Automation quality metrics" metrics={[
-            { label: "Total test cases", value: automationMetrics?.total ?? "—", detail: "All automation cases in the selected application" },
-            { label: "Recent pass rate", value: canViewExecutionMetrics && automationMetrics?.recentPassRate != null ? `${automationMetrics.recentPassRate}%` : "—", detail: !canViewExecutionMetrics ? "Run result access required" : automationMetrics?.finalizedResults ? `${automationMetrics.passedResults} of ${automationMetrics.finalizedResults} passed` : "No recent runs", tone: "success" },
-            { label: "Failed cases", value: canViewExecutionMetrics ? automationMetrics?.failed ?? "—" : "—", detail: "Latest finalized outcome per case", tone: automationMetrics?.failed ? "danger" : "neutral" }
+            { label: "Total test cases", criteriaKey: "metric.automation.catalog_cases", value: automationMetrics?.total ?? "—", detail: "All automation cases in the selected application" },
+            { label: "Recent pass rate", criteriaKey: "metric.automation.catalog_recent_pass_rate", value: canViewExecutionMetrics && automationMetrics?.recentPassRate != null ? `${automationMetrics.recentPassRate}%` : "—", detail: !canViewExecutionMetrics ? "Run result access required" : automationMetrics?.finalizedResults ? `${automationMetrics.passedResults} of ${automationMetrics.finalizedResults} passed` : "No recent runs", tone: "success" },
+            { label: "Failed cases", criteriaKey: "metric.automation.catalog_failed_cases", value: canViewExecutionMetrics ? automationMetrics?.failed ?? "—" : "—", detail: "Latest finalized outcome per case", tone: automationMetrics?.failed ? "danger" : "neutral",
+              actionLabel: "Show failed automation cases", onClick: canViewExecutionMetrics && automationMetrics ? () => filterCatalog({ ...EMPTY_AUTOMATION_CATALOG_FILTERS, outcome: "failed" }) : undefined }
         ]}/>
       </>}
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone}/>
 
-      {(<WorkspaceMasterDetail className="automation-cases-master-detail" isDetailOpen={false} browseView={(<Panel title="Automation cases" subtitle="Your executable plans and their latest outcomes." actions={(<div className="design-list-toolbar catalog-command-toolbar automation-catalog-toolbar">
+      {(<WorkspaceMasterDetail className="automation-cases-master-detail" isDetailOpen={false} browseView={(<Panel title="Automation cases" subtitle={engineer ? "Open a case to build its script, or create a case from a manual test." : "Your executable plans and their latest outcomes."} actions={(<div className="design-list-toolbar catalog-command-toolbar automation-catalog-toolbar">
                 <div className="catalog-toolbar-discovery" aria-label="Automation case views, search, and selection">
                   <CatalogViewToggle onChange={setAutomationCatalogViewMode} value={automationCatalogViewMode}/>
-                  <CatalogSearchFilter activeFilterCount={activeAutomationCaseSearchCount} ariaLabel="Search automation cases" onChange={setAutomationCaseSearch} placeholder="Search automation cases" subtitle="Search automation cases by title, ID, state, priority, or recent run count." title="Automation search" type="search" value={automationCaseSearch}>
+                  <CatalogSearchFilter activeFilterCount={activeAutomationCaseSearchCount} ariaLabel="Search automation cases" onChange={search => filterCatalog({ search })} placeholder="Search automation cases" title="Automation filters" type="search" value={catalogFilters.search}>
                     <div className="catalog-filter-grid">
+                      <label className="form-field"><span>Plan</span><select aria-label="Plan" value={catalogFilters.plan} onChange={event => {
+                        filterCatalog({ plan: event.target.value as typeof catalogFilters.plan });
+                      }}><option value="">Any plan</option><option value="ready">Ready</option><option value="incomplete">Incomplete</option></select></label>
+                      <label className="form-field"><span>Saved platform</span><select aria-label="Saved platform" value={catalogFilters.platform} onChange={event => {
+                        filterCatalog({ platform: event.target.value as typeof catalogFilters.platform });
+                      }}><option value="">Any platform</option>{AUTOMATION_CASE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+                      {canViewExecutionMetrics && <label className="form-field"><span>Latest outcome</span><select aria-label="Latest outcome" value={catalogFilters.outcome} onChange={event => {
+                        filterCatalog({ outcome: event.target.value as typeof catalogFilters.outcome });
+                      }}><option value="">Any outcome</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="blocked">Blocked</option><option value="not_verified">No finalized result</option></select></label>}
                       <div className="catalog-filter-actions">
-                        <button className="ghost-button" disabled={!automationCaseSearch.trim()} onClick={() => setAutomationCaseSearch("")} type="button">
-                          Clear search
+                        <button className="ghost-button" disabled={!activeAutomationCaseSearchCount} onClick={clearFilters} type="button">
+                          Clear filters
                         </button>
                       </div>
                     </div>
                   </CatalogSearchFilter>
-                  <CatalogSelectionControls allSelected={areAllFilteredAutomationCasesSelected} canSelectAll={Boolean(filteredAutomationCases.length)} onClear={() => setSelectedAutomationCaseIds([])} onSelectAll={() => setSelectedAutomationCaseIds((current) => [...new Set([...current, ...filteredAutomationCases.map((testCase) => testCase.id)])])} selectedCount={selectedAutomationCaseIds.length}/>
+                  <CatalogSelectionControls allSelected={areAllFilteredAutomationCasesSelected} canSelectAll={Boolean(filteredAutomationCases.length)} onClear={() => setSelectedAutomationCaseIds([])} onSelectAll={() => setSelectedAutomationCaseIds((current) => [...new Set([...current, ...filteredAutomationCases.map((testCase) => testCase.id)])])} selectedCount={selectedAutomationCaseIds.length} selectAllLabel="Select loaded cases"/>
                 </div>
                 <div className="catalog-toolbar-actions" aria-label="Automation case actions">
                   {automationActionTargetIds.length ? <>
+                  {projectId && appTypeId ? <AutomationCreateSuiteAction key={`${projectId}:${appTypeId}`} appTypeId={appTypeId} projectId={projectId} cases={automatedCases} selectedIds={automationActionTargetIds}/> : null}
                   {canDeleteAutomationCases ? <button className="ghost-button danger" type="button" disabled={deleteSelectedAutomationCases.isPending} onClick={async () => {
                             const ids = [...automationActionTargetIds];
                             if (await confirmDelete({ message: `Delete ${ids.length} selected automation case${ids.length === 1 ? "" : "s"}? This removes their manual-case links and automation coverage. Manual cases, reusable assets and historical run evidence are preserved.`, confirmLabel: "Delete automation cases" }))
@@ -203,29 +212,21 @@ return (<div className={`page-content page-content--automation${""}`}>
                   </> : null}
                   {canCreateAutomationDraft ? <button className="primary-button automation-choose-manual-toolbar-button" disabled={!appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
                     <AddIcon />
-                    <span>Create automation case</span>
+                    <span>{engineer ? "Build from a manual test" : "Create automation case"}</span>
                   </button> : null}
                 </div>
               </div>)}>
-            {testCasesQuery.isLoading || executionResultsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-            {testCasesQuery.isError ? <div className="workspace-access-state" role="alert"><h2>Automation cases couldn’t be loaded</h2><p>Retry to restore your cases and their current state.</p><button className="ghost-button" type="button" onClick={() => void testCasesQuery.refetch()}>Retry</button></div> : null}
-            {testCasesQuery.isSuccess && !automatedCases.length ? (<section className="automation-start-guide">
-                <div><span className="eyebrow">Build your first automation</span><h2>Start with a behavior worth protecting.</h2><p>Bring a manual case or describe the flow. Review the generated steps and objects before your first run.</p></div>
-                <div className="automation-start-options">
-                  <article><span className="automation-start-number">01</span><h3>Define the behavior</h3><p>Use an existing case, record a browser flow or author steps in the editor.</p>{canCreateAutomationDraft ? <button className="primary-button" disabled={!appTypeId} type="button" onClick={() => setIsCreateAutomationOpen(true)}>Create automation case <span aria-hidden="true">→</span></button> : null}{!canCreateAutomationDraft ? <small>Automation authoring and Test Case creation permissions are required.</small> : !appTypeId ? <small>Select an application to begin.</small> : null}</article>
-                  <article><span className="automation-start-number">02</span><h3>Build reusable objects</h3><p>Generate locator candidates from source and review them in the object repository.</p>{hasPermission(session, "agentic_workflow.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button" type="button" onClick={() => navigate("/agentic-workflows?view=agents")}>Explore source agents <span aria-hidden="true">→</span></button> : <small>Source agents need agent access and the Agents feature.</small>}</article>
-                  <article><span className="automation-start-number">03</span><h3>Run with evidence</h3><p>Choose an environment and configuration, then capture outcomes, logs and attachments.</p><small>Run actions become available after you select an automation case.</small></article>
-                </div>
-              </section>) : null}
+            {testCasesQuery.isLoading ? <TileCardSkeletonGrid /> : null}
+            {testCasesQuery.isError && !automatedCases.length ? <div className="workspace-access-state" role="alert"><h2>Automation cases couldn’t be loaded</h2><button className="ghost-button" type="button" onClick={() => void testCasesQuery.refetch()}>Retry</button></div> : null}
+            {testCasesQuery.isSuccess && !automatedCases.length && (activeAutomationCaseSearchCount
+                ? <div className="empty-state compact"><p>No automation cases match these filters.</p><button className="ghost-button" type="button" onClick={clearFilters}>Clear filters</button></div>
+                : <div className="empty-state"><h3>No automation cases yet</h3><p>{canCreateAutomationDraft ? "Start from a manual test, record a flow, or author the steps." : "Automation authoring access is required to create a case."}</p></div>)}
             {!testCasesQuery.isLoading && automatedCases.length ? (<TileBrowserPane className="automation-case-tile-browser" scrollKey={`automation-cases:${projectId}:${appTypeId}`}>
                 {automationCatalogViewMode === "tile" && filteredAutomationCases.length ? (<div className="tile-browser-grid">
                     {filteredAutomationCases.map((testCase) => {
-                        const history = (historyByCaseId[testCase.id] || []).slice(0, 10);
-                        const latest = history[0];
-                        const passedRuns = history.filter((result) => result.status === "passed").length;
-                        const passRate = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
-                        const isActive = "" === testCase.id;
-                        return (<div aria-pressed={isActive} className={["record-card tile-card test-case-card test-case-catalog-card automation-case-tile", isActive ? "is-active" : ""].filter(Boolean).join(" ")} key={testCase.id} onClick={() => {
+                        const evidence = automationCatalogEvidence(testCase);
+                        const platform = AUTOMATION_CASE_TYPES.find(type => type.value === testCase.automation_case_type)?.label;
+                        return (<div className="record-card tile-card test-case-card test-case-catalog-card automation-case-tile" key={testCase.id} onClick={() => {
                                 selectAutomationCase(testCase.id);
                             }} onKeyDown={(event) => {
                                 if (event.target !== event.currentTarget) {
@@ -245,33 +246,31 @@ return (<div className={`page-content page-content--automation${""}`}>
                               <DisplayIdBadge value={automationDisplayIdByCaseId[testCase.id] || testCase.display_id || testCase.id}/>
                             </label>
                             <div className="catalog-inline-actions test-case-top-actions">
-                              <StatusBadge value="automated"/>
-                              <StatusBadge value={testCase.automation_status || "ready"}/>
+                              <StatusBadge value={testCase.automation_status === "ready" ? "Plan ready" : "Incomplete plan"}/>
                             </div>
                           </div>
                           <div className="tile-card-header">
-                            <TileCardIconFrame tone={getTileCardTone(latest?.status || testCase.status)}>
+                            <TileCardIconFrame tone={getTileCardTone(evidence.outcomeLabel?.toLowerCase())}>
                               <TileCardCaseIcon />
                             </TileCardIconFrame>
                             <div className="tile-card-title-group test-case-card-title-group">
-                              <span className="tile-card-kicker">{automationDisplayIdByCaseId[testCase.id] || "AT"} · Keyword automation</span>
+                              {platform && <span className="tile-card-kicker">{platform}</span>}
                               <strong>{testCase.title}</strong>
                             </div>
                           </div>
-                          <CatalogCardDescription fallback="Automation is mapped to the original manual case definition." profile="test-case" value={testCase.description}/>
+                          {testCase.description && <CatalogCardDescription fallback="" profile="test-case" value={testCase.description}/>}
                           <div className="tile-card-facts">
-                            <TileCardFact label={testCase.automation_status === "incomplete" ? "Incomplete" : "Ready"} title="Automation state" tone={testCase.automation_status === "incomplete" ? "neutral" : "success"}><SparkIcon /></TileCardFact>
-                            <TileCardFact label={`${history.length} runs`} title="Recent run history" tone={history.length ? "info" : "neutral"}><TileCardRunsIcon /></TileCardFact>
+                            {canViewExecutionMetrics && <TileCardFact label={evidence.outcomeLabel || "No finalized result"} title="Latest finalized outcome" tone={getTileCardTone(evidence.outcomeLabel?.toLowerCase())}><TileCardRunsIcon /></TileCardFact>}
                             <TileCardFact label={`P${testCase.priority || 3}`} title="Priority"><TileCardStepsIcon /></TileCardFact>
                           </div>
-                          <div className="tile-card-footer">
-                            <TileCardProgress breakdown={buildHistoryStatusBreakdown(history)} displayValue={history.length ? `${passRate}%` : "No runs"} label="Recent pass rate" title={history.length ? `${passedRuns} of ${history.length} recent run outcomes passed` : "No recent run outcomes"} value={history.length ? passRate : null}/>
-                          </div>
+                          {canViewExecutionMetrics && evidence.passRate !== null && <div className="tile-card-footer">
+                            <TileCardProgress breakdown={buildHistoryStatusBreakdown(evidence.finalized)} displayValue={`${evidence.passRate}%`} label="Recent pass rate" title={`${evidence.passed} of ${evidence.finalized.length} finalized outcomes passed in the latest 10 results`} value={evidence.passRate}/>
+                          </div>}
                         </div>
                       </div>);
                     })}
                   </div>) : null}
-                {automationCatalogViewMode === "list" ? (<DataTable columns={automationCaseListColumns} enableColumnResize enableHeaderColumnReorder emptyMessage="No automation cases match the current search." getRowClassName={(testCase) => ("" === testCase.id ? "is-active-row" : "")} getRowKey={(testCase) => testCase.id} hideToolbarCopy onRowClick={(testCase) => selectAutomationCase(testCase.id)} renderRowActions={(testCase) => (<CatalogActionMenu actions={[
+                {automationCatalogViewMode === "list" ? (<DataTable columns={automationCaseListColumns} enableColumnResize enableHeaderColumnReorder emptyMessage="No automation cases match these filters." getRowKey={(testCase) => testCase.id} hideToolbarCopy onRowClick={(testCase) => selectAutomationCase(testCase.id)} renderRowActions={(testCase) => (<CatalogActionMenu actions={[
                             {
                                 label: "Open automation case",
                                 description: "Open this case in the automation workspace.",
@@ -279,7 +278,11 @@ return (<div className={`page-content page-content--automation${""}`}>
                                 onClick: () => selectAutomationCase(testCase.id)
                             }
                         ]} label={`${testCase.title} actions`}/>)} rows={filteredAutomationCases} storageKey="hellotest:automation-cases:list-columns"/>) : null}
-                {automationCatalogViewMode === "tile" && !filteredAutomationCases.length ? (<div className="empty-state compact">No automation cases match the current search.</div>) : null}
+                {testCasesQuery.hasNextPage && <div className="catalog-filter-actions">
+                  <button className="ghost-button" type="button" disabled={testCasesQuery.isFetching} onClick={() => void testCasesQuery.fetchNextPage()}>
+                    {testCasesQuery.isFetchingNextPage ? "Loading cases…" : testCasesQuery.isFetchNextPageError ? "Retry loading more cases" : "Load more cases"}
+                  </button>
+                </div>}
               </TileBrowserPane>) : null}
           </Panel>)} detailView={null}/>)}
 
@@ -301,16 +304,16 @@ return (<div className={`page-content page-content--automation${""}`}>
           <div className="modal-header"><div><h2>Build with automation agent</h2><p>{batchBuildTargetIds.length} selected cases · Saved plans are checked before building.</p></div><DialogCloseButton disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)}/></div>
           <div className="resource-form"><div className="resource-form-body automation-agent-brief">
             <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} rows={4} value={agentMission} placeholder="Each agent uses its case’s saved plan. Add instructions that apply to all selected cases."/></label>
-            <div className="automation-plan-behavior-fields">{batchHasUrlRuntime ? <label className="form-field"><span>Start URL{batchStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Build start URL" type="url" required={batchStartUrlRequired} onChange={(event) => setBatchStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={batchStartUrl}/><small className="muted">{batchStartUrlRequired ? "Review the application URL for this build, including retries." : "API-only plans may use their configured request URLs."}</small>{batchStartUrl.trim() && batchStartUrlValidation ? <small role="alert">{batchStartUrlValidation}</small> : null}</label> : null}<label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt}/><small className="muted">Leave empty to queue now.</small></label></div>
+            <div className="automation-plan-behavior-fields">{batchHasUrlRuntime ? <label className="form-field"><span>{batchStartUrlRequired ? "Start URL (required)" : "API base URL (optional)"}</span><input aria-label={batchStartUrlRequired ? "Build start URL" : "API base URL"} type="url" required={batchStartUrlRequired} onChange={(event) => setBatchStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={batchStartUrl}/><small className="muted">{batchStartUrlRequired ? "Review the application URL for this build, including retries." : "API-only plans may use their configured request URLs."}</small>{batchStartUrl.trim() && batchStartUrlValidation ? <small role="alert">{batchStartUrlValidation}</small> : null}</label> : null}<label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt}/><small className="muted">Leave empty to queue now.</small></label></div>
             <details><summary>Additional guidance & execution context</summary><div className="stack-list"><AiLlmSelect integrations={asArray(automationLlmIntegrationsQuery.data)} value={buildAgentSelection.integrationId} onChange={integrationId => setBuildAgentSelection(current => ({ ...current, integrationId }))} disabled={scheduleAiAutomation.isPending} scopeKey={projectId}/><label className="form-field"><span>Guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} rows={3} value={builderContext}/></label><ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId}/></div></details>
             {batchStartUrlRequired ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={scheduleAiAutomation.isPending}/> : null}
-                      <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/>
+            {batchStartUrlRequired && batchBuildReadinessQuery.data?.every(plan => plan.runtimes.every(runtime => runtime === "web")) ? <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} hasEnvironment={Boolean(selectedExecutionEnvironmentId)} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/> : null}
             <p className="muted">Each build includes its saved steps, expected results, accessible stories, reusable objects and selected execution context.</p>
             {batchBusy?<p role="status">Finish or reconcile the selected case’s current authoring operation before starting another build.</p>:null}
             <section className="automation-batch-readiness" aria-label="Selected build plans">
               {batchBuildReadinessQuery.isPending ? <p role="status">Checking saved behavior…</p> : null}
               {batchBuildReadinessQuery.isError ? <div role="alert"><p>{batchBuildReadinessQuery.error instanceof Error ? batchBuildReadinessQuery.error.message : "Saved plans could not be checked."}</p><button className="ghost-button compact" type="button" onClick={() => void batchBuildReadinessQuery.refetch()}>Recheck plans</button></div> : null}
-              {batchBuildReadinessQuery.data?.map(result => <div key={result.id}><strong>{result.title}</strong><span>{result.stepCount} steps · {result.ready ? result.stepCount ? "Ready to build" : "Plan from instructions" : "Needs attention"}</span>{result.issues.filter(issue => issue.severity === "blocker").map((issue, index) => <p className="automation-validation-error" key={index}>{issue.order ? `Step ${issue.order} · ` : ""}{issue.message}</p>)}</div>)}
+              {batchBuildReadinessQuery.data?.map(result => <div key={result.id}><strong>{result.title}</strong><span>{result.runtimes.map(runtime => runtime === "web" ? "Web" : runtime === "ios" ? "iOS" : runtime.toUpperCase()).join(" + ")} · {result.stepCount} steps · {result.ready ? result.stepCount ? "Ready to build" : "Plan from instructions" : "Needs attention"}</span>{result.issues.filter(issue => issue.severity === "blocker").map((issue, index) => <p className="automation-validation-error" key={index}>{issue.order ? `Step ${issue.order} · ` : ""}{issue.message}</p>)}</div>)}
             </section>
           </div><div className="modal-footer"><button className="ghost-button" disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)} type="button">Cancel</button>{canUseAutomationAi ? (<button className="primary-button" disabled={batchBusy || !batchBuildTargetIds.length || !canUseAutomationAi || scheduleAiAutomation.isPending || Boolean(batchStartUrlValidation) || batchBuildReadinessQuery.isPending || batchBuildReadinessQuery.isError || Boolean(batchBuildReadinessQuery.data?.some(result => !result.ready))} onClick={() => scheduleAiAutomation.mutate()} type="button"><SparkIcon />{scheduleAiAutomation.isPending ? "Queueing…" : agentScheduledAt ? "Schedule builds" : "Build selected cases"}</button>) : null}</div></div>
         </div>
@@ -320,8 +323,8 @@ return (<div className={`page-content page-content--automation${""}`}>
           <div aria-modal="true" aria-labelledby="automation-create-dialog-title" className="modal-card resource-modal-card automation-create-dialog automation-authoring-create" onClick={(event) => event.stopPropagation()} ref={createAutomationDialogRef} role="dialog" tabIndex={-1}>
             <div className="resource-modal-header">
               <div className="resource-modal-title">
-                <h2 className="dialog-title" id="automation-create-dialog-title">Create automation case</h2>
-                <p>Name the behavior. Choose how to build it.</p>
+                <h2 className="dialog-title" id="automation-create-dialog-title">{engineer ? "Set up an automation build" : "Create automation case"}</h2>
+                <p>{engineer ? "Link a manual Test Case, or describe the behavior to automate. Choose where the Engineer should run." : "Name the behavior. Choose how to build it."}</p>
               </div>
               <DialogCloseButton label="Close create automation case" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation}/>
             </div>
@@ -338,11 +341,12 @@ return (<div className={`page-content page-content--automation${""}`}>
                           {canRecordCreation ? (<button aria-pressed={automationCreationMode === "record"} disabled={!canUseRecorder} onClick={() => setAutomationCreationMode("record")} type="button"><MousePointerIcon />Record flow</button>) : null}
                           <button aria-pressed={automationCreationMode === "blank"} onClick={() => setAutomationCreationMode("blank")} type="button"><PencilIcon />Author steps</button>
                         </div>
-                        {automationCreateRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL{automationCreateStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Automation case start URL" type="url" required={automationCreateStartUrlRequired} onChange={(event) => setAutomationCreateStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={automationCreateStartUrl}/><small className="muted">{automationCreateStartUrlRequired ? "Saved with this case and used when generating or retrying its automation." : "Optional for API-only cases."}</small>{automationCreateStartUrl.trim() && automationCreateStartUrlValidation ? <small role="alert">{automationCreateStartUrlValidation}</small> : null}</label> : null}
+                        {automationCreateRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>{automationCreateStartUrlRequired ? "Start URL (required)" : "API base URL (optional)"}</span><input aria-label={automationCreateStartUrlRequired ? "Automation case start URL" : "API base URL"} type="url" required={automationCreateStartUrlRequired} onChange={(event) => setAutomationCreateStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={automationCreateStartUrl}/><small className="muted">{automationCreateStartUrlRequired ? "Saved with this case and used when generating or retrying its automation." : "Optional for API-only cases."}</small>{automationCreateStartUrl.trim() && automationCreateStartUrlValidation ? <small role="alert">{automationCreateStartUrlValidation}</small> : null}</label> : null}
                         {automationCreationMode === "ai" && !importedApiPlanReady ? (<div className="automation-agent-brief automation-create-ai">
                             <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission}/></label>
                             {automationCreateRuntimeTypes.includes("web") ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={createAutomationCase.isPending}/> : null}
-                      <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/>
+                            <ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} hideDataSet selectedEnvironmentId={selectedExecutionEnvironmentId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} onConfigurationChange={setSelectedExecutionConfigurationId} selectedDataSetId={automationCreateMetadata.dataSetId} onDataSetChange={dataSetId => updateAutomationCreateMetadata({ dataSetId })}/>
+                            {automationCreateRuntimeTypes.length > 0 && automationCreateRuntimeTypes.every(runtime => runtime === "web") ? <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} hasEnvironment={Boolean(selectedExecutionEnvironmentId)} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/> : null}
                             <details className="automation-ai-options"><summary><IconSettings size={14}/>Build settings</summary><div className="automation-ai-options-body"><AiLlmSelect integrations={asArray(automationLlmIntegrationsQuery.data)} value={buildAgentSelection.integrationId} onChange={integrationId => setBuildAgentSelection(current => ({ ...current, integrationId }))} disabled={createAutomationCase.isPending} scopeKey={projectId}/><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext}/></label>
                             <label className="form-field"><span>Schedule build (optional)</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt}/><small>Leave blank to queue the build after the case is saved.</small></label>
                             </div></details>
@@ -351,7 +355,7 @@ return (<div className={`page-content page-content--automation${""}`}>
                       </section>
                     </div>
                     <div className="automation-create-plan-panel">
-                      <div><strong>Behavior plan</strong><p className="muted">Linked manual cases retain origin, Story and module context. API twins start with request steps you author below; other case types include the source behavior plan.</p></div>
+                      <div><strong>Behavior plan</strong><p className="muted">{includeLinkedBehavior ? "Linked manual steps become part of this plan." : "Link a manual case for coverage, then add the API requests here."}</p></div>
                       {automationCreateManualCaseIds.length && createSourcesQuery.isPending ? <LoadingState label="Loading source Test Case plans"/> : null}
                       {automationCreateManualCaseIds.length && createSourcesQuery.isError ? <div className="empty-state compact" role="alert"><span>Source steps could not be loaded.</span><button className="ghost-button compact" onClick={() => void createSourcesQuery.refetch()} type="button">Retry source plans</button></div> : null}
                       {automationCreateManualCaseIds.map((sourceId) => {

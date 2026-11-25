@@ -39,6 +39,7 @@ api.projects.list = async () => [{ id: 'project', name: 'Checkout project' }, { 
 api.appTypes.list = async ({ project_id }) => [{ id: project_id === 'project' ? 'app' : 'other-app', project_id, name: project_id === 'project' ? 'Web portal' : 'Other app' }];
 api.integrations.list = async query => { window.workspaceCalls.providers.push(query); return [{ id: 'model', type: 'llm', name: 'Project model', model: 'review-model', is_active: true }, { id: 'disabled-model', type: 'llm', name: 'Disabled model', is_active: false }]; };
 api.agenticWorkflows.ask = realAsk; api.agenticWorkflows.getSession = realGetSession;
+api.agenticWorkflows.evidencePreview = async () => ({status:'checked',scopes:window.emptyEvidenceScope?[{scope:'runs',available:0,preview_count:0,required_confirmation:true}]:[]});
 window.savedReviews = [];
 api.workspaceTransactions.list = api.agenticWorkflows.listSessions = async query => { window.workspaceCalls.sessions.push(query); return structuredClone(window.savedReviews); };
 api.workspaceTransactions.events = async id => { window.workspaceCalls.events.push(id); return structuredClone(window.savedEvents || []); };
@@ -62,7 +63,6 @@ const specialists = [
   ['quality-orchestrator', 'Quality Orchestrator', 6, 'Prioritized quality plan'],
   ['story-architect', 'Story Architect', 3, 'Acceptance criteria review'],
   ['test-designer', 'Test Design Agent', 5, 'Traceable scenario brief'],
-  ['automation-engineer', 'Automation Engineer', 6, 'Complete automation case and verification plan'],
   ['run-planner', 'Smart Run Planner', 5, 'Risk-based run recommendation'],
   ['failure-analyst', 'Failure Analyst', 4, 'Failure investigation brief'],
   ['bug-reporter', 'Defect Reporter', 5, 'Reviewable defect outline'],
@@ -117,7 +117,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
       const saved = id === 'viewer-review' ? response('viewer-review') : await page.evaluate(id => { window.workspaceCalls.lookups.push(id); return window.deepReview; }, id);
       await route.fulfill({ status: saved ? 200 : 404, contentType: 'application/json', body: JSON.stringify(saved || { message: 'Review not found.' }) });
     });
-    await page.goto(baseUrl);
+    await page.goto(baseUrl, { waitUntil: 'commit' });
     await page.getByRole('button', { name: 'Open Object Repository Generator', exact: true }).waitFor();
     assert.equal(await page.locator('.agent-library-card').count(), catalogSize);
     assert.deepEqual(await page.evaluate(() => window.workspaceCalls.providers), [], 'library avoids model lookups');
@@ -162,6 +162,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     }
     await page.getByRole('button', { name: 'Open Test Design Agent', exact: true }).click();
     const task = page.getByLabel('Ask or delegate to HelloTest AI', { exact: true });
+    await page.evaluate(() => { window.emptyEvidenceScope = true; });
     await task.fill('Review checkout retry coverage and identify one useful scenario.');
     assert.equal(await page.getByRole('group', { name: 'Review format', exact: true }).count(), 0);
     await page.locator('.agent-command-options > summary').click();
@@ -180,7 +181,10 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
       await page.evaluate(reply => { window.savedReviews = [reply.transaction]; window.savedEvents = reply.events; window.deepReview = reply; }, reply);
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: progress\ndata: '+JSON.stringify({contract_type:'AgentProgress',contract_version:'1.0',session_id:reply.transaction.id,phase:'context',message:'Reading authorized case evidence'})+'\n\nevent: result\ndata: '+JSON.stringify(reply)+'\n\n' });
     });
-    await page.getByRole('button', { name: 'Start review', exact: true }).click();
+    await page.getByRole('region', { name: 'Evidence preview' }).getByText(/priority scopes have no matching records/).waitFor();
+    assert.equal(requests.length, 0);
+    await page.getByRole('button', { name: 'Start with limited evidence', exact: true }).click();
+    await page.evaluate(() => { window.emptyEvidenceScope = false; });
     await page.getByText(result.headline, { exact: true }).waitFor();
     assert.equal(requests.length, 1);
     assert.equal(requests[0].headers.authorization, 'Bearer specialist-fixture');
@@ -192,7 +196,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(requests[0].body.mode, 'agent'); assert.ok(!requests[0].body.context_scopes.includes('bugs'));
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
-    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/^Outcome/}).click();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/^Drafts & actions/}).click();
     const proposals=page.getByRole('region',{name:'Structured agent proposals'});
     await page.getByRole('heading',{name:'Proposals for review'}).waitFor();
     await page.getByText('Acceptance Criteria:',{exact:true}).waitFor();
@@ -214,11 +218,11 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).focus();await page.keyboard.press('ArrowRight');
     assert.equal(await outputTabs.getByRole('tab',{name:/Findings/}).getAttribute('aria-selected'),'true');
     await outcome.getByText(result.findings[0].detail,{exact:true}).waitFor();assert.equal(await outcome.getByRole('tabpanel').count(),1,'One output section is presented at a time');
-    await page.keyboard.press('End');assert.equal(await outputTabs.getByRole('tab',{name:/Model calls/}).evaluate(element=>element===document.activeElement),true);
-    await outputTabs.getByRole('tab',{name:/^Outcome/}).click();
+    await page.keyboard.press('End');assert.equal(await outputTabs.getByRole('tab',{name:/Run details/}).evaluate(element=>element===document.activeElement),true);
+    await outputTabs.getByRole('tab',{name:'Overview',exact:true}).click();
     await outcome.getByText(/^Follow-up considerations \(/).click();const nextAction=outcome.locator('.agent-brief-action-selection input').first();await nextAction.uncheck();assert.equal(await nextAction.isChecked(),false,'Next actions can be selected before entering editing');await nextAction.check();
-    await outputTabs.getByRole('tab',{name:'Full brief',exact:true}).click();
-    const completeOutput = outcome.getByRole('region',{name:'Complete specialist output'});
+    await outcome.getByText('Detailed assessment',{exact:true}).click();
+    const completeOutput = outcome.getByRole('region',{name:'Detailed specialist assessment'});
     await completeOutput.getByRole('heading',{name:'Design rationale'}).waitFor();
     assert.equal(await completeOutput.getByRole('table').count(),1,'Markdown matrices render as readable tables');
     assert.equal(await completeOutput.evaluate(element=>element.scrollHeight>element.clientHeight),true,'Long outputs have a bounded scroll region');
@@ -229,7 +233,6 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await capture(page, screenshots + '/04-specialist-result.png');
     assert.equal(await page.getByRole('button',{name:'Edit brief',exact:true}).count(),0);
     assert.equal(await page.locator('.agent-outcome-action-dock').count(),0);
-    await outputTabs.getByRole('tab',{name:/^Outcome/}).click();
     await outcome.locator('.agent-brief-action-selection input').nth(1).uncheck();
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download brief', exact: true }).click();
@@ -329,7 +332,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByText('Plan a reusable workflow', {exact:true}).count(),0);
     assert.equal(await page.getByText('Evidence review diagnostics', {exact:true}).count(),0);
     assert.equal(await page.getByText('cited references', {exact:false}).count(),0);
-    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Model calls/}).click();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Run details/}).click();
     await page.getByText('Request to model',{exact:true}).waitFor();
     await page.getByRole('navigation',{name:'Choose activity model call'}).getByRole('button',{name:/^Story Architect · completed$/}).click();
     await page.getByText('followup-call',{exact:true}).waitFor();
@@ -341,7 +344,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Create workflow draft', exact: true }).count(), 0);
     await page.locator('.agent-outcome-panel').getByRole('tab',{name:'Overview',exact:true}).click();
-    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/^Outcome/}).click();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/^Drafts & actions/}).click();
     await page.getByRole('button', { name: 'Download brief', exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {

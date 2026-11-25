@@ -921,6 +921,10 @@
     min-width: 0 !important;
   }
 
+  .requirement-toolbar-view {
+    display: none;
+  }
+
   .requirement-toolbar-actions {
     gap: 8px;
     padding-top: 0;
@@ -929,11 +933,6 @@
   .requirement-toolbar-actions > * {
     flex: 1 1 10rem !important;
     max-width: 100%;
-  }
-
-  .requirement-toolbar-actions .catalog-hierarchy-move-control,
-  .requirement-toolbar-actions .compact-select {
-    width: 100%;
   }
 
   .requirement-toolbar-actions .requirement-split-action-button {
@@ -1061,7 +1060,6 @@
 /* Story workspace authority: commands remain discoverable, detail fields use
    the same measured composition as Create Story, and AI actions stay legible. */
 .requirement-catalog-toolbar {
-  align-items: flex-start !important;
   flex-wrap: wrap !important;
 }
 

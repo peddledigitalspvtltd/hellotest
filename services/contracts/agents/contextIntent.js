@@ -78,6 +78,7 @@ const BASE_AGENT_CONTEXT_POLICIES = Object.freeze({
 const specialistIntents = require('@hellotest/contracts/agents/contextPolicies.json');
 const AGENT_CONTEXT_POLICIES = Object.freeze(Object.fromEntries(Object.entries(specialistIntents).map(([id, profile]) => [id, {
   ...(BASE_AGENT_CONTEXT_POLICIES[id] || {}),
+  input_type: profile.input_type || `${id.replace(/-/g, "_")}_task`,
   priority_scopes: profile.scopes,
   retrieval_focus: BASE_AGENT_CONTEXT_POLICIES[id]?.retrieval_focus || profile.description,
   outcome_sections: BASE_AGENT_CONTEXT_POLICIES[id]?.outcome_sections || ['findings', 'evidence', 'risk', 'reviewable next items'],
@@ -134,7 +135,18 @@ const INFORMATION_NEED_BY_INTENT = Object.freeze({
   project_overview: "current project composition, coverage, execution health, open defect risk, and evidence gaps"
 });
 
-const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", history = [] } = {}) => {
+const IDENTIFIER_PREFIX = "(?:AT|BUG|TC|TS|STORY|RUN|REQ|REL|SPR|SPRINT)";
+const NUMERIC_IDENTIFIER = new RegExp(`\\b${IDENTIFIER_PREFIX}[_-]?\\d+\\b`, "gi");
+const PROJECT_IDENTIFIER = new RegExp(`\\b${IDENTIFIER_PREFIX}[_-](?=[A-Z0-9_-]*\\d)[A-Z0-9]+(?:[_-][A-Z0-9]+)*\\b`, "g");
+function projectIdentifiers(question) {
+  const matches = [...question.matchAll(PROJECT_IDENTIFIER)];
+  for (const match of question.matchAll(NUMERIC_IDENTIFIER)) {
+    if (!matches.some(full => full.index === match.index)) matches.push(match);
+  }
+  return unique(matches.sort((left, right) => left.index - right.index).map(match => match[0].toUpperCase())).slice(0, 12);
+}
+
+const planContext = ({ prompt, agentId, specialist, requestedScopes = [], mode = "chat", history = [] } = {}) => {
   const question = normalizeText(prompt, 8_000);
   const wordCount = question.split(/\s+/).filter(Boolean).length;
   const previousUserMessage = [...asArray(history)].reverse().find((entry) => entry?.role === "user" && normalizeText(entry.content, 2_500));
@@ -154,7 +166,10 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     && explicitProductHelp
     && !/\b(?:TC|RUN|STORY|BUG|REQ|SPR|SPRINT)[_-]\d+\b/i.test(resolvedQuestion)
     && (!hasCurrentProjectSignal || PRODUCT_USAGE_ACTION.test(resolvedQuestion) && !EXPLICIT_PROJECT_REQUEST.test(resolvedQuestion));
-  const routedIntents = pureProductHelp
+  const selectedPolicy = specialist || AGENT_CONTEXT_POLICIES[agentId];
+  const routedIntents = selectedPolicy
+    ? []
+    : pureProductHelp
     ? [INTENT_RULES[0]]
     : matchedIntents;
   const intentScopes = unique(routedIntents.flatMap((rule) => rule.scopes));
@@ -163,13 +178,13 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     : /\b(?:test cases?)\b/i.test(resolvedQuestion) && /\b(?:steps?|traceability|authoring|quality|missing|without)\b/i.test(resolvedQuestion)
       ? unique(["test-cases", "stories", ...intentScopes])
       : intentScopes;
-  const policy = agentId ? (AGENT_CONTEXT_POLICIES[agentId] || DEFAULT_AGENT_POLICY) : {
+  const policy = agentId ? (selectedPolicy || DEFAULT_AGENT_POLICY) : {
     priority_scopes: chatPriorityScopes.length ? chatPriorityScopes : ["knowledge"],
     retrieval_focus: "the user's exact question, current project facts, relevant indexed domain context, evidence currency, and explicit limitations",
     outcome_sections: ["direct answer", "supporting evidence", "risk or limitation", "useful next step"]
   };
   const inputType = agentId
-    ? (domainIntents[0] ? `${domainIntents[0].id}_task` : "specialist_task")
+    ? selectedPolicy?.input_type || "specialist_task"
     : pureProductHelp
       ? "product_help"
       : domainIntents[0]?.id || "project_question";
@@ -185,7 +200,7 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
             ? "project_facts"
             : "project_knowledge";
   const validRequested = unique(asArray(requestedScopes).map((scope) => normalizeText(scope, 80).toLowerCase()).filter((scope) => CONTEXT_SCOPES.includes(scope)));
-  const confidence = agentId && AGENT_CONTEXT_POLICIES[agentId] || pureProductHelp ? "high" : matchedIntents.length ? (domainIntents.length > 1 ? "high" : "medium") : "low";
+  const confidence = selectedPolicy || pureProductHelp ? "high" : matchedIntents.length ? (domainIntents.length > 1 ? "high" : "medium") : "low";
   const widened = confidence === "low" && !validRequested.length;
   const baseScopes = pureProductHelp ? ["knowledge"] : validRequested.length ? validRequested : widened ? CONTEXT_SCOPES : policy.priority_scopes;
   // Knowledge is a governed evidence source for every specialist. It is added
@@ -202,13 +217,13 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     ? ["product_help"]
     : unique([
         ...effectiveScopes.flatMap((scope) => SOURCE_KINDS_BY_SCOPE[scope] || []),
-        ...(hasProductHelpIntent ? ["product_help"] : [])
+        ...(!agentId && hasProductHelpIntent ? ["product_help"] : [])
       ]);
-  const identifiers = unique(resolvedQuestion.match(/\b(?:AT[_-][0-9]+|(?:BUG|TC|TS|STORY|RUN|REQ|REL|SPRINT)-?[A-Z0-9_-]+)\b/gi) || []).slice(0, 12);
+  const identifiers = projectIdentifiers(resolvedQuestion);
   const answerDepth = DETAILED_ANSWER.test(resolvedQuestion) || ["tool_help", "project_analysis", "mixed", "specialist_analysis"].includes(queryCategory)
     ? "detailed"
     : /\b(?:count|how many|status|list|which)\b/i.test(resolvedQuestion) ? "concise" : "standard";
-  const informationNeeds = unique(routedIntents.map((rule) => INFORMATION_NEED_BY_INTENT[rule.id])).slice(0, 8);
+  const informationNeeds = selectedPolicy ? [selectedPolicy.retrieval_focus] : unique(routedIntents.map((rule) => INFORMATION_NEED_BY_INTENT[rule.id])).slice(0, 8);
   if (!informationNeeds.length) informationNeeds.push("the exact named concept, current scoped facts when requested, supporting domain context, and explicit evidence gaps");
   return {
     agent_id: agentId || null,

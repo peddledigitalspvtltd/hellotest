@@ -1,6 +1,6 @@
 
 @media (max-width: 768px) {
-  html,
+  html:not(:has(.app-shell.workspace-experience-v2)),
   body,
   #root {
     height: auto !important;

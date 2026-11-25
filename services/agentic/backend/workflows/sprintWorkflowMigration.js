@@ -76,7 +76,28 @@ function upgradeSprintCaseLoop(workflow) {
 }
 
 function upgradeSprintWorkflow(workflow) {
-  return upgradeSprintPerCaseAssurance(upgradeSprintCaseLoop(upgradeLegacySprintWorkflow(workflow)));
+  return upgradeSprintItemFailurePolicy(upgradeSprintPerCaseAssurance(upgradeSprintCaseLoop(upgradeLegacySprintWorkflow(workflow))));
+}
+
+function upgradeSprintItemFailurePolicy(workflow) {
+  if (workflow?.settings?.template_id !== 'sprint-automator' || Number(workflow.settings.template_version) !== 4
+    || !Array.isArray(workflow.nodes) || workflow.nodes.length !== 10 || !Array.isArray(workflow.edges) || workflow.edges.length !== 11) return workflow;
+  const byId=new Map(workflow.nodes.map(node=>[node.id,node]));
+  if (byId.get('request')?.data?.kind !== 'trigger' || byId.get('sprint-output')?.data?.kind !== 'output'
+    || byId.get('sprint-stories')?.data?.kind !== 'apiTool' || byId.get('sprint-stories').data.apiResource !== 'sprintStories') return workflow;
+  const loops=['each-story','each-test-case'];
+  if (loops.some(id=>byId.get(id)?.data?.kind !== 'loop' || byId.get(id).data.loopAction !== 'workflow')) return workflow;
+  const tasks=['story-assurance','test-case-generation','test-case-assurance','test-data-generator','automation-engineer'];
+  if (tasks.some(id=>byId.get(id)?.data?.kind !== 'artifactTask' || byId.get(id).data.artifactTask !== id)) return workflow;
+  if (byId.get('automation-engineer').data.automationSource === 'manual_case') return workflow;
+  const canonicalEdges=[['request','sprint-stories'],['sprint-stories','each-story'],['each-story','story-assurance','loop'],
+    ['story-assurance','test-case-generation'],['test-case-generation','each-test-case'],['each-test-case','test-case-assurance','loop'],
+    ['test-case-assurance','test-data-generator'],['test-data-generator','automation-engineer'],['automation-engineer','each-test-case',null,'continue'],
+    ['each-test-case','each-story','done','continue'],['each-story','sprint-output','done']];
+  if (canonicalEdges.some(([source,target,out,inlet])=>!workflow.edges.some(edge=>edge.source===source&&edge.target===target
+    && (edge.sourceHandle||null)===(out||null) && (edge.targetHandle||null)===(inlet||null)))) return workflow;
+  return {...workflow,nodes:workflow.nodes.map(node=>loops.includes(node.id) && node.data.loopItemFailure == null
+    ? {...node,data:{...node.data,loopItemFailure:'continue'}} : node),settings:{...workflow.settings,template_version:5}};
 }
 
 function upgradeSprintPerCaseAssurance(workflow) {

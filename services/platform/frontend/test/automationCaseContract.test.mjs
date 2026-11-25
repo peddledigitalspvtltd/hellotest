@@ -31,7 +31,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
   assert.match(page, /Build instructions \(optional\)/);
   assert.match(page, /target_step_id: origin\.targetStepId \|\| undefined/);
   assert.match(page, /navigator\.clipboard\?\.writeText\(completeAutomationCode\)/);
-  assert.match(page, /emptyAction=\{canEditAutomationCode[\s\S]*?onClick=\{openInstructionEditor\}[\s\S]*?Add instruction/);
+  assert.match(page, /emptyAction=\{canEditSection[\s\S]*?onClick=\{openInstructionEditor\}[\s\S]*?Add instruction/);
   assert.match(page, /<DetailSectionTabs/);
   assert.match(page, /<AutomationRunReviewDialog/);
   assert.match(page, /const automationActionTargetIds = selectedAutomationActionTargetIds;/);

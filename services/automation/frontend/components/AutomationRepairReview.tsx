@@ -9,8 +9,9 @@ type Check={phase:string;status:string;detail:string};
 type Detail={status:string;source_current:boolean;build:string;verification:{status:string;checks:Check[]};validation:Record<string,{id:string}>|null;neighbors:Array<{id:string;title:string}>;data_sets:Array<{id:string;name:string}>;assertions:Array<{id:string;label:string}>;inventory_truncated:boolean;verification_scope?:{focused_step_order:number;total_sections:number;successor_sections:number}};
 export function AutomationRepairReview({summary}:{summary:AutomationRepairSummary}) {
   const [open,setOpen]=useState(false);
+  const api=summary.patch?.kind==='replace_api_url';
   return <section className="quality-evidence-panel" aria-label="Automation repair verification"><header><div><span className="quality-evidence-eyebrow">Typed repair · Assertions preserved</span><h3>Automation repair</h3></div><span className="quality-evidence-status">{summary.status.replace(/_/g,' ')}</span></header><p>{summary.detail}</p>
-    {summary.patch&&<><p>{summary.patch.rationale}</p><div className="repair-code-grid"><div><strong>Current section</strong><pre>{summary.patch.before}</pre></div><div><strong>Proposed section</strong><pre>{summary.patch.after}</pre></div></div><p className="repair-revision">Patch {summary.patch.hash}</p></>}
+    {summary.patch&&<><p>{summary.patch.rationale}</p><div className="repair-code-grid"><div><strong>{api?'Current API endpoint':'Current section'}</strong><pre>{summary.patch.before}</pre></div><div><strong>{api?'Proposed API endpoint':'Proposed section'}</strong><pre>{summary.patch.after}</pre></div></div><p className="repair-revision">Patch {summary.patch.hash}</p></>}
     {summary.id&&summary.project_id&&<details className="quality-evidence-details" onToggle={event=>setOpen(event.currentTarget.open)}><summary>Validate and apply repair</summary>{open&&<RepairValidation id={summary.id} projectId={summary.project_id}/>}</details>}
   </section>;
 }
@@ -26,7 +27,7 @@ function RepairValidation({id,projectId}:{id:string;projectId:string}) {
   return <div className="coverage-mapping-review">
     {query.isPending&&<p role="status">Loading validation evidence…</p>}{query.isError&&<p role="alert">Unable to load repair evidence. <button type="button" className="ghost-button" onClick={()=>void query.refetch()}>Retry</button></p>}
     {detail&&<>
-      <p>Build {detail.build} · {detail.status.replace(/_/g,' ')}. Checks use separate Run snapshots and fresh browser sessions with healing disabled. Prepare/reset isolated application fixtures before each phase.</p>
+      <p>Build {detail.build} · {detail.status.replace(/_/g,' ')}. Checks use separate Run snapshots and fresh sessions for browser steps. Prepare or reset isolated application fixtures before each phase.</p>
       {detail.verification_scope&&<p>Repair focuses on step {detail.verification_scope.focused_step_order}. Verification reruns all {detail.verification_scope.total_sections} sections, including {detail.verification_scope.successor_sections} following sections and the linked before/after cases.</p>}
       {!detail.source_current&&detail.status!=='applied'&&<p role="alert">The authored Test Case changed. Generate a new proposal before validating or applying.</p>}
       {!detail.validation&&detail.source_current&&<fieldset className="release-policy-fields" disabled={busy||!can('run.create')}><legend>Verification scope</legend>

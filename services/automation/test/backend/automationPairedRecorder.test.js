@@ -25,6 +25,18 @@ test('parameter defaults can change during a paired recording while plan edits s
   assert.equal(validatePairedRecording(input).status,'stopped');
   input.steps[0].action='Concurrent plan edit';assert.throws(()=>validatePairedRecording(input),{code:'AUTOMATION_RECORDER_CASE_CHANGED'});
 });
+test('a stale paired recording can be discarded after the authenticated browser session stops', () => {
+  const input = fixture();
+  input.testCase.revision += 1;
+  assert.equal(validatePairedRecording({ ...input, discard: true }).status, 'stopped');
+  input.steps = [{ id: 'step', step_order: 1, step_type: 'web', action: 'Fill name' }];
+  input.metadata.recorder_plan_key = require('../../backend/lib/recording/automationRecorderPlan').recorderPlanFingerprint(input.steps);
+  input.steps[0].action = 'Concurrent plan edit';
+  assert.equal(validatePairedRecording({ ...input, discard: true }).status, 'stopped');
+  assert.throws(() => validatePairedRecording({ ...input, discard: true, userId: 'another-user' }), { code: 'AUTOMATION_RECORDER_SCOPE_MISMATCH' });
+  input.capture.status = 'running';
+  assert.throws(() => validatePairedRecording({ ...input, discard: true }), { code: 'AUTOMATION_RECORDER_SCOPE_MISMATCH' });
+});
 test('actual paired recorder preparation authorizes and freezes context without resolving or contacting a server-local runner', async () => {
   const fs=require('node:fs');const source=fs.readFileSync(require.resolve('../../backend/services/builder/recorderImport'),'utf8');
   const body=source.slice(source.indexOf('exports.startRecorderSession ='),source.indexOf('exports.finishRecorderSession ='));

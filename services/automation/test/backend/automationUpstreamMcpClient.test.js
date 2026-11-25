@@ -22,6 +22,33 @@ function engine(t,{reject,initial=initialized,toolResult=nativeResult,preview,co
 
 const freshContext={schema:'hellotest.browser-context.v1',owned:true,context_mode:'fresh_isolated',initial_storage_empty:true,storage_state_loaded:false,created_before_navigation:true};
 
+test('workflow preview retries a transient native handshake once before any application or model work',async t=>{
+  const {connectPreviewBrowser}=require('../../backend/lib/upstream/automationPreviewBrowser');
+  let initializations=0,checks=0;
+  const f=engine(t,{reject:rpc=>rpc.method==='initialize'&&++initializations===1?new Response(null,{status:503}):null});
+  const events=[];
+  const browser=await connectPreviewBrowser({integration,startUrl:'https://application.test/'},{retryStartup:true,
+    onProgress:async event=>events.push(event),beforeConnect:async()=>{checks++;}});
+  assert.equal(initializations,2);
+  assert.equal(checks,2);
+  assert.equal(events[0]?.phase,'automation.agent.browser.startup_retry');
+  assert.equal(f.calls.some(call=>call.rpc?.method==='tools/call'),false);
+  await browser.close();
+});
+
+test('workflow preview skips reconnect on authorization and cancellation',async t=>{
+  const {connectPreviewBrowser}=require('../../backend/lib/upstream/automationPreviewBrowser');
+  const auth=engine(t,{reject:()=>new Response(null,{status:401})});
+  const beforeConnect=async()=>{};
+  await assert.rejects(connectPreviewBrowser({integration,startUrl:'https://application.test/'},{retryStartup:true,beforeConnect,
+    onProgress:async()=>assert.fail('A denied handshake may not be retried.')}),{code:'AUTOMATION_BROWSER_ENGINE_AUTHENTICATION_FAILED'});
+  assert.equal(auth.calls.length,1);
+  const ctl=new AbortController(),busy=engine(t,{reject:()=>new Response(null,{status:503})});
+  await assert.rejects(connectPreviewBrowser({integration,startUrl:'https://application.test/',signal:ctl.signal},{retryStartup:true,beforeConnect,
+    onProgress:async()=>ctl.abort()}),{name:'AbortError'});
+  assert.equal(busy.calls.length,1);
+});
+
 test('trusted initial context evidence is accepted only from completed host tool responses and is not forgeable through browser/tool properties',async t=>{
   engine(t,{contextReceipt:freshContext});
   const browser=await connectUpstreamPlaywright({integration,startUrl:'https://application.test/'});

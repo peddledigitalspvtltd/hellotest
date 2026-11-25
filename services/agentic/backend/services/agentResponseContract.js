@@ -57,10 +57,10 @@ const schema = {
         type: 'object', required: ['label', 'value'], properties: { label: nonempty(160), value: { type: 'number' } }
       } }
     } } },
-    automation_repair: { oneOf: [{ type: 'null' }, ...['replace_locator', 'replace_instructions'].map(kind => ({
-      type: 'object', additionalProperties: false, required: ['kind', 'step_id', 'rationale', kind === 'replace_locator' ? 'new_locator' : 'automation_code'],
+    automation_repair: { oneOf: [{ type: 'null' }, ...[['replace_locator', 'new_locator', 1024], ['replace_instructions', 'automation_code', 32000], ['replace_api_url', 'new_url', 2000]].map(([kind, field, limit]) => ({
+      type: 'object', additionalProperties: false, required: ['kind', 'step_id', 'rationale', field],
       properties: { kind: { const: kind }, step_id: nonempty(255), rationale: { type: 'string', minLength: 20, maxLength: 2000 },
-        ...(kind === 'replace_locator' ? { new_locator: nonempty(1024) } : { automation_code: nonempty(32000) }) }
+        [field]: nonempty(limit) }
     }))] },
     recommendations: texts, assumptions: texts, evidence_gaps: texts, suggested_handoffs: texts, citation_ids: references,
     no_changes_required: { type: 'boolean' },

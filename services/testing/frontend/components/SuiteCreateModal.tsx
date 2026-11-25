@@ -45,6 +45,7 @@ export type SuiteCreateModalProps = {
   onClose: () => void;
   onSubmit: (input: SuiteCreateInput) => void;
   isSaving: boolean;
+  submitError?: string;
 };
 
 function SuiteLabelsField({
@@ -181,7 +182,8 @@ export function SuiteCreateModal({
   selectedCaseIds,
   onClose,
   onSubmit,
-  isSaving
+  isSaving,
+  submitError
 }: SuiteCreateModalProps) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
 
@@ -344,7 +346,7 @@ export function SuiteCreateModal({
             <div className="suite-reference-footer-summary" aria-live="polite">
               <strong>{localSelectedIds.length} selected</strong>
               <span aria-hidden="true" />
-              <small>HelloTest Test Studio</small>
+              {submitError ? <small role="alert">{submitError}</small> : null}
             </div>
             <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
             <button className="primary-button" disabled={isSaving || !name.trim() || !dataSetValid || !modulesValid} type="submit">

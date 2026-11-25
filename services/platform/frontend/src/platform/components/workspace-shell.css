@@ -5,11 +5,21 @@ body:has(.app-shell.workspace-experience-v2),
 #root:has(.app-shell.workspace-experience-v2) {
   height: auto;
   min-height: 100%;
-  overflow: visible;
+  background: var(--app-canvas, var(--background)) !important;
 }
-/* Legacy mobile overflow rules must not defeat an active modal's scroll lock. */
-html:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([aria-hidden="true"]):not([hidden])),
-body:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([aria-hidden="true"]):not([hidden])) {
+body:has(.app-shell.workspace-experience-v2),
+#root:has(.app-shell.workspace-experience-v2) {
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+}
+html:has(.app-shell.workspace-experience-v2) {
+  overflow-x: clip;
+  /* Normal pages scroll with the document. Focused editors own their scroll panes. */
+  overflow-y: auto;
+  overscroll-behavior-y: none;
+}
+/* Lock the viewport without turning body into a scroll ancestor for the sticky rail. */
+html:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([aria-hidden="true"]):not([hidden])) {
   overflow: hidden !important;
 }
 :root body .app-shell.workspace-experience-v2 {
@@ -179,6 +189,18 @@ body:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([a
 .workspace-menu-divider { height: 1px; background: var(--workspace-border); margin: 5px 8px; }
 :root body .workspace-experience-v2 .nav-list { gap: 20px; }
 :root body .workspace-experience-v2 .nav-group:has(> .nav-group-items:empty) { display: none; }
+
+/* The assistant is floating. Its loading and error states must stay out of the workspace grid too. */
+.workspace-assistant-host { display: contents; }
+.workspace-assistant-host > :is(.empty-state, .app-error-state) {
+  position: fixed;
+  inset-inline-end: 24px;
+  inset-block-end: 24px;
+  z-index: 75;
+  width: min(350px, calc(100vw - 48px));
+  margin: 0;
+}
+
 @media(max-width:768px) {
   :root body .workspace-experience-v2 .workspace-preferences-popover { width: min(240px, calc(100vw - 24px)); }
 }

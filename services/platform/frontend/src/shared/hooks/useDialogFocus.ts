@@ -17,7 +17,7 @@ type DialogFocusOptions = {
 };
 
 const openDialogStack: HTMLElement[] = [];
-let previousBodyOverflow = "";
+let previousRootOverflow = "";
 
 /**
  * Gives Custom UI dialogs the keyboard behavior Jira users expect: initial focus,
@@ -49,8 +49,9 @@ export function useDialogFocus<T extends HTMLElement>({
     }
 
     if (openDialogStack.length === 0) {
-      previousBodyOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
+      // Body stays in normal flow so sticky navigation continues to use the viewport.
+      previousRootOverflow = document.documentElement.style.overflow;
+      document.documentElement.style.overflow = "hidden";
     }
     const previousDialog = openDialogStack[openDialogStack.length - 1];
     const previousDialogAriaHidden = previousDialog?.getAttribute("aria-hidden") ?? null;
@@ -67,7 +68,7 @@ export function useDialogFocus<T extends HTMLElement>({
       const preferredTarget = canReceiveFocus(preferredCandidate) ? preferredCandidate : null;
       const fallbackTarget = Array.from(dialog.querySelectorAll<HTMLElement>(FALLBACK_FOCUSABLE_SELECTOR)).find(canReceiveFocus) || null;
 
-      (preferredTarget || fallbackTarget || dialog).focus();
+      (preferredTarget || fallbackTarget || dialog).focus({ preventScroll: true });
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -131,11 +132,12 @@ export function useDialogFocus<T extends HTMLElement>({
       document.removeEventListener("keydown", handleKeyDown, true);
 
       const stackIndex = openDialogStack.lastIndexOf(dialog);
+      const wasTopmost = stackIndex >= 0 && stackIndex === openDialogStack.length - 1;
       if (stackIndex >= 0) {
         openDialogStack.splice(stackIndex, 1);
       }
       if (openDialogStack.length === 0) {
-        document.body.style.overflow = previousBodyOverflow;
+        document.documentElement.style.overflow = previousRootOverflow;
       }
 
       if (previousDialog && document.contains(previousDialog)) {
@@ -148,8 +150,8 @@ export function useDialogFocus<T extends HTMLElement>({
       }
 
       const previouslyFocused = previouslyFocusedRef.current;
-      if (previouslyFocused && document.contains(previouslyFocused)) {
-        previouslyFocused.focus();
+      if (wasTopmost && previouslyFocused?.isConnected) {
+        previouslyFocused.focus({ preventScroll: true });
       }
     };
   }, [active]);

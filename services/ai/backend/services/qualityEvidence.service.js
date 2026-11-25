@@ -96,11 +96,10 @@ async function collect({ projectId, appTypeId, user, input = {}, scopes, existin
 }
 
 async function assess(input) {
-  await require('./qualityGraphChanges').processPending();
+  if (input.persist !== false) await require('./qualityGraphChanges').processPending();
   const snapshot = await collect(input);
-  const persistence = await require('./qualityGraphStore.service').persist(snapshot, input.user);
   const report = engine.assess(snapshot, input.featureId, input.input);
-  report.persistence = persistence;
+  if (input.persist !== false) report.persistence = await require('./qualityGraphStore.service').persist(snapshot, input.user);
   // The stored assessment keeps bounded evidence; the model receives a smaller explicit projection.
   const bound = value => typeof value === 'string' ? value.slice(0, 600) : Array.isArray(value) ? value.slice(0, 20).map(bound) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, bound(item)])) : value;
   const projection = bound(report);

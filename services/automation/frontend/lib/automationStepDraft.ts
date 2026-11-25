@@ -61,7 +61,7 @@ export const emptyAutomationStepDraft = (stepType: TestStepType = "web"): Automa
   apiMethod: "GET",
   apiHeaders: "",
   apiBodyMode: "none",
-  apiExpectedStatus: "200"
+  apiExpectedStatus: ""
 });
 
 
@@ -153,7 +153,7 @@ export function parseAutomationStepDraft(step: TestStep): AutomationStepDraft {
     apiMethod: apiRequest?.method || (parsedApiTarget?.[1]?.toUpperCase() as NonNullable<StepApiRequest["method"]> | undefined) || "GET",
     apiHeaders: (apiRequest?.headers || []).map((header) => `${header.key}: ${header.value}`).join("\n"),
     apiBodyMode: apiRequest?.body_mode || (apiRequest?.body ? "json" : "none"),
-    apiExpectedStatus: String(apiRequest?.validations?.find((validation) => validation.kind === "status")?.expected || "200")
+    apiExpectedStatus: String(apiRequest?.validations?.find((validation) => validation.kind === "status")?.expected || "")
   };
 }
 
@@ -182,7 +182,7 @@ export function buildAutomationApiRequest(draft: AutomationStepDraft, existing?:
   // truncating it to a different assertion or removing the check.
   const expectedStatus = draft.apiExpectedStatus.trim();
   const existingStatus = existing?.validations?.find((item) => item.kind === "status");
-  const statusUnchanged = Boolean(existing) && String(existingStatus?.expected ?? "200") === draft.apiExpectedStatus.trim();
+  const statusUnchanged = Boolean(existing) && String(existingStatus?.expected ?? "") === draft.apiExpectedStatus.trim();
   return {
     ...existing,
     method: draft.apiMethod,

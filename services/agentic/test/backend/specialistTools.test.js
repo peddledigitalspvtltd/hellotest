@@ -33,3 +33,11 @@ test('graph reads cannot widen any explicit source or record selector',()=>{
  for(const extra of [{smartContext:{source_ids:['s']}},{smartContext:{source_kinds:['requirement']}},{evidenceScope:{story_id:'story-1'}}])assert.ok(!fixture(extra).session.definitions().some(d=>d.function.name==='graph_read'));
  assert.ok(fixture().session.definitions().some(d=>d.function.name==='graph_read'));
 });
+test('custom agents only receive the individually enabled read tools', async () => {
+ const f=fixture({policy:{allowed_tools:['project_evidence'],explicit_tool_selection:true,context_scopes:['stories']}});
+ assert.deepEqual(f.session.definitions().map(item=>item.function.name),['project_evidence']);
+ await assert.rejects(f.session.execute([call('record_read',{record_ref:'requirement:story-1'})]),{code:'AGENT_TOOL_DENIED'});
+ await f.session.execute([call('project_evidence',{question:'Evidence about the story'})]);
+ assert.equal(f.events[0].details.effect,'read');
+ assert.equal(f.events[0].details.arguments.question,'Evidence about the story');
+});

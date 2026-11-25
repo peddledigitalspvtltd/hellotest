@@ -6,8 +6,8 @@ import fields from '@hellotest/contracts/agents/evidenceScopeFields.json';
 import { evidenceScopeOptions, type AgentEvidenceScopeOption } from '@hellotest/ai/review-client';
 
 /** Record IDs are committed only after choosing a permitted, server-scoped result. */
-export function AgentEvidenceScope({ projectId, appTypeId, scopes, values, onChange, disabled, readOnlyFields = [] }: {
-  projectId: string; appTypeId?: string; readOnlyFields?: string[];
+export function AgentEvidenceScope({ projectId, appTypeId, scopes, values, onChange, disabled, readOnlyFields = [], onlyFields }: {
+  projectId: string; appTypeId?: string; readOnlyFields?: string[]; onlyFields?: string[];
   scopes: string[]; values: Record<string, unknown>; onChange: (key: string, value: string) => void; disabled?: boolean;
 }) {
   const id = useId().replace(/:/g, '');
@@ -25,7 +25,7 @@ export function AgentEvidenceScope({ projectId, appTypeId, scopes, values, onCha
   const [retry, setRetry] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [position, setPosition] = useState({ left: 8, top: 8, width: 400, maxHeight: 500 });
-  const visible = fields.filter(field => field.scopes.some(scope => scopes.includes(scope)) || String(values[field.key] || '').trim());
+  const visible = fields.filter(field => onlyFields ? onlyFields.includes(field.key) : field.scopes.some(scope => scopes.includes(scope)) || String(values[field.key] || '').trim());
   const selected = visible.filter(field => String(values[field.key] || '').trim()).length;
   const selection = Object.fromEntries(fields.map(field => [field.key, String(values[field.key] || '').trim()]).filter(([, value]) => value));
   const selectionKey = JSON.stringify(selection);

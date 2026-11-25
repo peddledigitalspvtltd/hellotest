@@ -707,6 +707,16 @@
   flex: 0 0 auto !important;
 }
 
+.catalog-toolbar-discovery + .requirement-toolbar-actions {
+  padding: 0;
+  border: 0;
+}
+
+.requirement-toolbar-actions .catalog-hierarchy-move-select {
+  width: 14rem;
+  max-width: 100%;
+}
+
 .catalog-command-toolbar .catalog-toolbar-actions > button,
 .catalog-command-toolbar .catalog-toolbar-actions > .catalog-selection-button,
 .catalog-command-toolbar .catalog-toolbar-actions .run-action-main,
@@ -955,7 +965,8 @@
     align-items: center;
   }
 
-  .catalog-toolbar-discovery > .catalog-view-toggle {
+  .catalog-toolbar-discovery > .catalog-view-toggle,
+  .requirement-toolbar-view {
     grid-column: 1 / -1;
   }
 
@@ -971,7 +982,7 @@
     grid-column: 2;
   }
 
-  .catalog-toolbar-discovery + .catalog-toolbar-actions {
+  .catalog-toolbar-discovery + .catalog-toolbar-actions:where(:not(.requirement-toolbar-actions)) {
     display: grid !important;
     width: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -979,14 +990,39 @@
     flex-wrap: wrap !important;
   }
 
-  .catalog-toolbar-discovery + .catalog-toolbar-actions > * {
+  .catalog-toolbar-discovery + .catalog-toolbar-actions:where(:not(.requirement-toolbar-actions)) > * {
     width: 100% !important;
     min-width: 0 !important;
     justify-content: center !important;
   }
+
+  .catalog-toolbar-discovery + .requirement-toolbar-actions {
+    width: 100%;
+  }
+
+  .catalog-toolbar-discovery + .requirement-toolbar-actions > * {
+    flex: 1 0 auto !important;
+    width: auto !important;
+  }
+
+  .catalog-toolbar-discovery + .requirement-toolbar-actions > .catalog-selection-button {
+    padding-inline: 8px !important;
+  }
+
+  .catalog-toolbar-discovery + .requirement-toolbar-actions > .catalog-hierarchy-move-select {
+    flex-basis: 12rem !important;
+  }
 }
 
 @media (max-width: 440px) {
+  .requirement-toolbar-discovery {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .requirement-toolbar-discovery > .catalog-selection-controls {
+    grid-column: 1;
+  }
+
   .quality-metric-strip {
     grid-template-columns: minmax(0, 1fr);
   }

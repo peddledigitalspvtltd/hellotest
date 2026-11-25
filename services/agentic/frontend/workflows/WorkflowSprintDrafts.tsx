@@ -3,10 +3,11 @@ import type { AgenticWorkflowRun, AiArtifactAssuranceReview } from "@hellotest/p
 import { ArtifactAssuranceWorkspace } from "@hellotest/ai/frontend/components/ArtifactAssuranceWorkspace";
 import { useCapabilityAccess } from "@hellotest/platform/frontend/src/platform/hooks/useCapabilityAccess";
 import { agenticApi } from "../api.client";
-import { collectSprintDrafts, savedSprintCaseIds, sprintTaskRecords } from "./sprintDraftResults";
+import { automationVerificationId, collectSprintDrafts, savedSprintCaseIds, sprintTaskRecords } from "./sprintDraftResults";
 import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowDataView } from "./WorkflowDataView";
-import { WorkflowCodeView } from "./WorkflowCodeView";
+import { WorkflowAutomationSections } from "./WorkflowAutomationSections";
+import { WorkflowFailureResolution } from "./WorkflowFailureDetails";
 
 type PublicationReceipt = { id: string; story_id: string; case_index: number; kind: "manual" | "automation"; saved: boolean; requires_review: boolean };
 function AutomationReadiness({ readiness, built }: { readiness?: AiArtifactAssuranceReview["automation_readiness"]; built?: boolean }) {
@@ -34,6 +35,8 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
     return publication?.mode === "automatic" ? publication.receipts || [] : [];
   }).filter(receipt => receipt.saved === true && typeof receipt.id === "string" && receipt.id.trim());
   const reviewIds = savedSprintCaseIds(run, saved);
+  const generated = drafts.flatMap(({packet}) => (packet.automation || []).filter(Boolean));
+  const verifiedCount = generated.filter(automationVerificationId).length;
   if (!drafts.length && !reviewIds.length) return null;
   const accept = async (storyIndex: number, caseIndex: number, kind: "manual" | "automation") => {
     const key = `${storyIndex}:${caseIndex}:${kind}`;
@@ -46,7 +49,8 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
   };
   return <section className="studio-sprint-drafts" aria-label="Sprint Test Case drafts">
     <h3>{publicationReceipts.length ? "Sprint results and Library cases" : "Sprint drafts ready for review"}</h3>
-    <p>{publicationReceipts.length ? "AI generated Test Cases await Library review. " : ""}Automation drafts require a Test Engine run to verify their behavior.</p>
+    {publicationReceipts.length > 0 && <p>AI generated Test Cases await Library review.</p>}
+    {generated.length > 0 && <p>{verifiedCount} verified in isolated browser checks · {generated.length - verifiedCount} generated, unverified</p>}
     <WorkflowLibraryReviewActions run={run} accepted={saved} />
     {error && <p role="alert">{error}</p>}
     {drafts.map(({packet, manualTargets, automationTargets}, storyIndex) => <details key={`${packet.story_id}:${packet.story_revision || "legacy"}`}>
@@ -57,9 +61,6 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
         <strong>Automation · {packet.automation_progress.processed} of {packet.automation_progress.total} processed</strong>
         <p>{packet.automation_progress.completed} draft{packet.automation_progress.completed === 1 ? "" : "s"} · {packet.automation_progress.failed} failed · {packet.automation_progress.needs_input} need input</p>
         <progress aria-label={`Automation progress for ${packet.story?.title || packet.story_id}`} max={Math.max(1, packet.automation_progress.total)} value={packet.automation_progress.processed} />
-        {packet.automation_progress.active_message && <p>{packet.automation_progress.active_case_index != null ? `Case ${packet.automation_progress.active_case_index + 1}: ` : ""}{packet.automation_progress.active_message}</p>}
-        {packet.automation_progress.total_sections != null && packet.automation_progress.active_step_order != null && <p>Section {packet.automation_progress.active_step_order} of {packet.automation_progress.total_sections}{packet.automation_progress.completed_sections != null ? ` · ${packet.automation_progress.completed_sections} completed` : ""}</p>}
-        {packet.automation_progress.completed_sections != null && packet.automation_progress.total_sections != null && <progress aria-label={`Automation section progress for ${packet.story?.title || packet.story_id}`} max={Math.max(1, packet.automation_progress.total_sections)} value={Math.min(packet.automation_progress.completed_sections, packet.automation_progress.total_sections)} />}
       </div>}
       {packet.story_assurance?.analysis && <details><summary>Story quality metrics and evidence</summary><ArtifactAssuranceWorkspace analysis={packet.story_assurance.analysis} title="AI Story Assurance" reviewState="review-required" analysisSource="ai" criteriaKey="metric.assurance.story" /></details>}
       {packet.cases.map((draft, caseIndex) => <article key={`${packet.story_id}:${caseIndex}`}>
@@ -78,24 +79,25 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
         {packet.case_assurance_failures?.[caseIndex] && <div role="status" className="studio-notice"><strong>Test Case assurance needs review</strong><p>{packet.case_assurance_failures[caseIndex]?.message}</p></div>}
         <AutomationReadiness readiness={packet.case_assurance?.[caseIndex]?.assurance_review?.automation_readiness} built={packet.automation?.[caseIndex]?.validation?.status === "passed"} />
         {packet.case_assurance?.[caseIndex]?.analysis && <details><summary>Test Case quality metrics and evidence</summary><ArtifactAssuranceWorkspace analysis={packet.case_assurance[caseIndex].analysis} title="AI Test Case Quality Assurance" reviewState="review-required" analysisSource="ai" criteriaKey="metric.assurance.test_case" /></details>}
-        {packet.automation_input_required?.filter((item): item is NonNullable<typeof item> => item !== null && item.case_index === caseIndex).map((item, index) => <div role="status" key={index} className="studio-notice"><strong>Automation needs input</strong><p>{item.message}</p>{!item.blocked_steps?.length && [...(item.required_context || []), ...(item.required_parameters || [])].length ? <p>Required: {[...(item.required_context || []), ...(item.required_parameters || [])].join("; ")}</p> : null}{item.blocked_steps?.map((step, stepIndex) => <p key={stepIndex}>{step.reason}{[...(step.required_context || []), ...(step.required_parameters || [])].length ? ` Required: ${[...(step.required_context || []), ...(step.required_parameters || [])].join("; ")}` : ""}</p>)}</div>)}
+        {packet.automation_input_required?.filter((item): item is NonNullable<typeof item> => item !== null && item.case_index === caseIndex).map((item, index) => <div role="status" key={index} className="studio-notice"><strong>Automation needs input</strong><p>{item.message}</p>{item.review_prior_actions && <p>Review the confirmed browser actions and reset the test data before rebuilding.</p>}{!item.blocked_steps?.length && [...(item.required_context || []), ...(item.required_parameters || [])].length ? <p>Required: {[...(item.required_context || []), ...(item.required_parameters || [])].join("; ")}</p> : null}{item.blocked_steps?.map((step, stepIndex) => <p key={stepIndex}>{step.reason}{[...(step.required_context || []), ...(step.required_parameters || [])].length ? ` Required: ${[...(step.required_context || []), ...(step.required_parameters || [])].join("; ")}` : ""}</p>)}</div>)}
         {packet.automation_failures?.filter((item): item is NonNullable<typeof item> => item !== null && item.case_index === caseIndex).map((item, index) => <div role="status" key={index} className="studio-notice">
           <strong>Automation generation failed</strong><p>{item.message}</p>
-          {item.completed_sections != null && <p>{item.completed_sections}{item.total_sections != null ? ` of ${item.total_sections}` : ""} build sections completed before this failure.</p>}
-          {item.validation_feedback != null && <details><summary>Build diagnostics</summary><WorkflowDataView value={{code: item.code, feedback: item.validation_feedback}} defaultMode="json" jsonLabel="Automation failure JSON" copyJsonLabel="Copy automation failure JSON" /></details>}
+          <WorkflowFailureResolution value={item.resolution}/>
           <p>{item.reconciliation_required || item.outcome_unknown
             ? "The browser action outcome is unknown. Review and reconcile the current application state before retrying; completed drafts are retained."
             : "Completed drafts are retained. Review this case’s inputs and instructions before retrying."}</p>
         </div>)}
-        {packet.automation?.[caseIndex] && <details><summary>{packet.automation[caseIndex]?.live_validation?.status === "blocked" ? "Draft generated · Live validation blocked" : "Generated automation · Draft"} · {packet.automation[caseIndex]?.verification_status || "unverified"}</summary>
+        {packet.automation?.[caseIndex] && <details><summary>{packet.automation[caseIndex]?.live_validation?.status === "blocked"
+          ? "Draft generated · Live validation blocked · unverified"
+          : automationVerificationId(packet.automation[caseIndex]) ? "Generated draft · Verified in an isolated browser check" : "Generated draft · Unverified"}</summary>
+          {packet.automation[caseIndex]?.verification?.message && <p>{packet.automation[caseIndex]?.verification?.message}</p>}
+          {automationVerificationId(packet.automation[caseIndex]) && <p>Verification receipt {automationVerificationId(packet.automation[caseIndex])}</p>}
           {packet.automation[caseIndex]?.live_validation?.status === "blocked" && <div role="status" className="studio-notice">
             <p>{packet.automation[caseIndex]?.live_validation?.reason || "The live application prevented the authored case from finishing during generation."}</p>
             {packet.automation[caseIndex]?.live_validation?.stopped_at_step_order != null && <p>Live validation stopped at section {packet.automation[caseIndex]?.live_validation?.stopped_at_step_order}.</p>}
             <p>The generated code remains an unverified draft. A Test Engine run is required to establish its result.</p>
           </div>}
-          {packet.automation[caseIndex]?.instructions && <ol>{packet.automation[caseIndex].instructions.map(step => <li key={step.step_order}><strong>{step.action}</strong><p>Expected: {step.expected_result}</p></li>)}</ol>}
-          {can("automation.code.view") && packet.automation[caseIndex]?.executable?.code && <WorkflowCodeView code={packet.automation[caseIndex].executable.code} filename={packet.automation[caseIndex].executable.filename} />}
-          <details><summary>Native automation plan</summary><WorkflowDataView value={packet.automation[caseIndex]?.steps} defaultMode="json" jsonLabel="Automation plan JSON" copyJsonLabel="Copy automation plan JSON" /></details>
+          {can("automation.code.view") && <WorkflowAutomationSections draft={packet.automation[caseIndex]} />}
         </details>}
         {(["manual", "automation"] as const).map(kind => {
           const key = `${storyIndex}:${caseIndex}:${kind}`;

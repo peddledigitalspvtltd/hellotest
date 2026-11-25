@@ -19,6 +19,7 @@
     "./backend/services/adminPortal.service": "./backend/services/adminPortal.service.js",
     "./backend/services/apiKey.service": "./backend/services/apiKey.service.js",
     "./backend/services/attachment.service": "./backend/services/attachment.service.js",
+    "./backend/services/comment.service": "./backend/services/comment.service.js",
     "./backend/services/displayId.service": "./backend/services/displayId.service.js",
     "./backend/services/dropdownCatalog.service": "./backend/services/dropdownCatalog.service.js",
     "./backend/services/entityScope.service": "./backend/services/entityScope.service.js",

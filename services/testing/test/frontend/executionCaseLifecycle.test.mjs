@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getExecutionResultDurationMs } from "../../frontend/lib/executionCaseLifecycle.ts";
+import { executionCaseInstanceKey, getExecutionResultDurationMs } from "../../frontend/lib/executionCaseLifecycle.ts";
 import { selectLatestExecutionResultInstances } from "../../frontend/lib/executionResultMetrics.ts";
 
 test("persisted case timers advance only for an active running segment", () => {
@@ -26,4 +26,10 @@ test("legacy and canonical data keys with the same iteration index resolve to on
   const old = { ...base, id: "old", data_set_iteration_key: "data:0", status: "passed", created_at: "2026-09-10T10:00:00Z" };
   const reset = { ...base, id: "reset", data_set_iteration_key: "data:1", status: "pending", created_at: "2026-09-10T11:00:00Z" };
   assert.deepEqual(selectLatestExecutionResultInstances([reset, old]).map(result => result.id), ["reset"]);
+});
+
+test("frozen history links and the runner use the same instance identity", () => {
+  assert.equal(executionCaseInstanceKey("case", 1, "data:2"), "case:data:2");
+  assert.equal(executionCaseInstanceKey("case", 1), "case:row-2");
+  assert.equal(executionCaseInstanceKey("case"), "case:default");
 });

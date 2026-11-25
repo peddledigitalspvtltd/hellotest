@@ -43,6 +43,17 @@
   overflow-wrap: anywhere;
 }
 
+.recorder-action-inclusion {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  justify-self: start;
+}
+
+.recorder-network > summary {
+  cursor: pointer;
+}
+
 .recorder-insight-action .execution-operation-json {
   margin: 0;
   min-width: 0;

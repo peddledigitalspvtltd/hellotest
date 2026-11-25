@@ -4,11 +4,14 @@ const {getOptionalEvidenceAccess}=require('@hellotest/platform/backend/services/
 const executions=require('@hellotest/testing/backend/services/execution.service');
 const {parseStructuredLogs}=require('@hellotest/platform/backend/src/domain/executionStepEvidence');
 const {sanitizeAiText}=require('@hellotest/platform/backend/src/security/aiTextPolicy');
+const {parseJsonValue}=require('@hellotest/platform/backend/src/utils/testStepAutomation');
 const execution=require('@hellotest/knowledge/backend/services/knowledgeExecution.service');
 const rules=require('./automationRepairRules');
 const {repairProjection}=require('./automationRepairContext');
+const apiRepair=require('../lib/verification/automationApiRepair');
 const permissions=['automation.code.view','automation.view','testcase.view','run.view','result.view'];
 const reject=(message,status=409)=>{throw rules.fail(message,status);};
+const executableStep=step=>step.step_type==='api' ? Boolean(apiRepair.executableRequest(step)) : step.step_type==='web'&&Boolean(step.automation_code);
 const frozenRun=run=>({build:run.build,parameter_scope:run.parameter_scope_default,data_options:run.test_data_options,
   environment:run.test_environment_snapshot,configuration:run.test_configuration_snapshot,data:run.test_data_set_snapshot,
   hooks:run.execution_hooks,validation:run.repair_validation});
@@ -37,7 +40,7 @@ async function prepare({projectId,appTypeId,user,input={}}) {
   if(typeof input.test_case_id!=='string'||!input.test_case_id)return unavailable('Select a Test Case and a failed Run to prepare a typed repair.');
   const current=await source(projectId,input.test_case_id);
   if(appTypeId&&current.test.app_type_id!==appTypeId)reject('The Test Case belongs to another application.',400);
-  if(!['web','unified'].includes(current.test.app_type)||current.test.automated!=='yes'||!current.steps.length||current.steps.length>200||current.steps.some(step=>!step.automation_code||step.step_type!=='web'))return unavailable('Typed repair supports up to 200 automated web sections. Manual, API and native mobile sections need their own authored repair; failed shared definitions require a separate group review.');
+  if(!['web','api','unified'].includes(current.test.app_type)||current.test.automated!=='yes'||!current.steps.length||current.steps.length>200||!current.steps.every(executableStep))return unavailable('Typed repair supports up to 200 executable Web and API sections. Manual or native mobile sections need their own authored repair.');
   const failed=await db.prepare(`SELECT e.*,r.id AS failure_result_id,r.logs AS failure_logs,r.error AS failure_error FROM executions e JOIN execution_results r ON r.execution_id=e.id WHERE e.project_id=? AND r.test_case_id=? AND r.status='failed' AND (?='' OR e.id=?) AND (?='' OR e.build=?) AND (?='' OR e.test_environment_id=?) ORDER BY r.created_at DESC,r.id DESC LIMIT 1`).get(projectId,input.test_case_id,input.execution_id||'',input.execution_id||'',input.build||'',input.build||'',input.environment_id||'',input.environment_id||'');
   if(!failed?.build||!failed.test_environment_id)return unavailable('A recorded failed Run with an exact build and environment is required.');
   const oldSteps=await db.prepare('SELECT * FROM execution_step_snapshots WHERE execution_id=? AND test_case_id=? ORDER BY step_order').all(failed.id,input.test_case_id);
@@ -54,13 +57,21 @@ async function prepare({projectId,appTypeId,user,input={}}) {
   const failedIds=current.steps.filter(step=>failedOrders.has(step.step_order)).map(step=>step.id);
   if(!failedIds.length)return unavailable('The failed Run has no recorded failed-step evidence.');
   const focus=current.steps.find(step=>failedIds.includes(step.id));
+  const apiBaseUrl=parseJsonValue(failed.test_environment_snapshot,{})?.base_url;
+  if(focus.step_type==='api'){
+    const oldFocus=oldSteps.find(step=>step.step_order===focus.step_order);
+    if(rules.hash(rules.specification([oldFocus]))!==rules.hash(rules.specification([focus]))||!apiRepair.apiAssertionReceipt(oldFocus,observed,{failure:true,baseUrl:apiBaseUrl}))return unavailable('The API repair needs a matching frozen request and recorded HTTP assertion failure. Record the current request in a fresh Run.');
+    if(apiRepair.authoredTargets(focus,apiBaseUrl).length!==1)return unavailable('Record one exact intended HTTP method and endpoint in the case-owned step. A URL repair stays on the pinned request origin and preserves request data and assertions.');
+    const detail=observed.stepApiDetails[oldFocus.snapshot_step_id];
+    failureEvidence.api={request_method:detail.request.method,response_status:detail.response.status,failed_assertion_kinds:detail.assertions.filter(item=>!item.passed).map(item=>item.kind)};
+  }
   if(oldSteps.filter(step=>step.step_order<focus.step_order).some(step=>statuses[step.snapshot_step_id]!=='passed'))return unavailable('The recorded failure does not establish successful prerequisites before the failed section. Record a complete current Run before proposing a focused repair.');
   if(focus.reusable_group_id||['shared','reusable'].includes(focus.group_kind))return unavailable('The first recorded failure belongs to a Shared Section Group. Review that shared definition before repairing subsequent case-specific instructions.');
   if(Buffer.byteLength(JSON.stringify(current.steps))>100000)return unavailable('The automation specification exceeds the repair context budget. Split the Test Case before reviewing it.');
   const failureCase=await db.prepare('SELECT * FROM execution_case_snapshots WHERE execution_id=? AND test_case_id=?').get(failed.id,current.test.id);
   if(!failureCase)return unavailable('The failed Run is missing its frozen case and test data snapshot. Record a complete current Run before proposing a repair.');
   execution.assertActive();
-  const base={test_case_id:current.test.id,app_type_id:current.test.app_type_id,title:current.test.title,source_hash:current.hash,steps:current.steps,failed_step_ids:[focus.id],execution_id:failed.id,build:failed.build,environment_id:failed.test_environment_id,
+  const base={test_case_id:current.test.id,app_type_id:current.test.app_type_id,title:current.test.title,source_hash:current.hash,steps:current.steps,failed_step_ids:[focus.id],execution_id:failed.id,build:failed.build,environment_id:failed.test_environment_id,...(apiBaseUrl?{api_base_url:apiBaseUrl}:{}),
     failure_result_id:failed.failure_result_id,failure_source_hash:failureFingerprint(failed,oldSteps,failureCase)};
   const projection=repairProjection({test:current.test,steps:current.steps,focus,base,failureEvidence,sourceChanged});
   if(!projection)return unavailable('The exact failed section and complete case intent exceed the repair context budget. Split the case or reduce oversized diagnostic/source content before requesting a repair; no incomplete specification was sent.');
@@ -68,7 +79,7 @@ async function prepare({projectId,appTypeId,user,input={}}) {
 }
 async function save(projectId,user,sessionId,prepared,patch) {
   execution.assertActive();
-  if(!patch)return {status:'not_proposed',detail:prepared.detail||'The model did not propose a supported locator repair.'};
+  if(!patch)return {status:'not_proposed',detail:prepared.detail||'The model did not propose a supported section repair.'};
   return db.transaction(async()=>{
     await db.query("SET LOCAL statement_timeout='10s'");
     rules.validateStoredPatch(prepared.base,patch);
@@ -105,7 +116,7 @@ async function load(projectId,id) {
   const dataSets=await db.prepare(`SELECT id,name FROM test_data_sets WHERE project_id=? AND (app_type_id=? OR app_type_id IS NULL) AND mode='key_value' ORDER BY name,id LIMIT 201`).all(projectId,row.base.app_type_id);
   return {id:row.id,status:row.applied_at?'applied':checked.status,patch:row.patch,source_current:current.hash===row.base.source_hash,build:row.base.build,environment_id:row.base.environment_id,
     validation:row.validation,verification:checked,neighbors:neighbors.slice(0,200),data_sets:dataSets.slice(0,200),inventory_truncated:neighbors.length>200||dataSets.length>200,
-    verification_scope:{focused_step_id:row.patch.step_id,focused_step_order:row.patch.step_order,total_sections:row.base.steps.length,successor_sections:row.base.steps.filter(step=>step.step_order>row.patch.step_order).length,execution:'whole_case_fresh_browser'},
+    verification_scope:{focused_step_id:row.patch.step_id,focused_step_order:row.patch.step_order,total_sections:row.base.steps.length,successor_sections:row.base.steps.filter(step=>step.step_order>row.patch.step_order).length,execution:row.base.steps.some(step=>step.step_type==='api')?'whole_case_frozen_runtime':'whole_case_fresh_browser'},
     assertions:row.base.steps.filter(step=>step.step_order>=row.patch.step_order&&rules.hasProtectedAssertion(step)).map(step=>({id:step.id,step_order:step.step_order,label:step.expected_result}))};
 }
 async function plan(projectId,id,user,input) {
@@ -120,7 +131,7 @@ async function plan(projectId,id,user,input) {
     if(!Array.isArray(input.neighbor_ids)||input.neighbor_ids.some(id=>typeof id!=='string'))reject('Choose neighboring Test Cases.',400);
     const neighbors=[...new Set(input.neighbor_ids)];
     if(neighbors.length>5||neighbors.includes(row.test_case_id))reject('Choose up to five neighboring Test Cases, excluding the repaired case.',400);
-    for(const neighbor of neighbors){const item=await source(projectId,neighbor);if(item.test.app_type_id!==row.base.app_type_id||item.test.automated!=='yes'||!item.steps.length||item.steps.some(step=>step.step_type!=='web'||!step.automation_code))reject('Neighbors must be automated web Test Cases in the same application.',400);}
+    for(const neighbor of neighbors){const item=await source(projectId,neighbor);if(item.test.app_type_id!==row.base.app_type_id||item.test.automated!=='yes'||!item.steps.length||!item.steps.every(executableStep))reject('Neighbors must be executable Web or API Test Cases in the same application.',400);}
     const oracle=row.base.steps.find(step=>step.id===input.oracle_step_id&&rules.hasProtectedAssertion(step));
     if(!oracle||oracle.step_order<row.patch.step_order)reject('Choose an existing assertion in or after the repaired section.',400);
     if(typeof input.fixture_contract!=='string'||input.fixture_contract.trim().length<30||input.fixture_contract.length>2000)reject('Describe the isolated fixture/reset procedure and known-negative outcome (30–2000 characters).',400);
@@ -135,6 +146,8 @@ async function plan(projectId,id,user,input) {
     if(originalSteps.length!==row.base.steps.length||new Set(originalSteps.map(step=>step.step_order)).size!==originalSteps.length||rules.hash(originalSteps.map(step=>step.step_order))!==rules.hash(row.base.steps.map(step=>step.step_order)))reject('The failed Run no longer has the complete ordered frozen section bindings. Generate a new repair proposal.');
     const originalSharedHash=rules.hash(rules.sharedBindings(originalSteps));
     const validation={oracle_order:oracle.step_order,fixture_contract:input.fixture_contract.trim(),created_by:user.id,created_at:new Date().toISOString()};
+    const changedStep=row.base.steps.find(step=>step.id===row.patch.step_id);
+    const stepPatch=rules.stepPatch(changedStep,row.patch);
     for(const phase of ['original','patched','negative']) {
       execution.assertActive();
       const caseIds=phase==='patched'?[row.test_case_id,...neighbors]:[row.test_case_id];
@@ -145,11 +158,14 @@ async function plan(projectId,id,user,input) {
       await db.prepare(`UPDATE execution_case_snapshots SET ${copied.map(key=>`${key}=?`).join(',')} WHERE execution_id=? AND test_case_id=?`).run(...copied.map(key=>originalCase[key]),created.id,row.test_case_id);
       if(phase==='negative')await db.prepare(`UPDATE execution_case_snapshots SET test_data_set_id=?,test_data_set_snapshot=(SELECT test_data_set_snapshot FROM executions WHERE id=?),data_set_source='run' WHERE execution_id=? AND test_case_id=?`).run(negative.id,created.id,created.id,row.test_case_id);
       await db.prepare(`UPDATE execution_step_snapshots AS target SET shared_parameter_values=frozen.shared_parameter_values,shared_parameter_template_values=frozen.shared_parameter_template_values,shared_parameter_sensitive_names=frozen.shared_parameter_sensitive_names FROM execution_step_snapshots AS frozen WHERE target.execution_id=? AND target.test_case_id=? AND frozen.execution_id=? AND frozen.test_case_id=target.test_case_id AND frozen.step_order=target.step_order`).run(created.id,row.test_case_id,original.id);
-      if(phase!=='original')await db.prepare('UPDATE execution_step_snapshots SET automation_code=? WHERE execution_id=? AND test_case_id=? AND step_order=?').run(row.patch.after,created.id,row.test_case_id,row.patch.step_order);
+      if(phase!=='original'){
+        if(row.patch.kind==='replace_api_url')await db.prepare('UPDATE execution_step_snapshots SET api_request=? WHERE execution_id=? AND test_case_id=? AND step_order=?').run(stepPatch.api_request,created.id,row.test_case_id,row.patch.step_order);
+        else await db.prepare('UPDATE execution_step_snapshots SET automation_code=? WHERE execution_id=? AND test_case_id=? AND step_order=?').run(stepPatch.automation_code,created.id,row.test_case_id,row.patch.step_order);
+      }
       executions.invalidateExecutionCache(created.id);
       const evidence=await runEvidence(created.id);
       if(rules.hash(rules.sharedBindings(evidence.steps.filter(step=>step.test_case_id===row.test_case_id)))!==originalSharedHash)reject('The validation Run did not retain the failed Run\'s frozen per-section shared inputs.');
-      if(rules.hash(rules.specification(evidence.steps.filter(step=>step.test_case_id===row.test_case_id)))!==rules.hash(rules.specification(row.base.steps.map(step=>phase!=='original'&&step.id===row.patch.step_id?{...step,automation_code:row.patch.after}:step))))reject('The run snapshot differs from the pinned repair specification.');
+      if(rules.hash(rules.specification(evidence.steps.filter(step=>step.test_case_id===row.test_case_id)))!==rules.hash(rules.specification(row.base.steps.map(step=>phase!=='original'&&step.id===row.patch.step_id?{...step,...stepPatch}:step))))reject('The run snapshot differs from the pinned repair specification.');
       validation[phase]={id:created.id,case_ids:caseIds,hash:evidence.hash};
     }
     execution.assertActive();
@@ -190,15 +206,17 @@ async function apply(projectId,id,user) {
     await db.prepare('SELECT id FROM test_steps WHERE test_case_id=? FOR UPDATE').all(row.test_case_id);
     const current=await source(projectId,row.test_case_id);
     if(current.hash!==row.base.source_hash)reject('The authored Test Case changed. Review a new proposal.');
+    if(row.patch.kind==='replace_api_url')await assertFailureCurrent(projectId,row.base);
     await db.prepare('SELECT id FROM executions WHERE id IN (?,?,?) FOR SHARE').all(...['original','patched','negative'].map(phase=>row.validation?.[phase]?.id||''));
     const checked=await verification(row,true);
     if(checked.status!=='verified')reject('Every pinned runner check must pass before applying a repair.');
     execution.assertActive();
-    await require('@hellotest/testing/backend/services/testStep.service').updateTestStep(row.patch.step_id,{automation_code:row.patch.after},{syncSharedGroup:false});
+    const step=current.steps.find(item=>item.id===row.patch.step_id);
+    await require('@hellotest/testing/backend/services/testStep.service').updateTestStep(row.patch.step_id,rules.stepPatch(step,row.patch),{syncSharedGroup:false});
     await db.prepare('UPDATE test_cases SET updated_at=CURRENT_TIMESTAMP WHERE id=?').run(row.test_case_id);
     await db.prepare('UPDATE ai_automation_repairs SET verification=?,applied_at=CURRENT_TIMESTAMP,applied_by=? WHERE id=?').run(checked,user.id,id);
     execution.assertActive();
-    return {applied:true,id,patch_hash:row.patch.hash,previous_code:row.patch.before};
+    return {applied:true,id,patch_hash:row.patch.hash,...(row.patch.kind==='replace_api_url'?{previous_url:row.patch.before}:{previous_code:row.patch.before})};
   })())();
 }
 module.exports={validatePatch:rules.patch,prepare,save,load,plan,start,apply,permissions,modelContract:require('./automationRepairContext').MODEL_CONTRACT};

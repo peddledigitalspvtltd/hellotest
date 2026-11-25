@@ -41,6 +41,20 @@ module.exports = async function (fastify) {
     await validateApp(req.query.project_id, req.query.app_type_id);
     return require("../services/agentEvidenceScopeOptions.service").options(req.query, req.user);
   });
+  fastify.post("/agentic-assistant/evidence-preview", { bodyLimit: 32 * 1024, schema: { body: {
+    type: "object", additionalProperties: false, required: ["project_id", "agent_id", "prompt", "context_scopes"],
+    properties: {
+      project_id: { type: "string", minLength: 1, maxLength: 255 }, app_type_id: { type: "string", maxLength: 255 },
+      agent_id: { type: "string", minLength: 1, maxLength: 128 }, agent_version: { type: "integer", minimum: 1 },
+      prompt: { type: "string", minLength: 1, maxLength: 12_000 }, inputs: { type: "object" },
+      context_scopes: { type: "array", maxItems: 10, items: { type: "string", maxLength: 40 } }
+    }
+  } } }, async (req, reply) => {
+    await fastify.authenticate(req);
+    await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
+    await validateApp(req.body.project_id, req.body.app_type_id);
+    return withConnection(req, reply, signal => require("../services/agentEvidencePreview.service").preview(req.body, req.user, signal));
+  });
   fastify.post("/agentic-assistant/sessions", async (req, reply) => {
     await fastify.authenticate(req);
     fastify.validate({
@@ -111,13 +125,31 @@ module.exports = async function (fastify) {
     await agentAccess(req, "agentic_workflow.view", req.query.project_id);
     return registry.get(req.params.agentId, req.query.project_id);
   });
+  fastify.get("/agentic-workflows/agents/:agentId/versions", async req => {
+    await agentAccess(req, "agentic_workflow.manage", req.query.project_id);
+    return registry.history(req.params.agentId, req.query.project_id);
+  });
+  const trial = async (req, reply) => {
+    const input = req.body || {};
+    await agentAccess(req, "agentic_workflow.manage", input.project_id);
+    await requireProjectPermission(req, input.project_id, "agentic_workflow.run");
+    await validateApp(input.project_id, input.app_type_id);
+    if (req.apiKey) throw Object.assign(new Error('Use your signed-in session to run a draft trial.'), { statusCode: 403 });
+    const definition = await registry.prepareTrial(input, req.params?.agentId);
+    return withConnection(req, reply, signal => agenticAssistantService.respond({
+      project_id: input.project_id, app_type_id: input.app_type_id, agent_id: definition.id, prompt: input.prompt || definition.definition.objective,
+      inputs: input.inputs, user: req.user, mode: 'agent', trialDefinition: definition, signal
+    }));
+  };
+  fastify.post("/agentic-workflows/agents/trial", { bodyLimit: 96 * 1024 }, trial);
+  fastify.post("/agentic-workflows/agents/:agentId/trial", { bodyLimit: 96 * 1024 }, trial);
   fastify.post("/agentic-workflows/agents", async req => {
     await agentAccess(req, "agentic_workflow.manage", req.body?.project_id);
-    return registry.save(req.body || {}, null, req.user.id);
+    return registry.save(req.body || {}, null, req.user.id, req.user);
   });
   fastify.put("/agentic-workflows/agents/:agentId", async req => {
     await agentAccess(req, "agentic_workflow.manage", req.body?.project_id);
-    return registry.save(req.body || {}, req.params.agentId, req.user.id);
+    return registry.save(req.body || {}, req.params.agentId, req.user.id, req.user);
   });
   fastify.delete("/agentic-workflows/agents/:agentId", async req => {
     await agentAccess(req, "agentic_workflow.manage", req.query.project_id);
@@ -382,6 +414,6 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
     await requireProjectPermission(req, run.project_id, "agentic_workflow.view");
-    return publicRun(run, req.user);
+    return publicRun(run, req.user, undefined, { includeManualAutomationSaves: true });
   });
 };

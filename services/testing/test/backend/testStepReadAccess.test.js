@@ -13,7 +13,7 @@ const steps = [
 ];
 
 async function fixture(t, { automationFeatureEnabled = true } = {}) {
-  const calls = { reads: [], permissions: [], optional: [] };
+  const calls = { reads: [], permissions: [], optional: [], writes: [] };
   const evidenceModule = { exports: {} };
   vm.runInNewContext(evidenceSource, { module: evidenceModule, require: name => {
     if (name === "./permission.service") return { hasPermission: async (user, code, projectId) => code === "automation.code.view" && (user.role === "admin" || user.id === "engineer" && projectId === "project-a") };
@@ -26,6 +26,7 @@ async function fixture(t, { automationFeatureEnabled = true } = {}) {
     if (name === '@hellotest/automation/object-source-context') return require("../../../automation/backend/lib/build/automationObjectSourceContext");
     if (name === '@hellotest/automation/instruction-mapping') return {attachInstructionMappings:async ({steps})=>steps.map(step=>({...step,automation_instructions:{schema:'test-mapping',label:'source-derived-private-display'}}))};
     if (name === "../services/testStep.service") return {
+      updateTestStep: async (id, input) => { calls.writes.push({id,input}); return {updated:true}; },
       getTestSteps: async ({ test_case_id }) => { calls.reads.push(test_case_id || "all"); return steps.filter(step => !test_case_id || step.test_case_id === test_case_id); },
       getTestCaseAutomationStartUrl:async()=> 'https://app.test/start',
       getTestStep: async id => {
@@ -45,7 +46,8 @@ async function fixture(t, { automationFeatureEnabled = true } = {}) {
     } };
     if (name.endsWith("/catalog")) return { TEST_STEP_GROUP_KIND_VALUES: ["local", "reusable"], TEST_STEP_TYPE_VALUES: ["web", "api", "android", "ios"] };
     if (name.endsWith("/mobileFeature")) return { containsMobileStepPayload: () => false };
-    if (name.includes("sharedStepGroup.service") || name.includes("mobileFeature.service")) return {};
+    if (name.includes("mobileFeature.service")) return {testCaseUsesMobile:async()=>false};
+    if (name.includes("sharedStepGroup.service")) return {};
     throw new Error(`Unexpected dependency: ${name}`);
   } });
   const app = Fastify();
@@ -58,7 +60,9 @@ async function fixture(t, { automationFeatureEnabled = true } = {}) {
   app.decorate("requirePermission", (permission, { projectId }) => async req => {
     calls.permissions.push({ permission, projectId, user: req.user.id });
     if (req.user.id === "denied") throw Object.assign(new Error("Permission required: testcase.view"), { statusCode: 403 });
+    if (permission === "shared_step.manage" && req.user.role !== "admin") throw Object.assign(new Error("Permission required: shared_step.manage"), { statusCode: 403 });
   });
+  app.decorate("validate", () => {});
   await app.register(module.exports);
   return { app, calls };
 }
@@ -133,4 +137,14 @@ test("authentication and case access remain mandatory and unscoped reads remain 
   assert.equal(admin.json().length, steps.length);
   assert.match(admin.body, /private-value/);
   assert.match(admin.body, /private-token/);
+});
+
+test("editing a shared section requires authority over its reusable definition", async t => {
+  const {app,calls} = await fixture(t);
+  const edit = (id,user) => app.inject({method:"PUT",url:`/test-steps/${id}`,headers:{authorization:user},payload:{expected_result:"Reviewed outcome"}});
+  assert.equal((await edit("web","engineer")).statusCode,403);
+  assert.equal(calls.writes.length,0);
+  assert.equal((await edit("api","engineer")).statusCode,200);
+  assert.equal((await edit("web","admin")).statusCode,200);
+  assert.deepEqual(calls.writes.map(write => write.id),["api","web"]);
 });

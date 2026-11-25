@@ -392,6 +392,15 @@ test('finite aliases preserve native literal values, normalized key precedence a
   assert.equal(resolver.projectText('Use @t.first'),'Use @t.second','workflow preflight must not introduce recursive runtime substitution');
 });
 
+test('workflow input preflight recognizes explicitly scoped outputs only after their API step', () => {
+  const api = {id:'api',step_type:'api',action:'GET /invoice and capture @t.invoice',expected_result:'HTTP 200',
+    api_request:{method:'GET',url:'/invoice',captures:[{path:'$.id',parameter:'@t.invoice'}]}};
+  const web = {id:'web',step_type:'web',action:'Enter @t.invoice',expected_result:'Invoice is displayed'};
+  const source = {...draft(),parameter_values:{},steps:[api,web]};
+  assert.equal(tasks.draftParameterInputGap(source,[api,web],'story',0),null);
+  assert.deepEqual(tasks.draftParameterInputGap(source,[web,api],'story',0).required_parameters,['@t.invoice']);
+});
+
 test('require-ready policy preserves the explicit evidence-grounded upstream readiness gate', async t => {
   setup(t);
   const item=draft(), assessed={...packet(),cases:[item],case_assurance:[{...review('Assessed case'),case_fingerprint:tasks.fingerprint(item)}]};

@@ -353,6 +353,28 @@ const openRepositoryInspect = (page: typeof activePageObject = activePageObject)
     setReinspectFieldLocator("");
     setInspectMessage("");
 };
+const reviewSavedRepositoryLocator = () => {
+    const entry = selectedRepositoryEntry;
+    if (!entry) return;
+    openRepositoryInspect();
+    const locators = getRepositoryLocators(entry), name = getRepositoryMemberName(entry);
+    const notes = entry.metadata?.target_criteria;
+    stageInspectField({
+        name, tag: getRepositoryHtmlTag(entry), role: getObjectRole(entry),
+        locator: entry.locator, locatorKind: entry.locator_kind || "css",
+        dom: normalizeMetadataValue(entry.metadata?.dom_structure), fallbackLocators: locators.filter(locator => !locator.isPrimary),
+        locatorCandidates: locators, source: "dom_candidate", pageUrl: entry.page_url,
+        description: normalizeMetadataValue(entry.metadata?.description),
+        businessMeaning: normalizeMetadataValue(entry.metadata?.business_meaning),
+        usageKeywords: metadataStringArray(entry.metadata?.usage_keywords),
+        targetCriteria: metadataStringArray(notes).join("\n"),
+        ancestorDom: normalizeMetadataValue(entry.metadata?.ancestor_dom),
+        ancestorScreenshotUrl: normalizeMetadataValue(entry.metadata?.ancestor_screenshot_url),
+        elementScreenshotUrl: normalizeMetadataValue(entry.metadata?.element_screenshot_url)
+    });
+    setInspectReviewTab("selected");
+    setInspectMessage(`Open the screen in a browser to validate ${name}.`);
+};
 useEffect(() => {
     stagedInspectFieldsRef.current = stagedInspectFields;
 }, [stagedInspectFields]);
@@ -765,6 +787,7 @@ return {
     selectRepositoryScreen,
     selectRepositoryEntry,
     openRepositoryInspect,
+    reviewSavedRepositoryLocator,
     exportRepositoryCsv,
     importRepositoryEntries,
     saveRepositoryEntry,

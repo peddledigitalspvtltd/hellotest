@@ -13,14 +13,16 @@ export function getAutomationRuntimeTypes(steps: Array<{ step_type?: string | nu
 }
 
 /** Build-time inference leaves saved executable sources and recorder behavior intact. */
-export function inferAutomationBuildRuntime(step: {step_type?:string|null;action?:string|null;automation_code?:string|null;api_request?:{url?:string|null}|null}, appTypeKind = "web"): TestStepType {
+export function inferAutomationBuildRuntime(step: {step_type?:string|null;action?:string|null;automation_code?:string|null;api_request?:{url?:string|null}|null}, caseType = "web"): TestStepType {
   const saved = Object.prototype.hasOwnProperty.call(AUTOMATION_RUNTIMES, step.step_type || "") ? step.step_type as TestStepType : "web";
   if (saved !== "web" || step.automation_code?.trim()) return saved;
-  if (step.api_request?.url || appTypeKind === "api") return "api";
+  if (step.api_request?.url?.trim()) return "api";
   const action = String(step.action || "").replace(/<[^>]+>/g," ").trim().replace(/^(?:Given|When|Then|And|But)\s+/i, "").replace(/^(?:I|we|the client)\s+/i, "");
   if (/^(?:click|tap|type|fill|enter|select|navigate|browse|open|visit|hover|scroll)\b/i.test(action)) return saved;
-  return /^(?:(?:send|call|execute|perform|issue|make|invoke)\s+(?:(?:an?|the)\s+)?(?:(?:HTTP|API)\s+)?(?:request\s+)?(?:to\s+)?)?(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(?:(?:HTTP|API)\s+)?(?:request\s+)?(?:to\s+)?(?:https?:\/\/|\/|@[a-z][\w.\[\]-]*|\{\{)/i.test(action)
-    || /^(?:send|call|execute|perform|issue|make|invoke)\b.*\b(?:API|HTTP)\s+(?:request|endpoint|call)\b/i.test(action) ? "api" : saved;
+  if (/^(?:(?:send|call|execute|perform|issue|make|invoke)\s+(?:(?:an?|the)\s+)?(?:(?:HTTP|API)\s+)?(?:request\s+)?(?:to\s+)?)?(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(?:(?:HTTP|API)\s+)?(?:request\s+)?(?:to\s+)?(?:https?:\/\/|\/|@[a-z][\w.\[\]-]*|\{\{)/i.test(action)
+    || /^(?:send|call|execute|perform|issue|make|invoke)\b.*\b(?:API|HTTP)\s+(?:request|endpoint|call)\b/i.test(action)) return "api";
+  if (/\b(?:browser|page|DOM|web(?:site|page)|getByRole|getByLabel|locator\s*\()\b/i.test(action)) return saved;
+  return caseType === "api" || caseType === "android" || caseType === "ios" ? caseType : saved;
 }
 
 export function getAutomationBuildRuntimeTypes(steps: Parameters<typeof inferAutomationBuildRuntime>[0][], fallback = "web"): TestStepType[] {
@@ -43,10 +45,10 @@ export function getRecorderPlatform(steps: Array<{ id: string; step_type?: strin
 
 /** Platform is a saved authoring constraint; functional Test Case category is separate. */
 export const AUTOMATION_CASE_TYPES: Array<{value: AutomationCaseType; label: string; description: string}> = [
-  {value: "web", label: "Web", description: "Web browser steps and API requests."},
-  {value: "api", label: "API", description: "API requests, assertions and response captures."},
-  {value: "android", label: "Android", description: "Android device steps and API requests."},
-  {value: "ios", label: "iOS", description: "iOS device steps and API requests."},
+  {value: "web", label: "Web", description: "Generate browser scripts from observed web actions and authored expected results."},
+  {value: "api", label: "API", description: "Generate requests and assertions from a supplied API contract."},
+  {value: "android", label: "Android", description: "Prepare Appium instructions from supplied Android locators or recordings."},
+  {value: "ios", label: "iOS", description: "Prepare Appium instructions from supplied iOS locators or recordings."},
   {value: "unified", label: "Unified", description: "A flow spanning browsers, devices and API requests."}
 ];
 
@@ -72,5 +74,5 @@ export function resolveAutomationCaseType(testCase: { automation_case_type?: str
 export function incompatibleAutomationRuntimes(caseType: AutomationCaseType | "", steps: Parameters<typeof getAutomationBuildRuntimeTypes>[0]): TestStepType[] {
   if (!caseType || !steps.length) return [];
   const allowed = getAllowedAutomationStepTypes(caseType);
-  return getAutomationBuildRuntimeTypes(steps).filter(type => !allowed.includes(type));
+  return getAutomationBuildRuntimeTypes(steps, caseType).filter(type => !allowed.includes(type));
 }

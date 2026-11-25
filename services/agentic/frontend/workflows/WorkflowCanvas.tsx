@@ -16,7 +16,7 @@ import {
   type ReactFlowProps,
 } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, useState, useMemo, type RefObject } from "react";
-import { IconCheck, IconPlus, IconFocusCentered } from "@tabler/icons-react";
+import { IconCheck, IconPlus, IconFocusCentered, IconZoomIn } from "@tabler/icons-react";
 import { loopPresentationBodies } from "./workflowPresentation";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import type {
@@ -123,6 +123,7 @@ function WorkflowEdge(props: EdgeProps) {
   </>;
 }
 const edgeTypes = { workflow: WorkflowEdge };
+const initialFit = { padding:0.2, maxZoom:1 };
 function FitCanvas({ container, enabled = true }: { container: RefObject<HTMLDivElement>; enabled?: boolean }) {
   const initialized = useNodesInitialized();
   const { fitView } = useReactFlow();
@@ -132,7 +133,7 @@ function FitCanvas({ container, enabled = true }: { container: RefObject<HTMLDiv
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(
-        () => void fitView({ padding: 0.2, maxZoom: 1 }),
+        () => void fitView(initialFit),
       );
     });
     observer.observe(container.current);
@@ -146,6 +147,12 @@ function FitCanvas({ container, enabled = true }: { container: RefObject<HTMLDiv
 function FocusSelectedStep({ id }: { id: string }) {
   const { fitView } = useReactFlow();
   return <ControlButton title="Focus selected step" aria-label="Focus selected step" onClick={() => void fitView({ nodes: [{ id }], padding: 0.35, minZoom: 0.6, maxZoom: 1, duration: 200 })}><IconFocusCentered size={16} /></ControlButton>;
+}
+function FitReadableView() {
+  const {fitView}=useReactFlow();
+  return <ControlButton title="Fit at readable zoom" aria-label="Fit at readable zoom" onClick={()=>void fitView({...initialFit,minZoom:0.42,duration:200})}>
+    <IconZoomIn size={16}/>
+  </ControlButton>;
 }
 function FollowExecution({ id, request }: { id?: string; request?: number }) {
   const initialized = useNodesInitialized();
@@ -171,7 +178,7 @@ export function WorkflowCanvas(
       <ReactFlow<AgenticWorkflowNode, AgenticWorkflowEdge>
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+        fitViewOptions={initialFit}
         minZoom={0.15}
         maxZoom={1.8}
         deleteKeyCode={null}
@@ -191,7 +198,7 @@ export function WorkflowCanvas(
         <FitCanvas container={container} enabled={autoFitOnResize} />
         <FollowExecution id={followNodeId} /><FollowExecution id={focusRequest ? focusNodeId : undefined} request={focusRequest} />
         <Background gap={22} size={1} />
-        <Controls showInteractive={false}>{focusNodeId && <FocusSelectedStep id={focusNodeId} />}</Controls>
+        <Controls showInteractive={false}>{(props.nodes?.length || 0)>6 && <FitReadableView/>}{focusNodeId && <FocusSelectedStep id={focusNodeId} />}</Controls>
         <MiniMap pannable zoomable nodeColor="var(--studio-accent)" />
       </ReactFlow>
     </div></ConnectedPortsContext.Provider></InsertionContext.Provider></LoopPresentation.Provider>

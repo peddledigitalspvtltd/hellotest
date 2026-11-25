@@ -7,6 +7,8 @@ const { browserTransportError } = require("../browser/automationBrowserTransport
 const { UPSTREAM_BROWSER_DRIVER } = require("../build/automationBuildPipelineOptions");
 const diagnostics = require("../build/automationProgressDiagnostics");
 const browserContextEvidence = new WeakMap();
+const navigationStatuses = new WeakMap();
+const trustedNavigationHttpStatus = result => result && typeof result === 'object' ? navigationStatuses.get(result) : undefined;
 // Only authenticated host metadata can establish masked pixels. Native tool
 // image blocks and page-authored text never enter this model channel.
 const maskedModelImages = new WeakMap();
@@ -30,7 +32,7 @@ const unsupported=()=>Object.assign(new Error('The connected browser does not pr
 
 /** Only the native MCP transport lives here. Tool catalogs, arguments and
  * results retain their upstream shape; the shared builder owns model policy. */
-async function connectUpstreamPlaywright({integration,startUrl,buildId=randomUUID(),secrets={},signal,capturePreview=false,onPreview,captureModelImages=false}={}){
+async function connectUpstreamPlaywright({integration,startUrl,buildId=randomUUID(),secrets={},signal,capturePreview=false,onPreview,captureModelImages=false,cleanupTimeoutMs=5000}={}){
   signal?.throwIfAborted();
   const entryUrl=normalizeAutomationStartUrl(startUrl,{required:true});
   if(!integration||typeof buildId!=='string'||!/^[A-Za-z0-9_.:-]{1,160}$/.test(buildId)
@@ -80,6 +82,9 @@ async function connectUpstreamPlaywright({integration,startUrl,buildId=randomUUI
       // native page/tool text or caller-supplied browser properties. Initialize
       // can precede lazy context creation, so only completed tool calls qualify.
       if(method==='tools/call'&&browser)retainBrowserContextEvidence(browser,payload._meta?.hellotest?.browser_context);
+      const navigationStatus=payload._meta?.hellotest?.navigation_http_status;
+      if(method==='tools/call'&&params?.name==='browser_navigate'&&payload.result&&typeof payload.result==='object'
+        &&Number.isInteger(navigationStatus)&&navigationStatus>=100&&navigationStatus<=599)navigationStatuses.set(payload.result,navigationStatus);
       // The browser UI uses protected transport metadata, never native tool
       // content or the model channel. Retain the native result byte-for-byte.
       const preview=payload._meta?.hellotest?.browser_preview;
@@ -126,22 +131,23 @@ async function connectUpstreamPlaywright({integration,startUrl,buildId=randomUUI
     if(browser)browserContextEvidence.delete(browser);
     if(!sessionId)return;
     try{
-      const response=await transport(endpoint,{method:'DELETE',redirect:'error',headers:requestHeaders(),signal:AbortSignal.timeout(5000)});
+      const response=await transport(endpoint,{method:'DELETE',redirect:'error',headers:requestHeaders(),signal:AbortSignal.timeout(cleanupTimeoutMs)});
       await response.body?.cancel().catch(()=>undefined);
     }catch{/* Closing an uncertain session never replays its last tool call. */}
   };
   try{
+    const connectionDeadlineMs=Date.now()+7_000;
     const initialized=await post('initialize',{protocolVersion:MCP_PROTOCOL,capabilities:{},clientInfo:{name:'hellotest-automation-upstream',version:'1.0.0'},
-      _meta:{hellotest:{start_url:entryUrl,build_id:buildId,secrets,...(previewEnabled?{capture_preview:true}:{}),...(captureModelImages===true?{capture_model_images:true}:{}),...(assertionTimeoutMs!==undefined?{assertion_timeout_ms:assertionTimeoutMs}:{}),...(navigationTimeoutMs!==undefined?{navigation_timeout_ms:navigationTimeoutMs}:{})}}});
+      _meta:{hellotest:{start_url:entryUrl,build_id:buildId,secrets,...(previewEnabled?{capture_preview:true}:{}),...(captureModelImages===true?{capture_model_images:true}:{}),...(assertionTimeoutMs!==undefined?{assertion_timeout_ms:assertionTimeoutMs}:{}),...(navigationTimeoutMs!==undefined?{navigation_timeout_ms:navigationTimeoutMs}:{})}}},{deadlineMs:connectionDeadlineMs});
     const provider=initialized?._meta?.hellotest;
     if(!sessionId||initialized?.protocolVersion!==MCP_PROTOCOL||!initialized.capabilities?.tools||provider?.provider!==UPSTREAM_BROWSER_DRIVER||provider.upstream_package!=='@playwright/mcp'||typeof provider.upstream_version!=='string')throw unsupported();
     if((assertionTimeoutMs!==undefined&&provider.assertion_timeout_ms!==assertionTimeoutMs)||(navigationTimeoutMs!==undefined&&provider.navigation_timeout_ms!==navigationTimeoutMs))throw unsupported();
-    await post('notifications/initialized');
-    const catalog=await post('tools/list');
+    await post('notifications/initialized',undefined,{deadlineMs:connectionDeadlineMs});
+    const catalog=await post('tools/list',undefined,{deadlineMs:connectionDeadlineMs});
     if(!Array.isArray(catalog?.tools)||catalog.tools.length>100||catalog.tools.some(tool=>!tool||typeof tool.name!=='string'||!tool.inputSchema||typeof tool.inputSchema!=='object'))throw unsupported();
     browser={tools:catalog.tools,startUrl:entryUrl,provider,modelImagesEnabled:captureModelImages===true,call:(name,args,options)=>post('tools/call',{name,arguments:args},options),close};
     return browser;
   }catch(error){await close();throw error;}
 }
 
-module.exports={connectUpstreamPlaywright,trustedBrowserContextEvidence,trustedModelImage};
+module.exports={connectUpstreamPlaywright,trustedBrowserContextEvidence,trustedModelImage,trustedNavigationHttpStatus};

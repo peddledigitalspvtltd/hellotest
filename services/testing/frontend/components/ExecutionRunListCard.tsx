@@ -1,4 +1,5 @@
 import { formatDuration } from "../lib/executionTiming";
+import { executionCaseInstanceKey } from "../lib/executionCaseLifecycle";
 import { runStoryCounts } from "../lib/runCatalog";
 import { TileCardValue, TileCardProgress } from "@hellotest/platform/frontend/src/shared/components/TileCardPrimitives";
 import type { ExecutionEvidenceReceipt } from "../lib/executionRunSummary";
@@ -71,15 +72,7 @@ export function executionDataIterationCount(execution: Execution) {
   return Math.max(rowCount, 1);
 }
 
-export function executionCaseInstanceKey(
-  testCaseId: string,
-  iterationIndex?: number | null,
-  iterationKey?: string | null
-) {
-  const resolvedIteration = String(iterationKey || "").trim()
-    || (iterationIndex === null || iterationIndex === undefined ? "default" : `row-${iterationIndex + 1}`);
-  return `${testCaseId}:${resolvedIteration}`;
-}
+export { executionCaseInstanceKey };
 
 export function resolveExecutionCaseDataSet(
   snapshot: ExecutionCaseSnapshot,

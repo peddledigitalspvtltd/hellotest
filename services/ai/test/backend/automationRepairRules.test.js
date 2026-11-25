@@ -171,3 +171,49 @@ test('all validation phases retain original per-section shared values, templates
   assert.match(result.checks.find(check=>check.phase===phase).detail,/Frozen per-section shared/);
  }
 });
+
+test('API endpoint repair keeps the exact authored origin, bindings, request data and response checks',()=>{
+ const request={method:'POST',url:'https://qa.example.test/old?mode=@t.mode',query_params:[{key:'ref',value:'@r.ref'}],headers:[{key:'Content-Type',value:'application/json'}],
+  body_mode:'json',body:'{"amount":"@t.amount"}',auth:{type:'bearer',credential_reference:'@r.token'},validations:[{kind:'status',expected:'201'}],captures:[{path:'$.id',parameter:'@r.order'}]};
+ const step={id:'api',step_order:1,step_type:'api',action:'POST /orders',api_request:request};
+ const current={...base,steps:[step],failed_step_ids:['api']};
+ const choice={kind:'replace_api_url',step_id:'api',new_url:'https://qa.example.test/orders',rationale:'The authored POST targets the orders API in this test environment.'};
+ const patch=rules.patch(current,choice);
+ assert.equal(patch.before,'https://qa.example.test/old');
+ assert.deepEqual(rules.stepPatch(step,patch),{api_request:{...request,url:'https://qa.example.test/orders?mode=@t.mode'}});
+ assert.equal(rules.validateStoredPatch(current,patch),true);
+ for(const new_url of ['https://other.example.test/orders','https://qa.example.test/anything','https://qa.example.test/orders?mode=changed', 'https://qa.example.test/orders#fragment']){
+  assert.throws(()=>rules.patch(current,{...choice,new_url}),/exact authored endpoint/);
+ }
+ assert.throws(()=>rules.patch(current,{...choice,method:'GET'}),/only the approved endpoint/);
+ assert.throws(()=>rules.patch({...current,steps:[{...step,action:'POST /orders, then POST /reports'}]},choice),/single exact authored endpoint/);
+ const relative={...step,api_request:{...request,url:'/old'}};
+ assert.throws(()=>rules.patch({...current,steps:[relative]},{...choice,new_url:'/orders'}),/saved request origin/);
+ const relativeBase={...current,steps:[relative],api_base_url:'https://qa.example.test'};
+ assert.equal(rules.patch(relativeBase,{...choice,new_url:'/orders'}).after,'/orders');
+});
+
+test('the mixed repair negative oracle needs a pinned native API response and a genuine authored assertion failure',()=>{
+ const endpoint='https://qa.example.test/orders';
+ for(const variant of ['verified','missing-response','capture-failure','truncated-body','wrong-kind','unresolved-expected','request-drift','operator-drift','oracle-binding-drift']){
+  const f=fixture();
+  for(const [phase,receipt] of Object.entries(f.receipts))for(const job of receipt.jobs){
+   const step=receipt.steps.find(item=>item.test_case_id===job.test_case_id&&item.step_order===2);
+   const request={method:'GET',url:endpoint,validations:[{kind:'status',expected:'@t.expected_status'}]};
+   Object.assign(step,{step_type:'api',automation_code:null,api_request:request});
+   Object.assign(job.payload.steps[1],{step_type:'api',automation_code:null,api_request:request});
+   const failed=phase==='negative', responseStatus=failed?404:200;
+   job.runtime_state.logs.stepApiDetails={[step.snapshot_step_id]:{request:{method:'GET',url:endpoint},response:{status:responseStatus},assertions:[{kind:'status',passed:!failed,expected:'200',actual:String(responseStatus)}]}};
+  }
+  const negative=f.receipts.negative.jobs[0], detail=negative.runtime_state.logs.stepApiDetails['case-2'];
+  if(variant==='missing-response')delete detail.response;
+  if(variant==='capture-failure')detail.assertions=[{kind:'status',passed:true,expected:'404',actual:'404'},{kind:'json_path',passed:false,expected:'Capture @r.id',actual:null}];
+  if(variant==='truncated-body')detail.assertions=[{kind:'response_body',passed:false,expected:'Complete response body',actual:null}];
+  if(variant==='wrong-kind')detail.assertions[0].kind='json_path';
+  if(variant==='unresolved-expected')detail.assertions[0].expected='@t.expected_status';
+  if(variant==='request-drift')detail.request.url='https://qa.example.test/another';
+  if(variant==='operator-drift')negative.payload.steps[1].api_request={...negative.payload.steps[1].api_request,validations:[{kind:'status',operator:'ne',expected:'@t.expected_status'}]};
+  if(variant==='oracle-binding-drift')detail.assertions[0].expected='201';
+  assert.equal(rules.evaluate(f.manifest,f.receipts,1,2).status==='verified',variant==='verified',variant);
+ }
+});

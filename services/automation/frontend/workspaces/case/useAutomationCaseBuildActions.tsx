@@ -2,6 +2,7 @@ import { admitAutomationBuild } from "../cases/admitAutomationBuild";
 import { automationAgentRequest } from "@hellotest/ai/frontend/components/AutomationAgentSetup";
 import { requireReadyAutomation } from "../../lib/automationReadiness";
 import { reviewedAutomationStartUrl } from "../../lib/automationStartUrl";
+import { automationBuildRuntimeRequest } from "../../lib/automationBuildPipeline";
 import { useMutation } from "@tanstack/react-query";
 import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { getAutomationSchedule } from "../../lib/automationPlan";
@@ -11,7 +12,7 @@ import type { AutomationCaseState } from './useAutomationCaseState';
 import type { AutomationCaseModel } from './useAutomationCaseModel';
 import type { AutomationCaseServices } from './useAutomationCaseServices';
 export function useAutomationCaseBuildActions(input: AutomationCaseScope & AutomationCaseState & AutomationCaseModel & AutomationCaseServices) {
-    const {authoring, agentBriefScope, canUseAutomationBuilder, canUseAutomationAi, activeCase, startUrl, automationStartUrlRequired, projectId, agentScheduledAt, flushAutomationBuildParameters, inspectSavedPlans, reviewBuildParameters, selectedParameterSuiteId, selectedExecutionEnvironmentId, selectedExecutionConfigurationId, selectedExecutionDataSetId, rememberAutomationBuildDrafts, reviewBuildSource, appTypeId, buildAgentSelection, allowBrowserActions, buildBrowserLocation, buildPipelineOptions, builderContext, agentMission, automatedSteps, setSearchParams, reviewBuildAccepted, reviewBuildNotice, showSuccess, invalidateAutomationData, showError, agentBuildTracking, reviewBuildCancelled, queryClient, batchBuildTargetIds, batchStartUrl, selectedRuntimeType, automatedCases, setIsBatchAgentOpen, selectAutomationCase, setActiveAutomationWorkspaceTab, selectBuildMethod} = input;
+    const {authoring, agentBriefScope, canUseAutomationBuilder, canUseAutomationAi, activeCase, startUrl, projectId, agentScheduledAt, flushAutomationBuildParameters, inspectSavedPlans, reviewBuildParameters, selectedParameterSuiteId, selectedExecutionEnvironmentId, selectedExecutionConfigurationId, selectedExecutionDataSetId, rememberAutomationBuildDrafts, reviewBuildSource, appTypeId, buildAgentSelection, allowBrowserActions, buildBrowserLocation, buildPipelineOptions, builderContext, agentMission, automatedSteps, setSearchParams, reviewBuildAccepted, reviewBuildNotice, showSuccess, invalidateAutomationData, showError, agentBuildTracking, reviewBuildCancelled, queryClient, batchBuildTargetIds, batchStartUrl, automatedCases, setIsBatchAgentOpen, selectAutomationCase, setActiveAutomationWorkspaceTab, selectBuildMethod} = input;
     const queueBuild=async(request:Parameters<typeof api.testCases.buildAutomationBatch>[0])=>{
         const ids=request.test_case_ids||[];
         for(const id of ids)await authoring.syncAuthoringState(id);
@@ -29,11 +30,13 @@ export function useAutomationCaseBuildActions(input: AutomationCaseScope & Autom
                 throw new Error("Select an automation case first.");
             }
             const caseId = activeCase.id;
-            const requestedStartUrl = reviewedAutomationStartUrl(startUrl, automationStartUrlRequired);
             const buildProjectId = projectId;
             const scheduledAt = getAutomationSchedule(agentScheduledAt);
             await flushAutomationBuildParameters([caseId]);
-            requireReadyAutomation(await inspectSavedPlans([caseId], "build"));
+            const savedPlans = await inspectSavedPlans([caseId], "build");
+            requireReadyAutomation(savedPlans);
+            const runtimes = savedPlans.flatMap(result => result.runtimes);
+            const requestedStartUrl = reviewedAutomationStartUrl(startUrl, runtimes.includes("web"));
             const reviewedParameters = await reviewBuildParameters([caseId], {
                 test_suite_id: selectedParameterSuiteId || undefined,
                 test_environment_id: selectedExecutionEnvironmentId || undefined,
@@ -49,9 +52,7 @@ export function useAutomationCaseBuildActions(input: AutomationCaseScope & Autom
                 ai_feature: "ai.agentic.automation-engineer",
                 app_type_id: appTypeId, test_case_ids: [caseId],
                 integration_id: buildAgentSelection.integrationId || undefined, agent_context: automationAgentRequest(buildAgentSelection),
-                allow_browser_actions: allowBrowserActions,
-                browser_location: buildBrowserLocation,
-                ...buildPipelineOptions,
+                ...automationBuildRuntimeRequest(runtimes, buildBrowserLocation, allowBrowserActions, buildPipelineOptions),
                 scheduled_at: scheduledAt,
                 start_url: requestedStartUrl,
                 additional_context: [
@@ -106,7 +107,8 @@ export function useAutomationCaseBuildActions(input: AutomationCaseScope & Autom
             await flushAutomationBuildParameters(caseIds);
             const buildProjectId = projectId;
             const savedPlans = await inspectSavedPlans(caseIds, "build");
-            const requestedStartUrl = reviewedAutomationStartUrl(batchStartUrl, savedPlans.some(result => result.runtimes.includes("web") || !result.stepCount && ["web", "unified"].includes(selectedRuntimeType)));
+            const runtimes = savedPlans.flatMap(result => result.runtimes);
+            const requestedStartUrl = reviewedAutomationStartUrl(batchStartUrl, runtimes.includes("web"));
             requireReadyAutomation(savedPlans);
             const reviewedParameters = await reviewBuildParameters(caseIds, {
                 test_suite_ids_by_case: activeCase && selectedParameterSuiteId ? { [activeCase.id]: selectedParameterSuiteId } : undefined,
@@ -121,9 +123,7 @@ export function useAutomationCaseBuildActions(input: AutomationCaseScope & Autom
             const response = await queueBuild({
                 ...reviewedParameters,
                 ai_feature: "ai.agentic.automation-engineer",
-                allow_browser_actions: allowBrowserActions,
-                browser_location: buildBrowserLocation,
-                ...buildPipelineOptions,
+                ...automationBuildRuntimeRequest(runtimes, buildBrowserLocation, allowBrowserActions, buildPipelineOptions),
                 scheduled_at: getAutomationSchedule(agentScheduledAt),
                 app_type_id: appTypeId,
                 test_case_ids: caseIds,

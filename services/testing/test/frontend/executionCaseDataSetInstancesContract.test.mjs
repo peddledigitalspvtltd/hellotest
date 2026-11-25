@@ -20,12 +20,14 @@ test("execution case snapshots expose immutable per-case Data Set context", asyn
 });
 
 test("run cases derive stable row instances and render every frozen row with values and status", async () => {
-  const [page, styles] = await Promise.all([
+  const [page, styles, identity] = await Promise.all([
     readSource("../../frontend/pages/ExecutionsPage.tsx"),
-    readSource("../../frontend/pages/ExecutionsPage.case-run.css")
+    readSource("../../frontend/pages/ExecutionsPage.case-run.css"),
+    readSource("../../frontend/lib/executionCaseLifecycle.ts")
   ]);
 
-  assert.match(page, /function executionCaseInstanceKey/);
+  assert.match(identity, /function executionCaseInstanceKey/);
+  assert.match(page, /executionCaseInstanceKey\(snapshot\.test_case_id, index, iterationKey\)/);
   assert.match(page, /function buildExecutionCaseInstances/);
   assert.match(page, /resolvedRows\.length \? resolvedRows : \[null\]/);
   assert.match(page, /data_set_instances: buildExecutionCaseInstances\(snapshot, execution\)/);

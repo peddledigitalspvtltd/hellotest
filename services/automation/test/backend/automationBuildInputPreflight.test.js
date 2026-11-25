@@ -12,6 +12,14 @@ test('configured empty values remain valid and old generated source or run captu
  const resolver=createBrowserParameterResolver({caseValues:{'t.name':''},steps});
  assert.doesNotThrow(()=>assertBuildInputs(steps,resolver));
 });
+test('a prior authored API capture handoff is excluded from browser-only static input checks',()=>{
+ const api={id:'invoice',step_type:'api',action:'Fetch invoice with @t.http_token',api_request:{method:'GET',url:'/invoice',captures:[{path:'$.number',parameter:'t.invoice'}]}};
+ const web={id:'input',step_type:'web',action:'Enter @t.invoice'};
+ const steps=[api,web];
+ const resolver=createBrowserParameterResolver({steps});
+ assert.deepEqual(missingBuildInputs(steps,resolver),[]);
+ assert.deepEqual(missingBuildInputs([web,api],resolver).map(row=>row.required_parameters),[['t.invoice']]);
+});
 test('an active unresolved unscoped input stops before model/browser work instead of permitting invented literals',()=>{
  const resolver=createBrowserParameterResolver({caseValues:{}});
  assert.throws(()=>assertCurrentBuildInputs({stepId:'name',parameterReferences:['r.name']},resolver),error=>{

@@ -7,6 +7,7 @@ const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llm
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
+const { readIssueContext } = require('./bugTriageEvidence');
 
 const MAX_TRIAGE_ITEMS = 10;
 const BUG_TRIAGE_USAGE_KEY = "ai.bug.triage";
@@ -28,11 +29,15 @@ const TRIAGE_PROMPT_FIELD_LIMITS = Object.freeze({
   actual_result: 3_000,
   environment: 500,
   build: 500,
+  status: 120,
+  bug_type: 120,
+  root_cause: 500,
+  qa_root_cause: 500,
   updated_at: 80,
   traceability_ids_per_field: 25
 });
 const normalizeText = (value, max = 12_000) => String(value || "").trim().slice(0, max);
-const plainText = (value) => String(value || "")
+const plainText = (value) => String(value ?? "")
   .replace(/<[^>]*>/g, " ")
   .replace(/\s+/g, " ")
   .trim();
@@ -80,8 +85,18 @@ const buildIssueEvidenceSources = (issue) => {
   addField("actual_result", "Actual result", issue.actual_result);
   addField("environment", "Environment", issue.environment);
   addField("build", "Build", issue.build);
+  addField("status", "Status", issue.status);
+  addField("bug_type", "Defect type", issue.bug_type);
+  addField("root_cause", "Recorded root cause", issue.root_cause);
+  addField("qa_root_cause", "Recorded QA root cause", issue.qa_root_cause);
+  addField("regression", "Regression", issue.regression);
+  addField("labels", "Labels", issue.labels);
   addField("linked_test_run_id", "Linked test run", issue.linked_test_run_id, "traceability");
+  addField("linked_execution_result_id", "Linked execution result", issue.linked_execution_result_id, "traceability");
+  addField("linked_step_id", "Linked frozen step", issue.linked_step_id, "traceability");
   addField("linked_test_case_ids", "Linked Test Cases", issue.linked_test_case_ids, "traceability");
+  addField("linked_test_suite_ids", "Linked Test Suites", issue.linked_test_suite_ids, "traceability");
+  addField("linked_module_ids", "Linked Modules", issue.linked_module_ids, "traceability");
   addField("linked_requirement_ids", "Linked Stories", issue.linked_requirement_ids, "traceability");
   addField("release", "Release", issue.release || issue.fix_version, "delivery-scope");
   addField("sprint", "Sprint", issue.sprint, "delivery-scope");
@@ -113,8 +128,18 @@ const buildBoundedIssueSnapshots = (issues) => {
     actual_result: boundText(issue.id, "actual_result", issue.actual_result),
     environment: boundText(issue.id, "environment", issue.environment),
     build: boundText(issue.id, "build", issue.build),
+    status: boundText(issue.id, "status", issue.status),
+    bug_type: boundText(issue.id, "bug_type", issue.bug_type),
+    root_cause: boundText(issue.id, "root_cause", issue.root_cause),
+    qa_root_cause: boundText(issue.id, "qa_root_cause", issue.qa_root_cause),
+    regression: Boolean(issue.regression),
+    labels: boundIds(issue.id, "labels", issue.labels),
     linked_test_run_id: normalizeText(issue.linked_test_run_id, 255),
+    linked_execution_result_id: normalizeText(issue.linked_execution_result_id, 255),
+    linked_step_id: normalizeText(issue.linked_step_id, 255),
     linked_test_case_ids: boundIds(issue.id, "linked_test_case_ids", issue.linked_test_case_ids),
+    linked_test_suite_ids: boundIds(issue.id, "linked_test_suite_ids", issue.linked_test_suite_ids),
+    linked_module_ids: boundIds(issue.id, "linked_module_ids", issue.linked_module_ids),
     linked_requirement_ids: boundIds(issue.id, "linked_requirement_ids", issue.linked_requirement_ids),
     updated_at: boundText(issue.id, "updated_at", issue.updated_at)
   }));
@@ -246,7 +271,7 @@ const normalizeCategoryRefinements = (candidate, deterministicTriage, evidenceSo
     const issueId = normalizeText(item?.issue_id, 255);
     if (issueId && !candidateByIssue.has(issueId)) candidateByIssue.set(issueId, item);
   });
-  const allAllowedRefs = new Set(evidenceSources.map((source) => source.ref));
+  const ownerByRef = new Map(evidenceSources.map((source) => [source.ref, source.issue_id || source.id]));
   const fallbackSections = [];
   const refinedIssueIds = [];
   const triage = deterministicTriage.map((item) => {
@@ -254,8 +279,7 @@ const normalizeCategoryRefinements = (candidate, deterministicTriage, evidenceSo
     const category = ALLOWED_CATEGORIES.get(normalizeText(raw?.category, 120).toLowerCase());
     const categoryExplanation = normalizeText(raw?.category_explanation, 1_200);
     const rawRefs = unique(Array.isArray(raw?.category_evidence_refs) ? raw.category_evidence_refs.map((ref) => normalizeText(ref, 320)) : []);
-    const issuePrefix = `issue:${item.issue_id}:`;
-    const hasForgedRef = rawRefs.some((ref) => !allAllowedRefs.has(ref) || !ref.startsWith(issuePrefix));
+    const hasForgedRef = rawRefs.some((ref) => ownerByRef.get(ref) !== item.issue_id);
     if (!raw || !category || !categoryExplanation || !rawRefs.length || hasForgedRef) {
       fallbackSections.push(`category:${item.issue_id}`);
       return item;
@@ -268,7 +292,7 @@ const normalizeCategoryRefinements = (candidate, deterministicTriage, evidenceSo
       supports: ["category"],
       evidence_refs: rawRefs
     };
-    const signals = [categorySignal, prioritySignal].filter(Boolean);
+    const signals = [categorySignal, ...item.signals.filter((signal) => !signal.supports.includes("category"))];
     refinedIssueIds.push(item.issue_id);
     return {
       ...item,
@@ -339,7 +363,7 @@ const buildProcessing = ({ issueCount, sourceCount, recommendationCount, generat
   ]
 });
 
-exports.preview = async ({ project, issueIds = [], user, integrationId, promptGuidance, smartContext, images } = {}) => {
+exports.preview = async ({ project, issueIds = [], user, integrationId, promptGuidance, smartContext, images, canViewEvidence } = {}) => {
   const referenceImages = normalizeReferenceImages(images);
   const ids = unique(issueIds.map((value) => String(value || "").trim()));
   if (!ids.length) throw new Error("Select at least one defect to triage");
@@ -355,13 +379,17 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
     issues.push(issue);
   }
 
-  const evidenceSources = issues.flatMap(buildIssueEvidenceSources);
+  const contextByIssue = new Map();
+  for (const issue of issues) contextByIssue.set(issue.id, await readIssueContext(issue, user, { canView: canViewEvidence }));
+  const evidenceSources = issues.flatMap((issue) => [...buildIssueEvidenceSources(issue), ...contextByIssue.get(issue.id).sources]);
   const allowedRefs = new Set(evidenceSources.map((source) => source.ref));
   const deterministicTriage = issues.map((issue) => {
+    const { sources, corrections, ...failureContext } = contextByIssue.get(issue.id);
     const category = classifyCategory(issue);
     const priority = recommendPriority(issue);
     const readiness = buildReadiness(issue);
-    const signals = [category.signal, priority.signal].map((signal) => ({
+    const contextSignal = { code: "context.failed-attempt", label: "Failure evidence", value: failureContext.detail, supports: ["context"], evidence_refs: sources.map(source => source.ref) };
+    const signals = [category.signal, priority.signal, contextSignal].map((signal) => ({
       ...signal,
       evidence_refs: unique(signal.evidence_refs).filter((ref) => allowedRefs.has(ref))
     }));
@@ -378,9 +406,14 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
       recommended_priority: priority.recommended,
       explanation,
       signals,
+      failure_context: failureContext,
+      corrections,
+      record_fingerprint: issueFingerprint(issue),
+      context_fingerprint: hash(contextByIssue.get(issue.id)),
       evidence_refs: unique(signals.flatMap((signal) => signal.evidence_refs)),
       readiness,
       review_actions: unique([
+        ...(failureContext.attempt ? ["Compare the reported behavior with the frozen failed attempt before approving corrections."] : []),
         ...readiness.review_actions,
         priority.current !== priority.recommended ? `Confirm the proposed priority change from ${priority.current} to ${priority.recommended}.` : "Confirm that the current priority should remain unchanged."
       ])
@@ -494,6 +527,13 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
 };
 
 exports.MAX_TRIAGE_ITEMS = MAX_TRIAGE_ITEMS;
+function issueFingerprint(issue) {
+  const fields = [...Object.keys(TRIAGE_PROMPT_FIELD_LIMITS), "regression", "labels", "release", "sprint", "linked_test_run_id", "linked_execution_result_id", "linked_step_id", "linked_test_case_ids", "linked_test_suite_ids", "linked_module_ids", "linked_requirement_ids"];
+  return hash(fields.map((field) => issue[field]));
+}
+exports.issueFingerprint = issueFingerprint;
+exports.readIssueContext = readIssueContext;
+exports.contextFingerprint = hash;
 exports._private = {
   BUG_TRIAGE_USAGE_KEY,
   TRIAGE_PROMPT_FIELD_LIMITS,

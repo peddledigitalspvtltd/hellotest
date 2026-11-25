@@ -6,6 +6,8 @@ import ts from "typescript";
 import { automationCaseMappingStatus } from "../../frontend/lib/automationStepPersistence.ts";
 import {admitAutomationBuild} from "../../frontend/workspaces/cases/admitAutomationBuild.ts";
 import { reviewedAutomationStartUrl } from "../../frontend/lib/automationStartUrl.ts";
+import { automationBuildRuntimeRequest } from "../../frontend/lib/automationBuildPipeline.ts";
+import { getAutomationBuildRuntimeTypes } from "../../frontend/lib/automationRuntime.ts";
 
 const planExports = {};
 new Function("require", "exports", ts.transpileModule(readFileSync(new URL("../../frontend/lib/automationPlan.ts", import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(() => ({}), planExports);
@@ -38,7 +40,8 @@ function fixture({ queueFails = false, reviewFails = false, reviewCancels = fals
     automationAgentRequest,admitAutomationBuild,authoring:{beginBuild:(ids)=>{calls.admission.push({phase:"requested",ids});return "operation";},buildAccepted:(operation,id)=>calls.admission.push({phase:"accepted",operation,id}),buildRejected:(operation,error)=>calls.admission.push({phase:"rejected",operation,error})},
     buildPipelineOptions: {verification_mode:"generate_only",browser_driver:"mcp"}, buildBrowserLocation: "remote",
     allowBrowserActions: true, automationCreateStartUrl: "https://example.test/reviewed?tenant=one", automationCreateStartUrlRequired: true, builderContext: "Keep assertions", selectedExecutionEnvironmentId: "env", selectedExecutionConfigurationId: "config",
-    ...planExports, automationCaseMappingStatus, reviewedAutomationStartUrl, richTextToPlainText: value => String(value || '').replace(/<[^>]*>/g, ''),
+    ...planExports, automationCaseMappingStatus, reviewedAutomationStartUrl, automationBuildRuntimeRequest, getAutomationBuildRuntimeTypes,
+    richTextToPlainText: value => String(value || '').replace(/<[^>]*>/g, ''),
     crypto: { randomUUID: () => String(++sequence) },
     reviewBuildParameters: async (caseIds, selections, titles) => {
       assert.equal(calls.created.length, 1, "review targets the durable created case");
@@ -74,6 +77,7 @@ test("automation creation copies every source plan, preserves groups, and saves 
   assert.equal(payload.priority, 1);
   assert.equal(payload.status, "draft");
   assert.deepEqual(payload.test_data_set_ids, ["data"]);
+  assert.equal(payload.test_data_options.test_environment_id, "env");
   assert.deepEqual(payload.requirement_ids, ["story"]);
   assert.deepEqual(calls.modules, [["module", ["created"], true]]);
   assert.equal(payload.automation_start_url, "https://example.test/reviewed?tenant=one");
@@ -114,6 +118,25 @@ test("creation with multiple suites leaves selection to source resolution instea
   assert.deepEqual(calls.queued[0].test_suite_ids_by_case, { created: null });
 });
 
+test("Build Agent starts from the linked API behavior and explicit authoring retains an independent API plan", async () => {
+  const expected = { method: "GET", url: "https://catalog.test/invoices", validations: [{kind: "status", expected: "200"}] };
+  const source = { testCase: { id: "manual-api" }, steps: [{ action: "GET https://catalog.test/invoices",
+    expected_result: "HTTP 200 returns invoices", step_type: "api", api_request: expected }] };
+  const metadata = { automationCaseType: "api", title: "Invoice automation", description: "", priority: "3",
+    status: "draft", requirementIds: [], suiteIds: [], moduleIds: [], dataSetId: "" };
+  const sharedOverrides = { automationCreateMetadata: metadata, automationCreateManualCaseIds: ["manual-api"],
+    createSourcesQuery: { data: [source] }, automationCreateSteps: [], automationCreateStartUrl: "", automationCreateStartUrlRequired: false };
+  const build = fixture({ overrides: sharedOverrides });
+  await build.mutation();
+  assert.equal(build.calls.created[0].steps[0].expected_result, source.steps[0].expected_result);
+  assert.deepEqual(build.calls.created[0].steps[0].api_request, expected);
+  assert.equal(build.calls.queued[0].allow_browser_actions, undefined);
+  const author = fixture({ overrides: { ...sharedOverrides, automationCreationMode: "blank" } });
+  await author.mutation();
+  assert.deepEqual(author.calls.created[0].steps, []);
+  assert.deepEqual(author.calls.created[0].manual_test_case_ids, ["manual-api"]);
+});
+
 test("a queue failure returns the already-created case ID so retry cannot duplicate creation", async () => {
   const { calls, mutation } = fixture({ queueFails: true });
   const result = await mutation();
@@ -142,7 +165,7 @@ test("new AI creation tracks the accepted receipt and opens its durable Build wo
   assert.deepEqual(fixtureResult.calls.admission,[{phase:'requested',ids:['created']},{phase:'accepted',operation:'operation',id:'build'}]);
   const script=ts.transpileModule(`const callback=${automationMutationProperty('createAutomationCase','onSuccess','workspaces/cases/useAutomationCaseCreation.ts')};`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   const navigations=[],invalidations=[];
-  const context={setIsCreateAutomationOpen:value=>assert.equal(value,false),invalidateAutomationData:()=>invalidations.push(true),searchParams:new URLSearchParams('create=1&manual=old&repository=old&agent_activity=old'),navigate:(...args)=>navigations.push(args)};
+  const context={engineerPath:undefined,setIsCreateAutomationOpen:value=>assert.equal(value,false),invalidateAutomationData:()=>invalidations.push(true),searchParams:new URLSearchParams('create=1&manual=old&repository=old&agent_activity=old'),navigate:(...args)=>navigations.push(args)};
   const callback=new Function(...Object.keys(context),`${script}\nreturn callback;`)(...Object.values(context));
   await callback(created);
   const [target,options]=navigations[0],params=new URLSearchParams(target.search);
@@ -153,6 +176,12 @@ test("new AI creation tracks the accepted receipt and opens its durable Build wo
   const [cancelledTarget,cancelledOptions]=navigations[1];assert.equal(new URLSearchParams(cancelledTarget.search).get('case'),'created');
   assert.equal(new URLSearchParams(cancelledTarget.search).has('agent_activity'),false,'A cancelled build never invents an activity receipt');
   assert.equal(cancelledOptions.state.automationNotice.tone,'info');assert.match(cancelledOptions.state.automationNotice.message,/created.*cancelled before it started/);
+  context.engineerPath = '/agentic-workflows';
+  context.searchParams = new URLSearchParams('view=workbench&agent=automation-engineer');
+  const studioCallback=new Function(...Object.keys(context),`${script}\nreturn callback;`)(...Object.values(context));
+  await studioCallback(created);
+  assert.equal(navigations[2][0].pathname, '/agentic-workflows');
+  assert.equal(new URLSearchParams(navigations[2][0].search).get('agent'), 'automation-engineer');
 });
 
 test("linked manual cases can build without a redundant mission", async () => {
@@ -182,7 +211,7 @@ test('description-only creation can plan the flow while a truly empty request is
 });
 
 test('creation carries the explicit reviewed verification choice into the durable job',async()=>{
- const {mutation,calls}=fixture({overrides:{buildPipelineOptions:{verification_mode:'verify_repair',browser_driver:'mcp'}}});
+ const {mutation,calls}=fixture({overrides:{automationCreateManualCaseIds:[],buildPipelineOptions:{verification_mode:'verify_repair',browser_driver:'mcp'}}});
  await mutation();assert.equal(calls.queued[0].verification_mode,'verify_repair');assert.equal(calls.queued[0].browser_driver,'mcp');
 });
 

@@ -232,7 +232,15 @@ export function useAutomationCaseServices(input: AutomationCaseScope & Automatio
         const saved = steps.find((candidate) => candidate.id === stepId);
         if (!saved)
             throw new Error("The step was saved but could not be reloaded. Refresh the case to continue.");
-        await api.testCases.update(caseId, { automated: "yes", automation_status: automationCaseMappingStatus(steps) });
+        const detailKey = automationCaseDetailQueryKey(projectId, caseId);
+        const current = queryClient.getQueryData<TestCase>(detailKey);
+        const status = automationCaseMappingStatus(steps);
+        if (canUpdateAutomationCase && current?.automation_status !== status) {
+            const response = await api.testCases.update(caseId, { automation_status: status, expected_revision: current?.revision });
+            queryClient.setQueryData<TestCase>(detailKey, latest => latest ? {
+                ...latest, automation_status: status, revision: response.revision ?? latest.revision
+            } : latest);
+        }
         return saved;
     };
     const copyAutomationSections = (ids: string[], standalone = false) => {

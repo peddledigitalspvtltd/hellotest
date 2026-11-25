@@ -43,7 +43,7 @@ function assertFlowPlanningFeature(featureKey) {
 
 /** Observe the entry page through the existing native session before planning
  * an intent-only case. Page text is evidence; no form action is authorized here. */
-async function observeUpstreamEntry({browser,startUrl,redact=value=>value,assertAccess=async()=>{},signal}) {
+async function observeUpstreamEntry({browser,startUrl,redact=value=>value,assertAccess=async()=>{},signal,onNavigation}) {
   const observations=[];
   const deadlineMs=Date.now()+180_000;
   for(const [name,args] of [['browser_navigate',{url:startUrl}],['browser_snapshot',{}]]){
@@ -51,6 +51,10 @@ async function observeUpstreamEntry({browser,startUrl,redact=value=>value,assert
     const result=await browser.call(name,args,{deadlineMs});
     signal?.throwIfAborted();await assertAccess();
     if(result?.isError)throw Object.assign(new Error('The application entry page could not be inspected. Review its browser connection before planning this flow.'),{code:'AUTOMATION_FLOW_ENTRY_UNAVAILABLE',statusCode:422,nonRetryable:true});
+    if(name==='browser_navigate'){
+      require("../browser/automationBrowserEntry").assertBrowserEntry(result,require("../upstream/automationUpstreamMcpClient").trustedNavigationHttpStatus(result));
+      onNavigation?.(result);
+    }
     const text=redact((result?.content||[]).filter(block=>block.type==='text'&&typeof block.text==='string').map(block=>block.text).join('\n'));
     if(name==='browser_snapshot'&&!text.trim())throw Object.assign(new Error('The native browser did not return readable entry-page evidence. Inspect the application before planning this flow.'),{code:'AUTOMATION_FLOW_ENTRY_UNAVAILABLE',statusCode:422,nonRetryable:true});
     observations.push({tool:name,text:text.slice(0,60000),text_truncated:text.length>60000});

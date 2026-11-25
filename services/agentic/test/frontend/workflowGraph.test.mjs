@@ -44,7 +44,7 @@ test('Sprint template snapshots the correct editable intent for each native task
   assert.equal(Number(storyLoop.data.loopBatchSize), 1); assert.equal(Number(caseLoop.data.loopBatchSize), 1);
   assert.equal(Number(storyLoop.data.loopMaxIterations), 100); assert.equal(Number(caseLoop.data.loopMaxIterations), 10);
   assert.equal(caseLoop.data.loopSourceKey, 'input.0.cases');
-  assert.equal(draft.settings.template_version, 4);
+  assert.equal(draft.settings.template_version, 5);
   assert.ok(draft.edges.some(edge => edge.source === storyLoop.id && edge.sourceHandle === 'loop' && edge.target === 'story-assurance'));
   assert.ok(draft.edges.some(edge => edge.source === caseLoop.id && edge.sourceHandle === 'loop' && edge.target === 'test-case-assurance'));
   assert.ok(draft.edges.some(edge => edge.source === 'test-case-assurance' && edge.target === 'test-data-generator'));
@@ -269,9 +269,11 @@ test('list-processing starter has an explicit connected body and valid completio
 });
 
 
-test('registry exposes every executable kind once in the palette and enforces authoring caps',()=>{
+test('registry exposes each current kind once, retains legacy aliases and enforces authoring caps',()=>{
  const kinds=JSON.parse(readFileSync(new URL('../../shared/workflowNodeKinds.json',import.meta.url),'utf8')).kinds;
- assert.deepEqual(graph.nodePaletteGroups.flatMap(group=>group.kinds).sort(),Object.keys(kinds).sort());
+ const legacy=['apiAgent','llmAgent'];
+ assert.deepEqual(graph.nodePaletteGroups.flatMap(group=>group.kinds).sort(),Object.keys(kinds).filter(kind=>!legacy.includes(kind)).sort());
+ for(const kind of legacy){assert.equal(graph.executableNodeKinds.has(kind),true);assert.equal(graph.nodeKindLabels[kind],kinds[kind].label);}
  const four=Array.from({length:4},(_,index)=>({id:`agent-${index}`,data:{kind:'agent'}}));
  assert.throws(()=>graph.insertWorkflowNode(four,[],'agent'),/specialist/i);
  assert.throws(()=>graph.insertWorkflowNode(Array.from({length:100},(_,index)=>({id:`step-${index}`,data:{kind:index?'transform':'trigger'}})),[],'transform'),/100/);

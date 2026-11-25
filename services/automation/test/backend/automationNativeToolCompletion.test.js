@@ -81,25 +81,27 @@ test('native provider transport uncertainty and revoked access do not add a seco
   await assert.rejects(complete({integration,prompt:'Retain current native browser state.',browserActor:true,nativeTools,beforeDispatch:async()=>{throw denied;}}),error=>error===denied);assert.equal(requests,0);
 });
 
-test('actual saved-case and draft-preview completion adapters forward native tools only during the upstream actor phase',async()=>{
-  const tree=parse(source,{ecmaVersion:'latest'});let core,preview;
-  const hasNativeTools=node=>node?.type==='ArrowFunctionExpression'&&node.params[0]?.type==='ObjectPattern'&&node.params[0].properties.some(property=>property.key?.name==='nativeTools');
+test('saved-case and draft-preview share the adapter that forwards native tools only during the upstream actor phase',async()=>{
+  const tree=parse(source,{ecmaVersion:'latest'});
+  let consumers=0;
   const visit=node=>{
     if(!node||typeof node!=='object')return;
-    if(node.type==='VariableDeclarator'&&node.id?.name==='complete'&&hasNativeTools(node.init))core=node.init;
-    if(node.type==='Property'&&node.key?.name==='complete'&&hasNativeTools(node.value))preview=node.value;
+    if(node.type==='CallExpression'&&node.callee?.name==='browserModelCompletion')consumers++;
     for(const value of Object.values(node))if(Array.isArray(value))value.forEach(visit);else if(value&&typeof value==='object')visit(value);
-  };visit(tree);assert.ok(core);assert.ok(preview);
-  for(const adapter of [core,preview]){
-    const requests=[],traces=[];
-    const scope={assertAccess:async()=>{},knowledgeRows:{knowledge:[],context_transport:'not_required'},browserParameters:{redactUpstream:value=>value},testCase:{project_id:'project'},created_by:'author',transaction_id:null,test_case_id:'case',automationCaseType:'web',
-      integration,project_id:'project',app_type_id:'app',user_id:'author',featureKey:'ai.agentic.automation-engineer',signal:undefined,execution_guard:undefined,buildFeature:value=>value,ai_feature:'ai.agentic.automation-engineer',appendEvent:async()=>{},
-      requestChatCompletion:async options=>{requests.push(options);return {done:true};},require:id=>{assert.ok(id.endsWith('/llmTraceContext'));return {run:(trace,callback)=>{traces.push(trace);return callback();}};}};
-    const complete=new Function(...Object.keys(scope),`return (${source.slice(adapter.start,adapter.end)});`)(...Object.values(scope));
-    for(const phase of ['upstream_browser_actor','upstream_source','upstream_instruction_mapping'])await complete({phase,prompt:'Current phase contract',step:{id:'one'},nativeTools});
-    assert.equal(requests[0].nativeTools,nativeTools);assert.equal(requests[0].browserActor,true);assert.equal(requests[0].browserReview,false);
-    for(const request of requests.slice(1)){assert.equal(request.nativeTools,undefined);assert.equal(request.browserActor,false);assert.equal(request.browserReview,true);}
-    assert.deepEqual(requests.map(request=>request.upstreamPhase),['upstream_browser_actor','upstream_source','upstream_instruction_mapping']);
-    if(adapter===core){assert.deepEqual(traces.map(trace=>trace.generation_scope),['upstream_browser_actor','upstream_source','upstream_instruction_mapping']);assert.ok(traces.every(trace=>trace.mcp_context_depth===1&&trace.mcp_context==='not_required'));}
-  }
+  };
+  visit(tree);assert.equal(consumers,2);
+  const requests=[],traces=[];
+  const adapter=implementationFunctionSource('builder/programGeneration','browserModelCompletion');
+  const makeComplete=new Function('requestChatCompletion','require',`${adapter};return browserModelCompletion;`)(
+    async options=>{requests.push(options);return {done:true};},
+    id=>{assert.ok(id.endsWith('/llmTraceContext'));return {run:(trace,callback)=>{traces.push(trace);return callback();}};}
+  );
+  const complete=makeComplete({assertAccess:async()=>{},resolver:{redactUpstream:value=>value},integration,featureKey:'ai.agentic.automation-engineer',
+    trace:{project_id:'project',mcp_context:'not_required'}});
+  for(const phase of ['upstream_browser_actor','upstream_source','upstream_instruction_mapping'])await complete({phase,prompt:'Current phase contract',step:{id:'one'},nativeTools});
+  assert.equal(requests[0].nativeTools,nativeTools);assert.equal(requests[0].browserActor,true);assert.equal(requests[0].browserReview,false);
+  for(const request of requests.slice(1)){assert.equal(request.nativeTools,undefined);assert.equal(request.browserActor,false);assert.equal(request.browserReview,true);}
+  assert.deepEqual(requests.map(request=>request.upstreamPhase),['upstream_browser_actor','upstream_source','upstream_instruction_mapping']);
+  assert.deepEqual(traces.map(trace=>trace.generation_scope),requests.map(request=>request.upstreamPhase));
+  assert.ok(traces.every(trace=>trace.mcp_context_depth===1&&trace.mcp_context==='not_required'));
 });

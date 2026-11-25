@@ -584,7 +584,7 @@ function parseCurlRequest(source: string): { request: StepApiRequest; warnings: 
       headers,
       body_mode: inferBodyMode(body, headers),
       body,
-      validations: [{ kind: "status", target: "", expected: "200" }],
+      validations: [],
       captures: []
     },
     warnings
@@ -1890,7 +1890,7 @@ function StepAutomationDialogView({
   getParameterScopeState,
   onSaveResponseValue,
   onClose,
-  onSave
+  onSave, saveLabel = "Save automation", saving = false
 }: {
   title: string;
   subtitle: string;
@@ -1902,6 +1902,7 @@ function StepAutomationDialogView({
   onSaveResponseValue?: (name: string, value: string) => void;
   onClose: () => void;
   onSave: (input: { step_type: TestStepType; automation_code: string; api_request: StepApiRequest | null }) => void;
+  saveLabel?: string; saving?: boolean;
 }) {
   const { session } = useAuth();
   const parameterValues = useMemo(() => excludeSensitiveStepParameterValues(suppliedParameterValues, availableParameters.filter((parameter) => parameter.sensitive).map((parameter) => parameter.name)), [availableParameters, suppliedParameterValues]);
@@ -1911,7 +1912,7 @@ function StepAutomationDialogView({
   const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
-  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose, closeDisabled: saving });
   const stepRevisionKey = JSON.stringify({
     id: step.id || "",
     step_order: step.step_order || 1,
@@ -1942,7 +1943,6 @@ function StepAutomationDialogView({
   const [androidKeywordMessage, setAndroidKeywordMessage] = useState("");
   const [curlImportText, setCurlImportText] = useState("");
   const [curlImportMessage, setCurlImportMessage] = useState("");
-
   useEffect(() => {
     if (!canEditAutomationCode) onClose();
   }, [canEditAutomationCode, onClose]);
@@ -2982,7 +2982,7 @@ function StepAutomationDialogView({
           </div>
           <div className="resource-form-actions action-row">
             <button
-              className="primary-button"
+              className="primary-button" disabled={saving}
               onClick={() =>
                 onSave({
                   step_type: stepType,
@@ -2992,9 +2992,9 @@ function StepAutomationDialogView({
               }
               type="button"
             >
-              Save automation
+              {saving ? "Saving…" : saveLabel}
             </button>
-            <button className="ghost-button" onClick={onClose} type="button">
+            <button className="ghost-button" disabled={saving} onClick={onClose} type="button">
               Cancel
             </button>
             <button

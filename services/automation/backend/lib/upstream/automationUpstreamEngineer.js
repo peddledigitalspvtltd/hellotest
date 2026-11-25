@@ -7,6 +7,10 @@ const {parameterTemplateParts,hasInvalidParameterTemplate}=require("../parameter
 const {auditAuthoredInputWrites}=require("./automationUpstreamInputWrites");
 const {parseNativeSourceAliases,nativeActionMethods}=require("./automationUpstreamSourceAliases");
 const {createUpstreamTabTracker}=require("./automationUpstreamTabs");
+const {assertBrowserEntry}=require("../browser/automationBrowserEntry");
+const {trustedNavigationHttpStatus}=require("./automationUpstreamMcpClient");
+const { apiCaptureNames } = require('@hellotest/platform/backend/src/utils/testStepAutomation');
+const { generateApiSection } = require('../build/automationApiProgram');
 
 // A model uses the upstream catalog directly. This host owns only session,
 // permission, data and persistence boundaries; it does not implement browser tools.
@@ -16,6 +20,22 @@ const ACTION_TOOLS=new Set(['browser_navigate','browser_navigate_back','browser_
 // a form. Consume their returned observation before choosing another target;
 // browser_fill_form and non-submitting text writes retain native field batching.
 const OBSERVATION_BOUNDARIES=new Set(['browser_navigate','browser_navigate_back','browser_click','browser_press_key','browser_select_option','browser_hover','browser_drag']);
+const authoredActionTools={click:['browser_click'],tap:['browser_click'],drag:['browser_drag'],hover:['browser_hover']};
+function unperformedAuthoredAction(step,observations){
+ const command=/^(?:(?:given|when|then|and|i|the user|user)\s+)*(click|tap|press|drag|hover)s?\b\s*([\s\S]*)/i.exec(String(step.action||'').replace(/<[^>]*>/g,' ').trim());
+ if(!command)return null;
+ const verb=command[1].toLowerCase();
+ let tools=authoredActionTools[verb];
+ if(verb==='press'){
+  const target=command[2].replace(/^the\s+/i,'').replace(/["'`]/g,'');
+  const namedKey=/^(?:enter|return|tab|escape|esc|backspace|delete|space(?:bar)?|home|end|page ?up|page ?down|(?:up|down|left|right) arrow|arrow(?:up|down|left|right)|f(?:[1-9]|1[0-9]|2[0-4]))\b/i.exec(target);
+  const keyboard=Boolean(namedKey&&/^\s*(?:key\b(?!\s+(?:button|control|icon|link)\b)|(?:to|then|and|until|while|when|after|before|twice|once)\b|[.,;!?]|$)/i.test(target.slice(namedKey[0].length)))
+   || /^(?:(?:ctrl|control|alt|option|shift|cmd|command|meta)\s*\+\s*)+\w+/i.test(target)
+   || /^\S+\s+key\b(?!\s+(?:button|control|icon|link)\b)/i.test(target);
+  tools=keyboard?['browser_press_key']:['browser_click','browser_press_key'];
+ }
+ return observations.some(item=>tools.includes(item.tool)&&!item.result?.isError)?null:tools;
+}
 const requiresFreshObservation=(name,args)=>OBSERVATION_BOUNDARIES.has(name)||name==='browser_type'&&args?.submit===true||name==='browser_tabs'&&args?.action==='select';
 const observationFeedback=(name,remaining)=>({code:'AUTOMATION_UPSTREAM_REPLAN_AFTER_ACTION',completed_tool:name,undispatched_batch_calls:remaining,message:'The native action completed. Remaining requests from that earlier batch were not dispatched because its targets may be stale. Inspect the returned current page before choosing fresh tools/targets. Do not repeat the completed action.'});
 const fail=(message,code='AUTOMATION_UPSTREAM_BUILD_INCOMPLETE')=>Object.assign(new Error(message),{code,statusCode:422,nonRetryable:true});
@@ -126,6 +146,15 @@ function projectWorkflowBrief(brief){
  const retained=Object.fromEntries(Object.entries(packet).filter(([key])=>!omitted.includes(key)));
  return JSON.stringify({...retained,...(packet.case_assurance?.automation_readiness?{upstream_automation_readiness:packet.case_assurance.automation_readiness}:{}),
   context_delivery:{omitted_upstream_review_fields:omitted,reason:'Repeated model analyses are omitted; the complete pinned Story, authored section, supplied context and readiness gaps remain authoritative inputs. Upstream readiness is advisory, not observed product behavior.'}});
+}
+
+function projectAuthoredFlow(steps,current,includeExpected=false){
+ const full=steps.map(({id,step_order,step_type,action,expected_result})=>({id,step_order,step_type:step_type||'web',action,
+  ...(includeExpected?{expected_result}:{})}));
+ if(Buffer.byteLength(JSON.stringify(full))<=12000)return full;
+ const active=steps.indexOf(current);
+ return full.map(({id,step_order,step_type,action},index)=>({id,step_order,step_type,
+  ...(Math.abs(index-active)<=2&&index!==active?{action_excerpt:String(action||'').slice(0,400)}:{})}));
 }
 /** Model-only projection of already-redacted native evidence. Historical page
  * bodies are omitted; source generation receives executable statements once in
@@ -295,7 +324,7 @@ function withTrustedBrowserContext(context,browser,initialSetup){
  return receipt?{...context,browser_context:{...receipt,scope:'initial_session_setup',applies_to_current_section_setup:initialSetup===true}}:context;
 }
 
-async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},parameterBindings={},redact=value=>value,interactive=false,browser,complete,apiPrompt,normalizeApiBuild,assertAccess=async()=>{},onProgress=async()=>{},onObservation=async()=>{},onSection=async()=>{},validate,signal,maxCallsPerSection=20,deadlineMs=Date.now()+1800000}){
+async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},parameterBindings={},redact=value=>value,interactive=false,browser,initialNavigation,complete,apiPrompt,normalizeApiBuild,assertAccess=async()=>{},onProgress=async()=>{},onObservation=async()=>{},onSection=async()=>{},validate,signal,maxCallsPerSection=20,deadlineMs=Date.now()+1800000}){
  brief=projectWorkflowBrief(brief);
  if(!Array.isArray(steps)||!steps.length)throw fail('Save the intended test flow before building it with Playwright MCP.');
  if(steps.some(step=>!['web','api'].includes(step.step_type||'web'))||steps.some(step=>step.step_type==='api')&&typeof normalizeApiBuild!=='function'){
@@ -304,7 +333,8 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
  const catalog=new Map(toolsForPolicy(browser.tools,interactive).filter(tool=>tool.name!=='browser_take_screenshot'||browser.modelImagesEnabled===true).map(tool=>[tool.name,tool]));
  const bindings={secrets:{},references:{},secretBindings:{},parameterValues:{},...parameterBindings};
  const tabs=createUpstreamTabTracker(startUrl);
- const completed=[],observations=[],retainedEvidence=new Map(),privateScopes=new Map();let actionCount=0,callCount=0,activePhase='browser',currentSnapshot,currentImage,authoringBlocker;
+ const deferredApiCaptures = new Set();
+ const completed=[],observations=[],retainedEvidence=new Map(),privateScopes=new Map();let actionCount=0,callCount=0,activePhase='browser',currentSnapshot,currentImage,authoringBlocker,outcomeUnknown=false,activeStep;
  const identity=stepId=>{const step=steps.find(item=>item.id===stepId);return {step_id:stepId,active_step_id:stepId,...(Array.isArray(step?.active_manual_step_ids)?{active_manual_step_ids:step.active_manual_step_ids.filter(id=>typeof id==='string').slice(0,500)}:{})};};
  const guard=async()=>{signal?.throwIfAborted();if(Date.now()>=deadlineMs)throw fail('The upstream build time allowance ended. Saved sections remain available.','AUTOMATION_BUILD_DEADLINE');await assertAccess();signal?.throwIfAborted();if(Date.now()>=deadlineMs)throw fail('The upstream build time allowance ended. Saved sections remain available.','AUTOMATION_BUILD_DEADLINE');};
  // Every buffered model phase shares the same wall-clock budget as native
@@ -319,15 +349,32 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
   await guard();
   return response;
  };
- const observe=async(name,args,stepId)=>{
+ const observe=async(name,args,stepId,{entry=false}={})=>{
   await guard();
   await onProgress({phase:'automation.agent.upstream.tool',message:`Playwright MCP: ${name.replace(/^browser_/,'').replaceAll('_',' ')}.`,details:{tool:name,...identity(stepId),browser_driver:'playwright_mcp_upstream'}});
   await guard();
   // Never retry a dispatch: its outcome may already have changed the application.
-  let result;try{result=await browser.call(name,args,{deadlineMs});}catch(error){error.nonRetryable=true;if(Object.isExtensible(error))error.section_order=steps.find(step=>step.id===stepId)?.step_order;throw error;}
+  const canChangeApplication=ACTION_TOOLS.has(name)&&!['browser_navigate','browser_navigate_back','browser_tabs','browser_hover'].includes(name);
+  let result;
+  try {
+   result=entry&&initialNavigation ? initialNavigation : await browser.call(name,args,{deadlineMs});
+  } catch(error) {
+   if(canChangeApplication&&error.action_outcome!=='not_attempted'&&![401,403,404,410].includes(error.upstreamStatusCode)){
+    actionCount++;
+    outcomeUnknown=true;
+   }
+   if(Object.isExtensible(error)){error.nonRetryable=true;error.section_order=steps.find(step=>step.id===stepId)?.step_order;}
+   throw error;
+  }
+  if(entry)assertBrowserEntry(result,trustedNavigationHttpStatus(result));
+  const selectorRejected=preActionSelectorError(name,result);
+  if(canChangeApplication&&!selectorRejected){
+   actionCount++;
+   if(result?.isError)outcomeUnknown=true;
+  }
   if(mutatesNativePage({tool:name,arguments:JSON.stringify(args)}))currentImage=undefined;
   if(name==='browser_take_screenshot')currentImage=require("./automationUpstreamMcpClient").trustedModelImage(result);
-  callCount++;if(!preActionSelectorError(name,result)&&ACTION_TOOLS.has(name)&&!['browser_navigate','browser_navigate_back','browser_tabs','browser_hover'].includes(name))actionCount++;
+  callCount++;
   const tabSelection=name==='browser_tabs'&&args.action==='select'&&!result?.isError?tabs.receipt(args,result):null;
   tabs.observe(result,name);
   const rawCode=[nativeCode(result),tabSelection?.code].filter(Boolean).join('\n'),safeCode=redact(rawCode);
@@ -337,7 +384,7 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
   const item={tool:name,arguments:redact(JSON.stringify(args)),result:modelResult(result,modelRedact,{step:steps.find(step=>step.id===stepId),parameters:privateScopes.get(stepId)?.parameterValues}),code:safeCode,step_id:stepId,...(tabSelection?{portable_receipt:tabSelection.receipt}:{})};
   if(name==='browser_take_screenshot'&&!currentImage)item.result={isError:false,content:[{type:'text',text:'Masked screenshot evidence is unavailable. Native raw pixels were not sent to the model. Continue using snapshots, observed controls, console or network summaries.'}]};
   const diagnostic=result?.isError?nativeFailureDiagnostic(name,result,redact):null;
-  const unconfirmed=Boolean(result?.isError&&!preActionSelectorError(name,result)&&ACTION_TOOLS.has(name)&&!['browser_navigate','browser_hover','browser_tabs'].includes(name));
+  const unconfirmed=Boolean(result?.isError&&!selectorRejected&&canChangeApplication);
   const failure=unconfirmed?Object.assign(fail(`Upstream ${name} did not confirm completion. ${diagnostic.summary}`,'AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'),{
    publicMessage:`Native ${name.replace(/^browser_/,'').replaceAll('_',' ')} did not confirm completion. It was not automatically retried. Review the native failure details.`,
    section_order:steps.find(step=>step.id===stepId)?.step_order,validation_errors:diagnostic.validation_errors,
@@ -364,8 +411,8 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
   if(failure)throw failure;
   return item;
  };
- const observeWithSnapshot=async(name,args,stepId,remainingCalls)=>{
-  const items=[await observe(name,args,stepId)],action=items[0];
+ const observeWithSnapshot=async(name,args,stepId,remainingCalls,options)=>{
+  const items=[await observe(name,args,stepId,options)],action=items[0];
   if(!action.result.isError&&name!=='browser_snapshot'&&fileOnlyNativeSnapshot(action.result)){
    if(remainingCalls<2)throw fail('The section needs an inline native snapshot, but its browser call allowance ended.');
    if(!catalog.has('browser_snapshot'))throw fail('The connected upstream runtime does not expose its standard browser_snapshot tool.','AUTOMATION_UPSTREAM_TOOL_INVALID');
@@ -376,7 +423,12 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
  try{
   const firstBrowserStep=steps.find(step=>(step.step_type||'web')==='web');
   let current;
+  // A mixed case may start with API authoring. Confirm the browser can open
+  // its authorized page before spending any model calls on those API steps.
+  activeStep=firstBrowserStep;
+  const entry=firstBrowserStep?await observeWithSnapshot('browser_navigate',{url:startUrl},firstBrowserStep.id,maxCallsPerSection,{entry:true}):[];
   for(const step of steps){
+   activeStep=step;
    activePhase='browser';
    const taskContext=projectUpstreamTaskContext(context,step);
    const privateScope=createUpstreamPrivateBindingScope({step,bindings});privateScopes.set(step.id,privateScope);
@@ -385,28 +437,12 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
     activePhase='source';
     await guard();
     await onProgress({phase:'automation.agent.section.started',message:`Building API section ${step.step_order} from its documented contract.`,details:{...identity(step.id),step_order:step.step_order,runtime:'api'}});
-    let update,feedback;
-    for(let attempt=0;attempt<3;attempt++){
-     await guard();
-     const proposal=json(await phaseComplete({phase:'upstream_api_source',step,prompt:JSON.stringify({
-      task:'Generate only this authored API section using its documented request and response assertions. Return the native automation JSON contract: {summary:"...",steps:[{step_id:"exact current id",step_type:"api",api_request:{...}}]}. Preserve the authored method, endpoint, parameter references and expected results. Do not perform a request, call browser tools, generate browser JavaScript, or claim execution. Use the supplied API configuration and exact parameter references; missing contracts are explicit blocked inputs. Previously generated API sections have not been sent to the application.',
-      current_section:step,start_url:startUrl,brief,context,parameters:privateScope.parameterValues,private_parameter_tokens:privateScope.references,private_parameter_availability:privateScope.availability,
-      configured_contract:typeof apiPrompt==='function'?await apiPrompt(step):undefined,
-      authored_flow:steps.map(item=>({id:item.id,step_type:item.step_type||'web',action:item.action,expected_result:item.expected_result})),feedback
-     })}));
-     try{
-      privateScope.assertArguments(proposal);
-      const build=await normalizeApiBuild(proposal,[step]);
-      if(build?.updates?.length!==1||build.updates[0].step?.id!==step.id||build.updates[0].step_type!=='api'||!build.updates[0].api_request||build.updates[0].automation_code)throw fail('Return exactly one complete API request for the current authored API section.','AUTOMATION_UPSTREAM_API_INVALID');
-      update={...build.updates[0],automation_code:null};
-      const issues=validate([{...step,step_type:'api',automation_code:null,api_request:update.api_request}]);
-      if(issues.length)throw fail(issues.join(' '),'AUTOMATION_UPSTREAM_API_INVALID');
-      const request=JSON.stringify(update.api_request);
-      privateScope.assertArguments(update.api_request);
-      if(redact(request)!==request)throw fail('Generated API automation contains a private literal. Use its scoped parameter reference.','AUTOMATION_PRIVATE_VALUE_IN_SOURCE');
-      break;
-     }catch(error){feedback=redact(error.message);if(attempt===2)throw error;}
-    }
+    const update = await generateApiSection({
+      step, startUrl, brief, context: taskContext, authoredFlow: projectAuthoredFlow(steps, step, true),
+      configuredContract: typeof apiPrompt === 'function' ? await apiPrompt(step) : undefined,
+      privateScope, complete: phaseComplete, parse: json, normalize: normalizeApiBuild, validate, redact, guard
+    });
+    for (const parameter of apiCaptureNames(update.api_request)) deferredApiCaptures.add(parameter);
     activePhase='save';await guard();await onSection(update,{observation_count:0,transport:'llm_api_contract',execution_status:'not_executed'});completed.push(update);
     await onProgress({phase:'automation.agent.section.completed',message:`Completed API section ${step.step_order}.`,details:{...identity(step.id),step_order:step.step_order,completed_sections:completed.length,total_sections:steps.length,runtime:'api'}});
     continue;
@@ -417,10 +453,18 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
    // A known application/input blocker ends live exploration, not authoring.
    // Only buffered LLM source work follows; uncertain actions/transport errors
    // still throw at dispatch and can never enter this path.
-   if(!authoringBlocker){
-   if(step===firstBrowserStep){const initial=await observeWithSnapshot('browser_navigate',{url:startUrl},step.id,maxCallsPerSection);section.push(...initial);current=initial.at(-1);}
+   const deferred = (step.parameter_references || []).filter(key => deferredApiCaptures.has(key));
+   if (interactive && !authoringBlocker && deferred.length) {
+    authoringBlocker = {
+      status: 'blocked', reason: 'This section uses response data captured by an earlier API step in the complete test run.',
+      stopped_at_step_id: step.id, stopped_at_step_order: step.step_order, required_parameters: deferred
+    };
+    await onProgress({ phase: 'automation.agent.validation.blocked', level: 'warning',
+      message: 'Continuing source generation with the API output bindings. Run the complete case to verify these sections.',
+      details: { ...identity(step.id), live_validation: authoringBlocker, verification_status: 'unverified' } });
    }
-   let ready=Boolean(authoringBlocker),modelFeedback,missingInputDecisions=0,invalidTerminalDecisions=0;
+   if (step === firstBrowserStep) { section.push(...entry); current=entry.at(-1); }
+   let ready=Boolean(authoringBlocker),modelFeedback,missingInputDecisions=0,missingActionDecisions=0,invalidTerminalDecisions=0;
    if(!authoringBlocker){
    for(let turn=0;turn<maxCallsPerSection+5;turn++){
     await guard();
@@ -440,11 +484,12 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
      native_verification_contract:'Upstream element/text testing tools use substring matching and may normalize a different first match. A Done result is not proof of the intended exact subject: inspect its returned locator/role/name against the actual observed target. Human-readable element descriptions do not override the referenced control. For ambiguity, use browser_find with a precise regex or browser_snapshot of an observed container, then browser_generate_locator for its actual row/cell ref or verify a full composite row identity. Do not repeat an unchanged broad verifier or click an unrelated control sharing partial words. Precise native snapshot/find evidence can ground the complete authored assertions in saved source even when a testing tool cannot express the required scope; never force Done for an unmet expectation, and the draft remains unverified until Test Engine execution.',
      native_reference_contract:'Retained find lines preserve observed facts and structure, not a guarantee that every historical ref remains registered. A scoped snapshot can invalidate refs outside its subtree even without a page mutation. Keep the useful facts, then use a precise fresh native find/snapshot to obtain the current ref before acting. Never rewrite a ref or repeat an unconfirmed action. Only the exact native pre-action Ref-not-found error permits a new read and model decision; action timeouts and unknown outcomes remain terminal.',
      browser_context_contract:'Only when context.browser_context supplies a trusted authenticated-native receipt with owned fresh_isolated context, initial_storage_empty=true and applies_to_current_section_setup=true, the host has already created the initial isolated browser context before first navigation. This satisfies INITIAL session setup without opening another tab/window or clearing the current session. It never proves a later private-context reset, a later fresh-session action within this section, or current empty storage. Initial storage empty does not mean cookies remain empty after loading a website and does not prove current guest/authentication state: verify the authored application guest state through native page evidence. Unknown, external, preauthenticated or receipt-free sessions have no such guarantee. Context creation remains unavailable to model tools; never force completion of an unmet expectation. Saved source inherits only its declared runner fixture; a generation receipt is not a passing test run.',
-     authored_flow:steps.map(item=>({id:item.id,step_order:item.step_order,action:item.action})),
-     completed_sections:completed.map(item=>({step_id:item.step.id,step_type:item.step_type,execution_status:item.step_type==='api'?'not_executed':interactive?'performed':'not_executed'})),
+     authored_flow:projectAuthoredFlow(steps,step),
+     completed_sections:completed.map(item=>({step_id:item.step.id,step_type:item.step_type,
+      execution_status:item.step_type==='web'&&interactive&&item.live_validation?.status!=='blocked'?'observed':'not_executed'})),
      available_tools:[...catalog.keys()],latest_observation:modelContext.latest_observation,current_page_snapshot:modelContext.current_page_snapshot,recent_section_observations:modelContext.observations,host_feedback:modelFeedback,observation_delivery:modelContext.delivery
     })}));}catch(error){
-     if(error instanceof SyntaxError||['AI_INVALID_TOOL_ARGUMENTS','AI_UNEXPECTED_TOOL_CALL'].includes(error.code)){
+     if(error instanceof SyntaxError||['AI_INVALID_JSON','AI_INVALID_TOOL_ARGUMENTS','AI_UNEXPECTED_TOOL_CALL'].includes(error.code)){
       modelFeedback={code:error.code||'AI_INVALID_JSON',message:'The model response was not an executable native tool request or terminal JSON. Choose a supplied native function with arguments matching its schema, or return only {"done":true} after all work is confirmed. No browser action was dispatched from this invalid response.',...(Array.isArray(error.validation_errors)?{validation_errors:error.validation_errors.slice(0,8).map(({path,keyword,required_property})=>({path,keyword,required_property}))}:{})};continue;
      }
      throw error;
@@ -460,6 +505,14 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
     }
     if(decision?.done===true&&decision.tool===undefined&&(decision.tool_calls===undefined||Array.isArray(decision.tool_calls)&&decision.tool_calls.length===0)){
      if(interactive){
+      const missingAction=unperformedAuthoredAction(step,section);
+      if(missingAction){
+       if(++missingActionDecisions>2)throw fail('The explicitly authored browser action has no successful native Playwright receipt for this section.','AUTOMATION_UPSTREAM_AUTHORED_ACTION_UNCONFIRMED');
+       modelFeedback={code:'AUTOMATION_UPSTREAM_AUTHORED_ACTION_REQUIRED',
+        ...(missingAction.length===1?{required_tool:missingAction[0]}:{allowed_tools:missingAction}),
+        message:'This explicit browser action has no successful native receipt for the current section. Use a fresh observed target, perform the authored action once, and check its expected result. If a genuine blocker remains, return its specific observed evidence.'};
+       continue;
+      }
       const nativeSource=section.filter(item=>!item.result.isError).map(item=>item.code).filter(Boolean).join('\n')||';';
       const boundNative=bindUpstreamSourceParameters({source:nativeSource,parameterValues:sourceBindings.parameterValues,privateNames:Object.values(bindings.secretBindings),secretBindings:sourceBindings.secretBindings,parameterExpressions:true});
       const audit=auditAuthoredInputWrites({step,source:boundNative.source});
@@ -509,9 +562,13 @@ async function buildWithUpstreamPlaywright({steps,startUrl,brief='',context={},p
   const lifecycle=require("./automationUpstreamMcpClient").trustedBrowserContextEvidence(browser);
   return {updates:completed,warnings:[...completed.filter(update=>update.instruction_mapping_warning).map(update=>`Section ${update.step.step_order} uses parsed instructions because its display mapping could not be validated.`),...(authoringBlocker?[`Live validation stopped at section ${authoringBlocker.stopped_at_step_order}: ${authoringBlocker.reason} The generated draft remains unverified.`]:[])],summary:`Generated ${completed.length} sections using upstream Playwright MCP for browser automation and configured API contracts, with browser instruction previews.`,completion_attempts:1,browser_evidence:{transport:'upstream_playwright_mcp',interaction_mode:interactive?'interactive':'read_only',observation_count:callCount,live_validation:authoringBlocker||{status:interactive?'observed':'not_run'},...(lifecycle?{context_lifecycle:lifecycle}:{})},side_effects:{browser_actions:actionCount}};
  }catch(error){
-  error.nonRetryable=true;error.saved_sections=completed.length;error.saved_step_ids=completed.map(item=>item.step.id);error.active_step_id=steps[completed.length]?.id;
+  if(!Object.isExtensible(error))throw error;
+  error.nonRetryable=true;error.saved_sections=completed.length;error.saved_step_ids=completed.map(item=>item.step.id);error.active_step_id=activeStep?.id;
+  error.effect_dispatched=actionCount>0;error.outcome_unknown=outcomeUnknown;
+  error.completed_sections=completed.length;error.total_sections=steps.length;error.pending_step_ids=steps.slice(completed.length).map(step=>step.id);
+  error.failure_stage??=activePhase==='browser'?'browser':activePhase==='save'?'save':'model';
   const phase=activePhase==='save'?'automation.agent.save.failed':['source','mapping'].includes(activePhase)?'automation.llm.failed':'automation.agent.browser.failed';
-  try{await onProgress({phase,level:'error',message:`Section ${steps[completed.length]?.step_order||completed.length+1} could not finish. Previously saved sections remain in Plan.`,details:{...identity(error.active_step_id),error_code:error.code||'AUTOMATION_UPSTREAM_BUILD_INCOMPLETE',saved_sections:completed.length,saved_step_ids:error.saved_step_ids,verification_status:'unverified'}});}
+  try{await onProgress({phase,level:'error',message:`Section ${activeStep?.step_order||completed.length+1} could not finish. Previously saved sections remain in Plan.`,details:{...identity(error.active_step_id),error_code:error.code||'AUTOMATION_UPSTREAM_BUILD_INCOMPLETE',saved_sections:completed.length,saved_step_ids:error.saved_step_ids,verification_status:'unverified'}});}
   catch(progressError){require("../build/automationProgressDiagnostics").reportDiagnosticFailure({operation:'upstream_build_failure_progress',error:progressError});}
   throw error;
  }

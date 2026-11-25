@@ -11,6 +11,8 @@ type RecorderSessionInsightsProps = {
   parameterBindings?: Record<number, string>;
   onParameterBindingChange?: (actionIndex: number, reference: string) => void;
   onCreateParameter?: (actionIndex: number, reference: string, value: string) => string | null;
+  excludedActionIndices?: number[];
+  onActionInclusionChange?: (actionIndex: number, included: boolean) => void;
   disabled?: boolean;
   privateValues?: string[];
 };
@@ -27,7 +29,7 @@ function maskCapturedValue(value?: string | null) {
   return value;
 }
 
-export function RecorderSessionInsights({ session, parameters = [], parameterBindings = {}, onParameterBindingChange, onCreateParameter, disabled, privateValues = [] }: RecorderSessionInsightsProps) {
+export function RecorderSessionInsights({ session, parameters = [], parameterBindings = {}, onParameterBindingChange, onCreateParameter, excludedActionIndices = [], onActionInclusionChange, disabled, privateValues = [] }: RecorderSessionInsightsProps) {
   const [newParameterAction, setNewParameterAction] = useState<number | null>(null);
   const [newParameterReference, setNewParameterReference] = useState("");
   const [newParameterValue, setNewParameterValue] = useState("");
@@ -38,6 +40,9 @@ export function RecorderSessionInsights({ session, parameters = [], parameterBin
 
   const recentActions = [...(session.actions || [])].sort((left, right) => left.index - right.index);
   const recentNetwork = [...(session.network || [])].sort((left, right) => left.index - right.index);
+  const excluded = new Set(excludedActionIndices);
+  const actionCount = session.action_count || recentActions.length;
+  const networkCount = session.network_count || recentNetwork.length;
   const sensitiveReferences = new Set(parameters.filter(parameter => parameter.sensitive).map(parameter => parameter.token.toLowerCase()));
   const privacy = createRecorderDisplayPrivacy(recentActions, privateValues,
     new Set(Object.entries(parameterBindings).filter(([, reference]) => sensitiveReferences.has(reference.toLowerCase())).map(([index]) => Number(index))));
@@ -63,7 +68,7 @@ export function RecorderSessionInsights({ session, parameters = [], parameterBin
               />
             </div>
           </div>
-          <span className="count-pill">{session.action_count || recentActions.length} actions</span>
+          <span className="count-pill">{excluded.size ? `${Math.max(0, actionCount - excluded.size)} of ${actionCount} included` : `${actionCount} actions`}</span>
         </div>
         {(session.action_count || 0) > recentActions.length ? <p className="muted" role="status">Showing {recentActions.length} of {session.action_count} captured actions. Split long recordings into smaller reusable groups before building.</p> : null}
         {recentActions.length ? (
@@ -74,8 +79,13 @@ export function RecorderSessionInsights({ session, parameters = [], parameterBin
                   <strong>{action.index}. {action.type}</strong>
                   <span>{privacy.url(action.url)}{action.text || action.value ? ` · ${maskCapturedValue(privacy.actionText(action))}` : ""}</span>
                 </div>
+                {onActionInclusionChange ? <label className="recorder-action-inclusion">
+                  <input type="checkbox" aria-label={`Include recorded action ${action.index}`} checked={!excluded.has(action.index)} disabled={disabled}
+                    onChange={event => onActionInclusionChange(action.index, event.target.checked)} />
+                  <span>Include in plan</span>
+                </label> : null}
                 {action.locator ? <code className="execution-operation-json">{privacy.text(action.locator)}</code> : null}
-                {onParameterBindingChange && ["navigation", "fill", "change", "select", "press", "upload"].includes(action.type) ? (
+                {!excluded.has(action.index) && onParameterBindingChange && ["navigation", "fill", "change", "select", "press", "upload"].includes(action.type) ? (
                   <div className="recorder-insight-binding">
                   <label className="form-field">
                     <span>Step {action.index} input parameter</span>
@@ -105,20 +115,8 @@ export function RecorderSessionInsights({ session, parameters = [], parameterBin
         )}
       </section>
 
-      <section className="recorder-insight-panel">
-        <div className="execution-context-summary-head">
-          <div className="execution-context-summary-copy">
-            <div className="execution-context-summary-title-row">
-              <strong>API candidates</strong>
-              <InfoTooltip
-                content="Fetch/XHR evidence collected during recording. Saving a Web recording does not create API steps."
-                label="API candidates information"
-              />
-            </div>
-          </div>
-          <span className="count-pill">{session.network_count || recentNetwork.length} calls</span>
-        </div>
-        {recentNetwork.length ? (
+      {recentNetwork.length ? <details className="recorder-insight-panel recorder-network">
+        <summary>Network evidence · {networkCount} {networkCount === 1 ? "call" : "calls"}</summary>
           <div className="stack-list recorder-insight-list">
             {recentNetwork.map((entry) => (
               <div className="stack-item recorder-insight-action" key={`${entry.index}-${entry.timestamp || ""}`}>
@@ -130,10 +128,7 @@ export function RecorderSessionInsights({ session, parameters = [], parameterBin
               </div>
             ))}
           </div>
-        ) : (
-          <div className="empty-state compact">No business API traffic has been captured yet.</div>
-        )}
-      </section>
+      </details> : null}
     </div>
   );
 }

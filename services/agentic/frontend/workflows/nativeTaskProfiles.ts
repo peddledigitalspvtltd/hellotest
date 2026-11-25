@@ -2,12 +2,20 @@ import profiles from "../../shared/workflowNativeTasks.json";
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 
 export const nativeTaskProfiles = profiles;
+export const automationAgentPresets = [
+  { runtime: 'web', label: 'Web Automation Agent', description: 'Build Playwright automation from a manual web Test Case.' },
+  { runtime: 'api', label: 'API Automation Agent', description: 'Build native HTTP requests and assertions from a manual API Test Case.' },
+] as const;
 export function nativeTaskDefaults(id: string): AgenticWorkflowNodeData {
   const profile = profiles[id as keyof typeof profiles];
   return profile ? { artifactTask: id, label: profile.label, summary: profile.description,
     task: profile.task, instructions: profile.instructions, guardrails: profile.guardrails,
     ...("readinessPolicy" in profile ? { readinessPolicy: profile.readinessPolicy } : {}),
-    ...(id === "automation-engineer" ? { inspectBrowser: true, automationBrowserMode: "perform_steps" } : {}) } : {};
+    ...(id === "automation-engineer" ? { automationRuntime: 'auto', inspectBrowser: true, automationBrowserMode: "perform_steps", automationSource: "manual_case" } : {}) } : {};
+}
+
+export function automationAgentDefaults(preset: typeof automationAgentPresets[number]): AgenticWorkflowNodeData {
+  return { ...nativeTaskDefaults('automation-engineer'), label: preset.label, summary: preset.description, automationRuntime: preset.runtime };
 }
 
 /** An explicit reset replaces guidance without changing execution settings. */
@@ -22,6 +30,7 @@ export function withNativeTaskDefaults(data: AgenticWorkflowNodeData): AgenticWo
   if (data.kind !== "artifactTask") return data;
   const defaults = nativeTaskDefaults(String(data.artifactTask || ""));
   return { ...defaults, ...data,
+    ...(data.artifactTask === "automation-engineer" && data.automationSource == null ? {automationSource:'sprint'} : {}),
     ...(data.artifactTask === "automation-engineer" && data.automationBrowserMode == null
       ? { automationBrowserMode: data.inspectBrowser === false ? "offline" : "read_only" } : {}),
     instructions: typeof data.instructions === "string" ? data.instructions

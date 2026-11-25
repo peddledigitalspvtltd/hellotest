@@ -12,7 +12,7 @@ test('runtime identity and targeted recording preserve mixed plans and native pl
   assert.deepEqual(getAutomationRuntimeTypes([], 'android'), ['android']);
   assert.deepEqual(getAutomationRuntimeTypes([], 'unified'), ['web']);
 });
-const { parseApiRequestSource } = await import('../../frontend/lib/apiRequestSource.ts');
+const { parseApiRequestSource, parseApiRequestDraftSource } = await import('../../frontend/lib/apiRequestSource.ts');
 test('API source edits produce executable requests and reject browser/code fragments',()=>{
  const request=parseApiRequestSource('{"method":"POST","url":"@r.base/orders","validations":[{"kind":"status","expected":"201"}]}');
  assert.equal(request.method,'POST');assert.equal(request.validations[0].expected,'201');
@@ -21,6 +21,15 @@ test('API source edits produce executable requests and reject browser/code fragm
  assert.throws(()=>parseApiRequestSource('{"url":{"path":"/orders"}}'),/URL/);
  assert.throws(()=>parseApiRequestSource('{"url":"/orders","headers":{"Authorization":"abc"}}'),/key\/value/);
  assert.throws(()=>parseApiRequestSource('{"url":"/orders","validations":[{"kind":"unknown"}]}'),/validation kind/);
+});
+
+test('API authoring can save a partial request without weakening runnable source validation', () => {
+  const draft = { method: 'POST', body: '{"name":"Draft"}', captures: [{ path: '$.id', parameter: '' }] };
+  assert.deepEqual(parseApiRequestDraftSource(JSON.stringify(draft)), draft);
+  assert.equal(parseApiRequestDraftSource(''), null);
+  assert.equal(parseApiRequestDraftSource('{}'), null);
+  assert.throws(() => parseApiRequestDraftSource('[]'), /JSON request object/);
+  assert.throws(() => parseApiRequestSource(JSON.stringify(draft)), /URL/);
 });
 
 test('new steps keep application runtime and ignore API setup in a unified native plan', () => {
@@ -58,5 +67,7 @@ test('saved automation case platform limits every authoring mode without conflat
   assert.equal(resolveAutomationCaseType({}, [{step_type:"web"}, {step_type:"ios"}]), "unified");
   assert.deepEqual(incompatibleAutomationRuntimes("api", [{step_type:"web", action:"Click Submit"}]), ["web"]);
   assert.deepEqual(incompatibleAutomationRuntimes("api", [{step_type:"web", action:"GET /orders"}]), []);
+  assert.deepEqual(incompatibleAutomationRuntimes("api", [{step_type:"web", action:"Verify order status"}]), []);
+  assert.deepEqual(incompatibleAutomationRuntimes("api", [{step_type:"web", action:"Verify that the order page shows the receipt"}]), ["web"]);
   assert.deepEqual(incompatibleAutomationRuntimes("web", [{step_type:"android"}]), ["android"]);
 });

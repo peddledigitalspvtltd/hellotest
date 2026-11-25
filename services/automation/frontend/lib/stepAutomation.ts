@@ -1,4 +1,5 @@
 import { buildApiValidationAssertionCode as sharedValidationCode } from "../../shared/apiValidation.mjs";
+import { parseApiRequestSource } from "../../shared/apiRequestSource.mjs";
 import type { AutomationLearningCacheEntry, SharedStepGroupStep, StepApiRequest, StepApiResponseCapture, StepApiValidation, TestStep, TestStepType } from "@hellotest/platform/frontend/src/types";
 
 export const STEP_TYPE_OPTIONS: Array<{ value: TestStepType; label: string; shortLabel: string }> = [
@@ -44,7 +45,7 @@ export function createEmptyApiRequest(): StepApiRequest {
     follow_redirects: true,
     body_mode: "none",
     body: "",
-    validations: [{ kind: "status", target: "", expected: "200" }],
+    validations: [],
     captures: []
   };
 }
@@ -94,23 +95,27 @@ export function normalizeApiRequest(value?: StepApiRequest | null): StepApiReque
           path: normalizeRichText(capture?.path),
           parameter: normalizeRichText(capture?.parameter)
         }))
-        .filter((capture) => capture.path && capture.parameter)
+        .filter((capture) => capture.path || capture.parameter)
     : [];
+  const requestMethod = API_METHOD_SET.has(method) ? method : "GET";
+  const requestBodyMode = API_BODY_MODE_SET.has(bodyMode) ? bodyMode : "none";
+  const timeoutMs = Math.max(1000, Math.min(120000, Number(value.timeout_ms || 30000)));
+  const hasRequestOptions = requestMethod !== "GET" || requestBodyMode !== "none" || value.follow_redirects === false || timeoutMs !== 30000;
 
-  if (!url && !headers.length && !queryParams.length && !cookies.length && !body && !validations.length && !captures.length) {
+  if (!hasRequestOptions && !url && !headers.length && !queryParams.length && !cookies.length && !body && !validations.length && !captures.length && auth.type === "none") {
     return null;
   }
 
   return {
-    method: API_METHOD_SET.has(method) ? method : "GET",
+    method: requestMethod,
     url,
     headers,
     query_params: queryParams,
     cookies,
     auth,
-    timeout_ms: Math.max(1000, Math.min(120000, Number(value.timeout_ms || 30000))),
+    timeout_ms: timeoutMs,
     follow_redirects: value.follow_redirects !== false,
-    body_mode: API_BODY_MODE_SET.has(bodyMode) ? bodyMode : "none",
+    body_mode: requestBodyMode,
     body,
     validations,
     captures
@@ -251,10 +256,14 @@ export type StepAutomationReviewIssue = {
 /** Review metadata stays outside executable source. An unmapped step has no
  * invented selector or successful no-op program. */
 export function stepAutomationReviewIssues(step: StepAutomationLike): StepAutomationReviewIssue[] {
-  if (normalizeAutomationCode(step.automation_code)) return [];
   const runtime = normalizeStepType(step.step_type);
-  if (runtime === 'api') return normalizeApiRequest(step.api_request)?.url ? [] : [{code:'api_contract_required',kind:'request_review',runtime,severity:'blocking',message:'Configure this API request before running.'}];
-  return [{code:runtime === 'web' ? 'locator_mapping_required' : 'native_selector_mapping_required',kind:'repository_review',runtime,severity:'blocking',message:runtime === 'web' ? 'Map the recorded or authored action to a validated Object Repository field, or build its instructions with Automation Engineer.' : 'Map this native action to a recorded or authored selector. Browser MCP cannot inspect a native app.'}];
+  if (runtime === 'api') {
+    try { parseApiRequestSource(JSON.stringify(step.api_request ?? null)); return []; }
+    catch (error) { return [{code:'api_contract_required',kind:'request_review',runtime,severity:'blocking',
+      message:step.api_request?.url ? (error instanceof Error ? error.message : 'Review this API request before running.') : 'Configure this API request before running.'}]; }
+  }
+  if (normalizeAutomationCode(step.automation_code)) return [];
+  return [{code:runtime === 'web' ? 'locator_mapping_required' : 'native_selector_mapping_required',kind:'repository_review',runtime,severity:'blocking',message:runtime === 'web' ? 'Map the recorded or authored action to a validated Object Repository field, or build its instructions with the Automation Build Agent.' : 'Map this native action to a recorded or authored selector. Browser MCP cannot inspect a native app.'}];
 }
 
 export function resolveStepAutomationCode(step: StepAutomationLike) {

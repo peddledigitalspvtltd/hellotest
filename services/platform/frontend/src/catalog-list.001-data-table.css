@@ -278,7 +278,7 @@ h6,
   gap: 8px;
 }
 
-.requirement-toolbar-discovery > .catalog-view-toggle {
+.requirement-toolbar-view {
   order: 0 !important;
 }
 
@@ -381,7 +381,6 @@ h6,
   box-shadow: var(--catalog-focus-ring) !important;
 }
 
-.requirement-toolbar-actions .catalog-hierarchy-move-control,
 .requirement-toolbar-actions .compact-select {
   min-width: 0;
 }

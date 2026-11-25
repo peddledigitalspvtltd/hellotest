@@ -19,6 +19,36 @@ test('every Studio specialist has the same intent and source policy in MCP routi
     assert.equal(policies[id].outputInstructions, profile.outputInstructions, id);
   }
 });
+test('a selected specialist keeps its own intent and only recognizes actual project identifiers', () => {
+  const { planContext } = require('@hellotest/contracts/agents/contextIntent');
+  const noisy = 'failed root cause release REQUIRED request runner story_id release_id requires_proposal';
+  const routes = Object.keys(profiles).map(agentId => {
+    const route = planContext({ agentId, prompt: noisy, mode: 'agent' });
+    assert.deepEqual(route.identifiers, []);
+    assert.deepEqual(route.priority_scopes, profiles[agentId].scopes);
+    assert.equal(route.input_type, planContext({ agentId, prompt: 'Review the selected evidence.' }).input_type);
+    return route.input_type;
+  });
+  assert.equal(new Set(routes).size, Object.keys(profiles).length);
+  assert.deepEqual(planContext({ prompt: 'Why did AT_68, TC-12 and BUG-3 fail?' }).identifiers, ['AT_68', 'TC-12', 'BUG-3']);
+  assert.equal(planContext({ prompt: 'Why did the execution fail?' }).input_type, 'execution_failure');
+  const specialist = { input_type: 'custom_agent_task', priority_scopes: ['stories'], retrieval_focus: 'Only Story scope', deliverable_contract: 'Story review' };
+  const custom = planContext({ agentId: 'agent-custom', prompt: noisy, specialist });
+  assert.equal(custom.agent_id, 'agent-custom');
+  assert.equal(custom.input_type, 'custom_agent_task');
+  assert.equal(custom.deliverable_contract, 'Story review');
+});
+test('specialist descriptors publish actual enforcement with stable hashes', () => {
+  const descriptors = require('../../backend/agents/agentDescriptors.service');
+  const items = descriptors.catalog();
+  for (const item of items) {
+    assert.ok(item.guardrails.length >= 3, item.id);
+    assert.ok(item.guardrails.some(rule => rule.enforcement === 'code'), item.id);
+    const { descriptor_hash: digest, ...body } = item;
+    assert.equal(digest, descriptors.hash(body));
+  }
+  assert.ok(descriptors.workflow('flaky-test-intelligence').guardrails.some(rule => rule.id === 'comparable_attempts' && rule.enforcement === 'code'));
+});
 test('evidence identifiers are bound and selected story, run, release and sprint stay conjunctive', () => {
   const scope = { story_id: "story' OR TRUE --", sprint_id: 'sprint-17', execution_id: 'run-3', release_id: 'release-2', build: 'ignored', environment_id: 'ignored' };
   const story = scopes.predicate('story','requirements',scope), run = scopes.predicate('run','executions',scope);

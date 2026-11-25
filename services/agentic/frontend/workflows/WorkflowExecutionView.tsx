@@ -97,9 +97,7 @@ export function WorkflowExecutionView({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setExportNotice('Execution snapshot downloaded.');
   };
-  const logs = run.node_results.flatMap(result => (Array.isArray(result.logs) ? result.logs : []).map(entry => ({ ...entry as Record<string, unknown>, node_id: result.node_id, node_name: result.node_name })))
-    .sort((a, b) => String((a as Record<string, unknown>).at || "").localeCompare(String((b as Record<string, unknown>).at || "")));
-  const nodes = (
+  const nodes: AgenticWorkflowNode[] = (
     Array.isArray(run.workflow_snapshot.nodes)
       ? (run.workflow_snapshot.nodes as AgenticWorkflowNode[])
       : []
@@ -114,6 +112,10 @@ export function WorkflowExecutionView({
       ),
     },
   }));
+  const automationNodes = new Set(nodes.filter(node => node.data.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer').map(node => node.id));
+  const logs = run.node_results.filter(result => !automationNodes.has(String(result.node_id)))
+    .flatMap(result => (Array.isArray(result.logs) ? result.logs : []).map(entry => ({ ...entry as Record<string, unknown>, node_id: result.node_id, node_name: result.node_name })))
+    .sort((a, b) => String((a as Record<string, unknown>).at || "").localeCompare(String((b as Record<string, unknown>).at || "")));
   const edges = (
     Array.isArray(run.workflow_snapshot.edges)
       ? (run.workflow_snapshot.edges as AgenticWorkflowEdge[])
@@ -138,6 +140,7 @@ export function WorkflowExecutionView({
     nodes.find((node) => ["failed", "interrupted", "cancelled"].includes(String(node.data.runStatus))) ||
     nodes.find((node) => node.data.runStatus === "running") ||
     nodes.find((node) => node.id === inputRequiredNode) ||
+    nodes.find((node) => automationNodes.has(node.id) && node.data.automationSource === 'manual_case' && node.data.runStatus === 'completed') ||
     nodes.find((node) => node.data.kind === "output" && node.data.runStatus === "completed") ||
     nodes[0];
   const result = run.node_results.find((item) => item.node_id === selected?.id);

@@ -1,7 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const db = require('@hellotest/platform/backend/src/db');
 const selection = require('@hellotest/integration/backend/services/aiLlmSelection.service');
-const integrations = require('@hellotest/integration/backend/services/integration.service');
 const rag = require('@hellotest/knowledge/backend/services/knowledgeRag.service');
 const contract = require('./agentDefinition');
 
@@ -20,7 +19,8 @@ async function resolveModel(projectId, userId, integrationId, usageKey = 'ai.age
 const store = {
   list: projectId => db.prepare(`SELECT a.*, v.definition, v.definition_hash, v.activated_at FROM ai_agent_definitions a JOIN ai_agent_versions v ON v.agent_id = a.id AND v.version = a.current_version WHERE a.project_id = ? ORDER BY a.updated_at DESC, a.id LIMIT 200`).all(projectId),
   get: (id, projectId) => db.prepare('SELECT * FROM ai_agent_definitions WHERE id = ? AND project_id = ?').get(id, projectId),
-  version: (id, version) => db.prepare('SELECT * FROM ai_agent_versions WHERE agent_id = ? AND version = ?').get(id, version)
+  version: (id, version) => db.prepare('SELECT * FROM ai_agent_versions WHERE agent_id = ? AND version = ?').get(id, version),
+  versions: id => db.prepare('SELECT version, definition, definition_hash, created_at, activated_at FROM ai_agent_versions WHERE agent_id = ? ORDER BY version DESC LIMIT 100').all(id),
 };
 async function get(id, projectId) {
   const row = await store.get(id, projectId);
@@ -37,12 +37,34 @@ async function resolve(id, version, projectId) {
   if (!saved?.activated_at) throw contract.fail('The selected agent version has not been activated.', 'AGENT_VERSION_INACTIVE');
   return { id, version: pinned, definition: contract.normalize(saved.definition), definition_hash: saved.definition_hash };
 }
-async function save(input, id, userId) {
+async function history(id, projectId) {
+  const agent = await get(id, projectId);
+  return { current_version: agent.current_version, active_version: agent.active_version, versions: await store.versions(id) };
+}
+async function prepareTrial(input, id) {
+  const current = id ? await get(id, input.project_id) : null;
+  const definition = contract.normalize(input.definition ?? current?.definition);
+  return { id: id || 'agent-trial', version: current?.current_version || 1, definition, definition_hash: contract.definitionHash(definition) };
+}
+async function verifyTrial(input, id, user, definition) {
+  if (typeof input.trial_id !== 'string' || input.trial_id.length > 255) throw contract.fail('Run a successful trial for this definition.', 'AGENT_TRIAL_REQUIRED');
+  const review = await require('../services/agenticAssistant.service').getSession(input.trial_id, user);
+  const { transaction } = review;
+  if (transaction.project_id !== input.project_id || transaction.created_by !== user.id || transaction.action !== 'trial'
+    || transaction.metadata?.agent_id !== (id || 'agent-trial') || transaction.metadata?.agent_definition_hash !== contract.definitionHash(definition)
+    || review.result?.verification?.status !== 'passed') {
+    throw contract.fail('Run a successful trial for this exact definition before activating it.', 'AGENT_TRIAL_REQUIRED');
+  }
+}
+async function save(input, id, userId, user = { id: userId }) {
   const definition = contract.normalize(input.definition);
   const projectId = input.project_id;
   if (typeof projectId !== 'string' || !projectId.trim()) throw contract.fail('Select a project.');
   if (input.activate != null && typeof input.activate !== 'boolean') throw contract.fail('Activation must be true or false.');
-  if (input.activate) await resolveModel(projectId, userId, definition.integration_id);
+  if (input.activate) {
+    if (input.trial_id !== undefined) await verifyTrial(input, id, user, definition);
+    await resolveModel(projectId, userId, definition.integration_id);
+  }
   const agentId = id || `agent-${randomUUID()}`;
   await db.transaction(async () => {
     await db.query('SELECT pg_advisory_xact_lock(hashtext(?))', [`ai-agent:${agentId}`]);
@@ -65,4 +87,4 @@ async function list(projectId) {
   const rows = await store.list(projectId);
   return Promise.all(rows.map(async row => ({ ...row, active_definition: row.active_version ? (await store.version(row.id, row.active_version))?.definition : null })));
 }
-module.exports = { list, get, resolve, save, archive, resolveModel, _internals: { store } };
+module.exports = { list, get, resolve, history, prepareTrial, save, archive, resolveModel, _internals: { store } };

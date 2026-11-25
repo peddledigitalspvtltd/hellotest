@@ -7,11 +7,11 @@ const require=createRequire(new URL('../../../../platform/frontend/package.json'
 const React=require('react');
 const {renderToStaticMarkup}=require('react-dom/server');
 export const workflowEditorRoot=fileURLToPath(new URL('../../../frontend/workflows/',import.meta.url));
-export function workflowEditorFixture({connections=[],tools,testDataSets=[],testEnvironments=[],canRun=true,source}={}){
+export function workflowEditorFixture({connections=[],tools,testDataSets=[],testEnvironments=[],manualCases=[],canRun=true,source}={}){
  const queries=[],patches=[],calls=[],modules=new Map();
- const api={agenticWorkflows:{connections:async(...args)=>{calls.push(['connections',...args]);return connections;},mcpTools:async(...args)=>{calls.push(['mcpTools',...args]);return tools||[];}},workflowTestDataSets:{list:async(...args)=>{calls.push(['datasets',...args]);return testDataSets;}},workflowTestEnvironments:{list:async(...args)=>{calls.push(['environments',...args]);return testEnvironments;}}};
- const useQuery=options=>{queries.push(options);const key=options.queryKey[0];return {data:key==='workflow-connections'?connections:key==='workflow-mcp-tools'?tools:key==='workflow-test-data-sets'?testDataSets:testEnvironments,isFetching:false,isError:false,refetch:async()=>calls.push(['refetch',key])};};
- const dependencies={react:{...React,useId:()=> 'workflow-fixture',useRef:initial=>({current:initial})},'@tanstack/react-query':{useQuery},'@tabler/icons-react':new Proxy({},{get:(_target,name)=>()=>React.createElement('span',{'data-icon':String(name)})}),'react-router-dom':{Link:({to,children,...props})=>React.createElement('a',{href:to,...props},children)}};
+ const api={agenticWorkflows:{connections:async(...args)=>{calls.push(['connections',...args]);return connections;},mcpTools:async(...args)=>{calls.push(['mcpTools',...args]);return tools||[];}},workflowTestDataSets:{list:async(...args)=>{calls.push(['datasets',...args]);return testDataSets;}},workflowTestEnvironments:{list:async(...args)=>{calls.push(['environments',...args]);return testEnvironments;}},workflowManualCases:{list:async(...args)=>{calls.push(['manualCases',...args]);return {items:manualCases};}}};
+ const useQuery=options=>{queries.push(options);const key=options.queryKey[0];return {data:key==='workflow-connections'?connections:key==='workflow-mcp-tools'?tools:key==='workflow-test-data-sets'?testDataSets:key==='workflow-manual-test-cases'?{items:manualCases}:testEnvironments,isFetching:false,isError:false,refetch:async()=>calls.push(['refetch',key])};};
+ const dependencies={react:{...React,useId:()=> 'workflow-fixture',useRef:initial=>({current:initial}),useState:initial=>[initial,()=>{}]},'@tanstack/react-query':{useQuery},'@tabler/icons-react':new Proxy({},{get:(_target,name)=>()=>React.createElement('span',{'data-icon':String(name)})}),'react-router-dom':{Link:({to,children,...props})=>React.createElement('a',{href:to,...props},children)}};
  function load(file,override){
   if(modules.has(file)&&!override)return modules.get(file);
   const exports={};if(!override)modules.set(file,exports);

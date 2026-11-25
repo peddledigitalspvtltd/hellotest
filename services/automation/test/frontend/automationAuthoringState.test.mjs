@@ -64,6 +64,19 @@ test('initial recorder parameter drafts are retained before POST and survive unk
   assert.throws(() => store.dispatch({ type: 'build.requested', build: build() }), { code: 'AUTOMATION_AUTHORING_BUSY' });
 });
 
+test('Automation catalog filters survive case navigation and reset when the scope changes', () => {
+  const store = createAutomationSelectionStore('app-one');
+  store.dispatch({ type: 'cases.selected', ids: ['first', 'second'] });
+  store.dispatch({ type: 'catalog.filtered', filters: { platform: 'api', outcome: 'failed' } });
+  assert.deepEqual(store.snapshot().caseIds, []);
+  store.dispatch({ type: 'case.changed', caseId: 'failed-case' });
+  store.dispatch({ type: 'case.changed', caseId: '' });
+  store.dispatch({ type: 'catalog.filtered', filters: { search: 'checkout' } });
+  assert.deepEqual(store.snapshot().catalogFilters, { search: 'checkout', plan: '', platform: 'api', outcome: 'failed' });
+  store.dispatch({ type: 'scope.changed', scope: 'app-two' });
+  assert.deepEqual(store.snapshot().catalogFilters, { search: '', plan: '', platform: '', outcome: '' });
+});
+
 test('display-ID route changes preserve the same case selection without hiding another case capture', async () => {
   const {selectionMatchesCaseRoute} = await import('../../frontend/lib/automationSelectionState.ts');
   const store=createAutomationSelectionStore('scope');

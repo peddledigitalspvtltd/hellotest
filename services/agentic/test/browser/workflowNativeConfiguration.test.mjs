@@ -14,7 +14,48 @@ window.enablePreviewFixture();
 api.evidenceScope.options = async () => ({items:[{id:'sprint-a',label:'Sprint A'},{id:'sprint-b',label:'Sprint B'}],has_more:false});
 api.agenticWorkflows.connections = async () => [{id:'native-http',name:'HelloTest API',kind:'http',url:'https://hellotest.example/api',authenticated:true,methods:['GET','POST','PUT','DELETE']}];
 api.agenticWorkflows.update = async (id, payload) => {window.previewWorkflow={...window.previewWorkflow,...payload,id};return structuredClone(window.previewWorkflow);};
+api.workflowManualCases.list = async () => ({items:[{id:'manual-catalog',display_id:'TC-21',title:'Search Catalog'}]});
+api.workflowTestEnvironments.list = async () => [{id:'qa-test',name:'Catalog QA',base_url:'https://qa.example.test/',variables:[]}];
 `;
+
+test('manual Automation Engineer template binds a saved case, browser mode and Test Environment', {timeout:90000}, async () => {
+  const name = 'manual-automation-config-' + randomUUID(), html = new URL(name + '.html',root), tsx = new URL(name + '.tsx',root);
+  let browser;
+  try {
+    await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(tsx,base.replace('function RouteObserver()',setup+'\nfunction RouteObserver()'));
+    browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE ? {executablePath:process.env.CHROME_EXECUTABLE} : {})});
+    const page=await browser.newPage({viewport:{width:1512,height:1050}});
+    page.setDefaultTimeout(12000);
+    await page.route('**/api/**',route=>route.fulfill({status:503,body:'Fixture only'}));
+    await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`,{waitUntil:'domcontentloaded',timeout:30000});
+    await page.locator('.studio-template-card').filter({hasText:'Build automation from a manual Test Case'}).click();
+    await page.locator('.react-flow__node[data-id="build-script"]').click();
+    assert.equal(await page.getByRole('combobox',{name:'Test Case source',exact:true}).inputValue(),'manual_case');
+    assert.equal(await page.getByRole('combobox',{name:'Browser generation',exact:true}).inputValue(),'perform_steps');
+    await page.getByRole('button',{name:'Hide inspector',exact:true}).click();
+    assert.equal(await page.locator('.studio-workspace').evaluate(element=>element.classList.contains('has-inspector')),false);
+    await page.getByRole('button',{name:'Show inspector',exact:true}).click();
+    await page.getByRole('combobox',{name:'Manual Test Case',exact:true}).selectOption('manual-catalog');
+    await page.getByRole('combobox',{name:'Test Environment',exact:true}).selectOption('qa-test');
+    await page.getByRole('combobox',{name:'After generating',exact:true}).selectOption('verify');
+    await page.getByRole('button',{name:'Save changes',exact:true}).click();
+    const data=await page.evaluate(()=>window.previewWorkflow.nodes.find(node=>node.id==='build-script').data);
+    assert.equal(data.automationSource,'manual_case');assert.equal(data.automationManualCaseId,'manual-catalog');
+    assert.equal(data.testEnvironmentId,'qa-test');assert.equal(data.automationVerificationMode,'verify');
+    const librarySearch = page.getByRole('searchbox', { name: 'Search nodes', exact: true }).or(page.getByRole('textbox', { name: 'Search nodes', exact: true }));
+    await page.getByRole('button', { name: 'Add node', exact: true }).click();
+    await librarySearch.fill('automation agent');
+    assert.equal(await page.getByRole('button', { name: /^Web Automation Agent/ }).count(), 1);
+    await page.getByRole('button', { name: /^API Automation Agent/ }).click();
+    assert.equal(await page.getByRole('combobox', { name: 'Automation Agent', exact: true }).inputValue(), 'api');
+    assert.equal(await page.getByRole('combobox', { name: 'Browser generation', exact: true }).count(), 0);
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    const added = await page.evaluate(() => window.previewWorkflow.nodes.find(node => node.data.label === 'API Automation Agent').data);
+    assert.equal(added.artifactTask, 'automation-engineer');
+    assert.equal(added.automationRuntime, 'api');
+  } finally { await browser?.close(); await Promise.allSettled([unlink(html),unlink(tsx)]); }
+});
 
 test('Sprint template saves editable per-node guidance and previews the current Sprint API URL', { timeout: 90000 }, async () => {
   const name = 'native-workflow-config-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
@@ -75,7 +116,7 @@ test('Sprint template saves editable per-node guidance and previews the current 
     await page.getByRole('button', { name: 'Restore task defaults', exact: true }).click();
     assert.equal(await page.getByLabel('Instructions', { exact: true }).inputValue(), profiles['automation-engineer'].instructions);
     await page.getByLabel('Guardrails', { exact: true }).fill('');
-    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await page.getByRole('button', { name: 'Save changes', exact: true }).press('Enter');
     assert.equal(await page.getByLabel('Guardrails', { exact: true }).inputValue(), '', 'intentionally empty node guidance is not silently reset');
     await page.getByLabel('Task', { exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: output + '/automation-guidance-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 390, height: 900 });

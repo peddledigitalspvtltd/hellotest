@@ -14,8 +14,9 @@ export function useAutomationCasesState(){
 const authoring=useAutomationAuthoring();
 const consumedAutomationCreateRouteRef = useRef("");
 const [automationCatalogViewMode, setAutomationCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
-const [automationCaseSearch, setAutomationCaseSearch] = useState("");
 const selection=useAutomationSelection();
+const { catalogFilters } = selection.state;
+const { filterCatalog } = selection;
 const selectedAutomationCaseIds=selection.state.caseIds;
 const selectionRef=useRef(selection.state);selectionRef.current=selection.state;
 const setSelectedAutomationCaseIds=useCallback((value:SetStateAction<string[]>)=>{const next=typeof value==='function'?value(selectionRef.current.caseIds):value;selection.selectCases(next);selectionRef.current={...selectionRef.current,caseIds:next};},[selection.selectCases]);
@@ -48,12 +49,12 @@ const [batchStartUrl, setBatchStartUrl] = useState("");
 const [builderContext, setBuilderContext] = useState("");
 const [allowBrowserActions, setAllowBrowserActions] = useState(true);
 const [buildBrowserLocation, setBuildBrowserLocation] = useState<"local" | "remote">("remote");
-const [buildVerificationMode, setBuildVerificationMode] = useState<AutomationBuildVerificationChoice>("generate_only");
+const [buildVerificationMode, setBuildVerificationMode] = useState<AutomationBuildVerificationChoice>("auto");
 const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
 const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
 const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
 const [message, setMessage] = useState("");
 const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("success");
-return {consumedAutomationCreateRouteRef,automationCatalogViewMode,setAutomationCatalogViewMode,automationCaseSearch,setAutomationCaseSearch,selectedAutomationCaseIds,setSelectedAutomationCaseIds,isCreateAutomationOpen,setIsCreateAutomationOpen,requestedCreationMode,setAutomationCreationMode,automationCreateManualCaseIds,setAutomationCreateManualCaseIds,agentMission,setAgentMission,automationCreateMetadata,setAutomationCreateMetadata,automationCreateSteps,setAutomationCreateSteps,automationApiSourceParameters,setAutomationApiSourceParameters,automationApiSourcePrivateNames,setAutomationApiSourcePrivateNames,automationCreateTouchedMetadataRef,buildAgentSelection,setBuildAgentSelection,isExecutionContextOpen,setIsExecutionContextOpen,agentScheduledAt,setAgentScheduledAt,agentBuildChanges,setAgentBuildChanges,agentBuildRetryIds,setAgentBuildRetryIds,agentBuildOutputIds,setAgentBuildOutputIds,runReviewRequest,setRunReviewRequest,pendingRemoteRun,setPendingRemoteRun,runReviewError,setRunReviewError,batchBuildTargetIds,setBatchBuildTargetIds,isBatchAgentOpen,setIsBatchAgentOpen,lastAutomationCaseDraftSeedRef,automationCreateStartUrl,setAutomationCreateStartUrl,batchStartUrl,setBatchStartUrl,builderContext,setBuilderContext,allowBrowserActions,setAllowBrowserActions,buildBrowserLocation,setBuildBrowserLocation,buildVerificationMode,setBuildVerificationMode,selectedExecutionEnvironmentId,setSelectedExecutionEnvironmentId,selectedExecutionConfigurationId,setSelectedExecutionConfigurationId,selectedExecutionDataSetId,setSelectedExecutionDataSetId,message,setMessage,messageTone,setMessageTone,authoring,selection};
+return {consumedAutomationCreateRouteRef,automationCatalogViewMode,setAutomationCatalogViewMode,catalogFilters,filterCatalog,selectedAutomationCaseIds,setSelectedAutomationCaseIds,isCreateAutomationOpen,setIsCreateAutomationOpen,requestedCreationMode,setAutomationCreationMode,automationCreateManualCaseIds,setAutomationCreateManualCaseIds,agentMission,setAgentMission,automationCreateMetadata,setAutomationCreateMetadata,automationCreateSteps,setAutomationCreateSteps,automationApiSourceParameters,setAutomationApiSourceParameters,automationApiSourcePrivateNames,setAutomationApiSourcePrivateNames,automationCreateTouchedMetadataRef,buildAgentSelection,setBuildAgentSelection,isExecutionContextOpen,setIsExecutionContextOpen,agentScheduledAt,setAgentScheduledAt,agentBuildChanges,setAgentBuildChanges,agentBuildRetryIds,setAgentBuildRetryIds,agentBuildOutputIds,setAgentBuildOutputIds,runReviewRequest,setRunReviewRequest,pendingRemoteRun,setPendingRemoteRun,runReviewError,setRunReviewError,batchBuildTargetIds,setBatchBuildTargetIds,isBatchAgentOpen,setIsBatchAgentOpen,lastAutomationCaseDraftSeedRef,automationCreateStartUrl,setAutomationCreateStartUrl,batchStartUrl,setBatchStartUrl,builderContext,setBuilderContext,allowBrowserActions,setAllowBrowserActions,buildBrowserLocation,setBuildBrowserLocation,buildVerificationMode,setBuildVerificationMode,selectedExecutionEnvironmentId,setSelectedExecutionEnvironmentId,selectedExecutionConfigurationId,setSelectedExecutionConfigurationId,selectedExecutionDataSetId,setSelectedExecutionDataSetId,message,setMessage,messageTone,setMessageTone,authoring,selection};
 }
 export type AutomationCasesState=ReturnType<typeof useAutomationCasesState>;

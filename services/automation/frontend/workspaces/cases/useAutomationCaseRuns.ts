@@ -3,7 +3,7 @@ import type { AutomationCasesActionPorts as ActionPorts } from './automationCase
 import { handoverAutomationRun } from "../../lib/automationExecution";
 import { type AutomationRunReviewRequest } from "../../components/AutomationRunReviewDialog";
 import { requireReadyAutomation, type AutomationReadiness } from "../../lib/automationReadiness";
-import { assertAutomationDispatchAccepted, AutomationStartError, retrySavedAutomationRun, verifyCreatedAutomationRun, type PendingAutomationRun } from "../../lib/automationRunDispatch";
+import { AutomationStartError, confirmReviewedAutomationRun, retrySavedAutomationRun } from "../../lib/automationRunDispatch";
 
 import { useMutation } from "@tanstack/react-query";
 
@@ -40,7 +40,7 @@ const requestAutomationRun = (mode: "local" | "remote", caseIds: string[]) => {
     }
     setPendingRemoteRun(null);
     setRunReviewError("");
-    setRunReviewRequest({ mode, caseIds: targets, projectId, appTypeId });
+    setRunReviewRequest({ mode, caseIds: targets, projectId, appTypeId, requestId: crypto.randomUUID() });
 };
 const runSelectedAutomationCases = useMutation({
     mutationFn: async ({ request, reviewed }: {
@@ -67,15 +67,8 @@ const runSelectedAutomationCases = useMutation({
         requireReadyAutomation(current);
         if (current.some(item => { const previous = reviewed.find(result => result.id === item.id); return !previous || previous.revision !== item.revision || previous.updatedAt !== item.updatedAt || previous.planSignature !== item.planSignature; }))
             throw new Error("A saved plan changed during review. Recheck before starting.");
-        if (request.mode === "local") {
-            const response = await handoverAutomationRun(api.executions, "local", input);
-            assertAutomationDispatchAccepted(response, { id: response.id, caseIds: [...request.caseIds], projectId: request.projectId, appTypeId: request.appTypeId, mode: "local", retryAllowed: false });
-            return { id: response.id, mode: request.mode, count: request.caseIds.length };
-        }
-        const response = await handoverAutomationRun(api.executions, "remote", input);
-        const receipt: PendingAutomationRun = { id: response.id, caseIds: [...request.caseIds], projectId: request.projectId, appTypeId: request.appTypeId, mode: "remote" };
-        await verifyCreatedAutomationRun(receipt, id => api.executions.get(id));
-        return { id: response.id, mode: request.mode, count: request.caseIds.length };
+        const response = await handoverAutomationRun(api.executions, request.mode, input, request.requestId);
+        return confirmReviewedAutomationRun(response, request, id => api.executions.get(id));
     },
     onSuccess: async ({ id, mode, count }) => {
         setRunReviewRequest(null);
@@ -106,7 +99,11 @@ const retryRemoteAutomationStart = useMutation({
         navigate(`/executions?view=suite-runs&execution=${receipt.id}`);
         showSuccess(receipt.alreadyStarted ? "Opened the saved run’s evidence." : "The saved automation run has started.");
     },
-    onError: error => setRunReviewError(error instanceof Error ? error.message : "The engine could not start this run.")
+    onError: error => {
+        if (error instanceof AutomationStartError)
+            setPendingRemoteRun(error.receipt);
+        setRunReviewError(error instanceof Error ? error.message : "The engine could not start this run.");
+    }
 });
 return {requestAutomationRun,runSelectedAutomationCases,retryRemoteAutomationStart};
 }

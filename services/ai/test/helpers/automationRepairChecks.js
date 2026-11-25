@@ -44,20 +44,24 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
       await service.start(projectId,saved.id,user,{phase});
       const jobs=await obsDb.prepare('SELECT * FROM test_engine_jobs WHERE execution_id=? ORDER BY id').all(plan.validation[phase].id);
       assert.equal(jobs.length,phase==='patched'?2:1);
-      for(const job of jobs){
+      for(let index=0;index<jobs.length;index++){
+        const worker_id='repair-browser-fixture';
+        const job=await dispatch.leaseNextQueuedJob({worker_id,engine_class:'web'});
+        assert.ok(jobs.some(item=>item.id===job?.id));
         assert.equal(job.payload.max_repair_attempts,0);assert.equal(job.payload.session_policy.web.mode,'new');
         if(job.test_case_id===caseId)assert.deepEqual(job.payload.steps.find(step=>step.order===1).shared_parameter_values,sharedProbe.values,'The real runner receives the original frozen shared input');
-        await dispatch.startQueuedJob({job_id:job.id,worker_id:'repair-browser-fixture'});
+        await dispatch.startQueuedJob({job_id:job.id,worker_id});
         const session=createWebRunSession(job.payload);let status='passed';
         try{await session.start();for(const step of job.payload.steps){
           const outcome=await session.runStep(step);
           // The real queue worker forwards the web engine's untouched trace
           // inside automation_detail; top-level line_results are not a report
           // contract and would silently discard the assertion provenance.
-          await dispatch.reportQueuedStep({job_id:job.id,step_id:step.id,...outcome,automation_detail:{
+          await dispatch.reportQueuedStep({job_id:job.id,worker_id,step_id:step.id,...outcome,automation_detail:{
             engine:step.step_type,provider:outcome.web_detail?.provider||session.provider,status:outcome.status,
             code:step.automation_code,line_results:outcome.line_results
           }});
+          if (phase==='patched') assert.equal(outcome.status,'passed',`Step ${step.order}: ${outcome.note || 'No runtime detail'}`);
           if(phase==='negative'&&job.test_case_id===caseId&&outcome.status==='failed'){
             assert.ok(outcome.line_results?.some(line=>line.status==='failed'&&line.attempt===1),'The real negative assertion supplies a first-attempt failed line');
             const persisted=await obsDb.prepare('SELECT runtime_state FROM test_engine_jobs WHERE id=?').get(job.id);
@@ -67,7 +71,7 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
           }
           if(outcome.status!=='passed'){status='failed';break;}
         }}finally{await session.stop(status);}
-        await dispatch.completeQueuedJob({job_id:job.id,status});
+        await dispatch.completeQueuedJob({job_id:job.id,worker_id,status});
       }
       const state=await service.load(projectId,saved.id);
       assert.equal(state.verification.checks.find(check=>check.phase===phase).status,'passed',JSON.stringify(state.verification));
@@ -82,4 +86,61 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
     assert.equal((await db.prepare('SELECT automation_code FROM test_steps WHERE id=?').get(ids[2])).automation_code,'await web.expectText("#result", "Accepted");');
     assert.equal((await service.apply(projectId,saved.id,user)).applied,true);
   }finally{await new Promise(resolve=>server.close(resolve));}
+};
+
+exports.runApi=async({db,obsDb,user,projectId,appTypeId})=>{
+  const service=require('../../../automation/backend/services/automationRepair.service');
+  const executions=require('@hellotest/testing/backend/services/execution.service');
+  const dispatch=require('../../../automation/backend/services/testEngineDispatch.service');
+  const {executeApiStepInEngine}=await import(pathToFileURL(path.resolve(__dirname,'../../../../testengine/backend/dist/lib/apiEngine.js')).href);
+  const server=createServer((req,res)=>{
+    const url=new URL(req.url,'http://localhost');
+    res.statusCode=url.pathname==='/verify'?200:404;
+    res.setHeader('content-type','application/json');
+    res.end(JSON.stringify({accepted:url.pathname==='/verify'&&url.searchParams.get('value')==='good'}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const environmentId=randomUUID(),caseId=randomUUID(),stepId=randomUUID(),good=randomUUID(),negative=randomUUID();
+    await db.prepare('INSERT INTO test_environments(id,project_id,name,base_url) VALUES(?,?,?,?)').run(environmentId,projectId,'Isolated API repair fixture',`http://127.0.0.1:${server.address().port}`);
+    await db.prepare("INSERT INTO integrations(id,type,name,base_url,config) VALUES(?,'testengine','API repair fixture engine','http://127.0.0.1:4301',?)").run(randomUUID(),{project_id:projectId});
+    for(const [id,value] of [[good,'good'],[negative,'bad']])await db.prepare("INSERT INTO test_data_sets(id,project_id,app_type_id,name,mode,rows) VALUES(?,?,?,?,'key_value',?)").run(id,projectId,appTypeId,`API repair ${value}`,[{key:'value',value}]);
+    await db.prepare("INSERT INTO test_cases(id,app_type_id,title,automated,automation_status,test_data_options) VALUES(?,?,?,'yes','ready',?)").run(caseId,appTypeId,'API repair target',{automation_case_type:'api'});
+    const request={method:'GET',url:'/old',follow_redirects:false,query_params:[{key:'value',value:'@r.value'}],validations:[{kind:'status',expected:'200'},{kind:'json_path',target:'$.accepted',expected:'true'}]};
+    await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action,expected_result,step_type,api_request) VALUES(?,?,1,'GET /verify','The fixture is accepted','api',?)").run(stepId,caseId,request);
+    const original=await executions.createExecution({project_id:projectId,app_type_id:appTypeId,test_case_ids:[caseId],test_environment_id:environmentId,test_data_set_id:good,build:'api-repair-fixture-build',created_by:user.id});
+    async function runQueue(id,expected){
+      const jobs=await obsDb.prepare('SELECT * FROM test_engine_jobs WHERE execution_id=?').all(id);
+      assert.equal(jobs.length,1);
+      const worker_id='repair-api-fixture';
+      const job=await dispatch.leaseNextQueuedJob({worker_id,engine_class:jobs[0].engine_class});
+      assert.equal(job?.id,jobs[0].id);
+      const [step]=job.payload.steps;
+      await dispatch.startQueuedJob({job_id:job.id,worker_id});
+      const outcome=await executeApiStepInEngine(job.payload,step);
+      assert.equal(outcome.status,expected,outcome.note);
+      await dispatch.reportQueuedStep({job_id:job.id,worker_id,step_id:step.id,status:outcome.status,note:outcome.note,duration_ms:outcome.duration_ms,api_detail:outcome.detail});
+      await dispatch.completeQueuedJob({job_id:job.id,worker_id,status:outcome.status});
+    }
+    await executions.startExecution(original.id,{initiated_by:user.id,execution_mode:'remote'});
+    await runQueue(original.id,'failed');
+    const prepared=await service.prepare({projectId,appTypeId,user,input:{test_case_id:caseId,execution_id:original.id}});
+    assert.equal(prepared.status,'eligible',prepared.detail);
+    const patch=service.validatePatch(prepared.base,{kind:'replace_api_url',step_id:stepId,new_url:'/verify',rationale:'The authored API requests the fixture verification endpoint on the pinned origin.'});
+    const saved=await service.save(projectId,user,randomUUID(),prepared,patch);
+    await assert.rejects(service.apply(projectId,saved.id,user),{statusCode:409});
+    const plan=await service.plan(projectId,saved.id,user,{neighbor_ids:[],negative_data_set_id:negative,oracle_step_id:stepId,fixture_contract:'Isolated API fixture. A bad input must fail the JSON acceptance assertion.'});
+    for (const phase of ['original','patched','negative']) {
+      const frozen=await db.prepare('SELECT api_request FROM execution_step_snapshots WHERE execution_id=?').get(plan.validation[phase].id);
+      assert.deepEqual(frozen.api_request,{...request,url:phase==='original'?'/old':'/verify'});
+      await service.start(projectId,saved.id,user,{phase});
+      await runQueue(plan.validation[phase].id,phase==='patched'?'passed':'failed');
+    }
+    const verified=await service.load(projectId,saved.id);
+    assert.equal(verified.status,'verified',JSON.stringify(verified.verification));
+    assert.equal((await service.apply(projectId,saved.id,user)).applied,true);
+    const after=await db.prepare('SELECT api_request FROM test_steps WHERE id=?').get(stepId);
+    const {normalizeApiRequest}=require('@hellotest/platform/backend/src/utils/testStepAutomation');
+    assert.deepEqual(after.api_request,normalizeApiRequest({...request,url:'/verify'}));
+  } finally {await new Promise(resolve=>server.close(resolve));}
 };

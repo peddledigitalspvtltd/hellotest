@@ -10,7 +10,43 @@ import type { AutomationCaseState } from './useAutomationCaseState';
 import type { AutomationCaseModel } from './useAutomationCaseModel';
 import type { AutomationCaseServices } from './useAutomationCaseServices';
 export function useAutomationCaseDataActions(input: AutomationCaseScope & AutomationCaseState & AutomationCaseModel & AutomationCaseServices) {
-    const {canUpdateAutomationCase, isAutomationCaseDetailReady, activeCase, caseDraft, detailIncompatibleRuntimes, selectedParameterSuite, session, projectId, suiteParameterValues, canViewTestData, testCaseParameterValues, suiteLinkDraftIds, caseRequirementIds, caseDataSetId, visiblePrivateNames, caseParameterOverrideDraftRef, caseParameterPrivacyScope, privateCaseParameterDraft, overrideSharedSteps, automationManualLinkDraftIds, executionHookDraft, caseModuleIds, automationModules, queryClient, showError, showSuccess, canRemoveAutomationCase, setSelectedCaseId, setSearchParams, invalidateAutomationData} = input;
+    const {canUpdateAutomationCase, isAutomationCaseDetailReady, activeCase, caseDraft, detailIncompatibleRuntimes, selectedParameterSuite, session, projectId, suiteParameterValues, canViewTestData, testCaseParameterValues, suiteLinkDraftIds, caseRequirementIds, caseDataSetId, visiblePrivateNames, caseParameterOverrideDraftRef, caseParameterPrivacyScope, privateCaseParameterDraft, overrideSharedSteps, automationManualLinkDraftIds, executionHookDraft, caseModuleIds, automationModules, queryClient, showError, showSuccess, canRemoveAutomationCase, setSelectedCaseId, setSearchParams, invalidateAutomationData, flushAutomationBuildParameters, setIsParameterDialogOpen, currentAutomationSelectionRef} = input;
+    const dataSettingsChanged = Boolean(activeCase && (
+        caseDataSetId !== (activeCase.test_data_set_ids?.[0] || "") ||
+        overrideSharedSteps !== ((activeCase.test_data_options?.override_shared_sections ?? activeCase.test_data_options?.override_shared_steps) !== false)
+    ));
+    const suiteParameterDraftChanged = Boolean(selectedParameterSuite && JSON.stringify(Object.entries(
+        normalizeAutomationParameterValues(suiteParameterValues, "s")).sort()) !== JSON.stringify(Object.entries(
+        normalizeAutomationParameterValues(selectedParameterSuite.parameter_values, "s")).sort()));
+    const saveAutomationDataSettings = useMutation({
+        mutationFn: async () => {
+            if (!activeCase || !isAutomationCaseDetailReady || !canViewTestData || !canUpdateAutomationCase)
+                throw new Error("Wait for editable test data settings.");
+            const caseId = activeCase.id;
+            const test_data_set_ids = caseDataSetId ? [caseDataSetId] : [];
+            const test_data_options = { ...activeCase.test_data_options, override_shared_sections: overrideSharedSteps, shared_data_kind: "sections" as const };
+            const response = await api.testCases.update(caseId, { test_data_set_ids, test_data_options, expected_revision: activeCase.revision });
+            queryClient.setQueryData<TestCase>(automationCaseDetailQueryKey(projectId, caseId), current => current ? {
+                ...current, test_data_set_ids, test_data_options, revision: response.revision ?? current.revision
+            } : current);
+            void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
+        },
+        onSuccess: () => showSuccess("Data settings saved."),
+        onError: error => showError(error, "Unable to save data settings.")
+    });
+    const saveAutomationParameters = useMutation({
+        mutationFn: async () => {
+            if (!activeCase || !isAutomationCaseDetailReady || !canViewTestData)
+                throw new Error("Wait for the case’s Test Params to load.");
+            const caseId = activeCase.id;
+            await flushAutomationBuildParameters([caseId]);
+            return caseId;
+        },
+        onSuccess: caseId => {
+            if (currentAutomationSelectionRef.current.selectedCaseId === caseId) setIsParameterDialogOpen(false);
+            showSuccess("Test Params saved.");
+        }
+    });
     const updateAutomationCase = useMutation({
         mutationFn: async () => {
             if (!canUpdateAutomationCase) {
@@ -24,24 +60,40 @@ export function useAutomationCaseDataActions(input: AutomationCaseScope & Automa
             if (detailIncompatibleRuntimes.length)
                 throw new Error(`The selected case type does not support ${detailIncompatibleRuntimes.join(", ")} steps. Choose Unified or update the plan first.`);
             const caseId = activeCase.id;
-            const selectedSuiteParameterTarget = selectedParameterSuite && hasPermission(session, "suite.update", projectId)
-                ? {
-                    id: selectedParameterSuite.id,
-                    parameterValues: normalizeAutomationParameterValues(suiteParameterValues, "s")
-                }
-                : null;
+            const asEntries = (values?: Record<string, string>) => JSON.stringify(Object.entries(values || {}).sort());
+            const parameterPatch = canViewTestData ? (() => {
+                const values = normalizeAutomationParameterValues(testCaseParameterValues, "t");
+                const saved = normalizeAutomationParameterValues(activeCase.parameter_values, "t");
+                const options = caseParameterSaveOptions(activeCase.test_data_options, values, activeCase.parameter_values, visiblePrivateNames,
+                    caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : [],
+                    privateCaseParameterDraft.scope === caseParameterPrivacyScope ? privateCaseParameterDraft.names : []);
+                const savedOptions = activeCase.test_data_options;
+                const sameNames = (left?: string[], right?: string[]) => JSON.stringify([...(left || [])].sort()) === JSON.stringify([...(right || [])].sort());
+                const optionsChanged = !sameNames(options.parameter_overrides, savedOptions?.parameter_overrides)
+                    || !sameNames(options.private_parameter_names, savedOptions?.private_parameter_names)
+                    || overrideSharedSteps !== ((savedOptions?.override_shared_sections ?? savedOptions?.override_shared_steps) !== false);
+                return {
+                    ...(asEntries(values) !== asEntries(saved) ? { parameter_values: values } : {}),
+                    ...(caseDataSetId !== (activeCase.test_data_set_ids?.[0] || "") ? { test_data_set_ids: caseDataSetId ? [caseDataSetId] : [] } : {}),
+                    ...(optionsChanged ? { test_data_options: { ...options, override_shared_sections: overrideSharedSteps, shared_data_kind: "sections" as const } } : {})
+                };
+            })() : {};
+            const editedSuiteParameters = canViewTestData && selectedParameterSuite && hasPermission(session, "suite.update", projectId)
+                ? normalizeAutomationParameterValues(suiteParameterValues, "s") : null;
+            const selectedSuiteParameterTarget = selectedParameterSuite && editedSuiteParameters
+                && asEntries(editedSuiteParameters) !== asEntries(normalizeAutomationParameterValues(selectedParameterSuite.parameter_values, "s"))
+                ? { id: selectedParameterSuite.id, parameterValues: editedSuiteParameters } : null;
             const response = await api.testCases.update(caseId, {
                 title: caseDraft.title.trim(),
                 description: caseDraft.description.trim(),
                 status: caseDraft.status.trim() || "active",
                 priority: Number(caseDraft.priority) || 3,
                 automation_case_type: caseDraft.automationCaseType,
-                ...(canViewTestData ? { parameter_values: normalizeAutomationParameterValues(testCaseParameterValues, "t") } : {}),
+                ...parameterPatch,
                 suite_id: suiteLinkDraftIds[0] || "",
                 suite_ids: suiteLinkDraftIds,
                 requirement_id: caseRequirementIds[0] || "",
                 requirement_ids: caseRequirementIds,
-                ...(canViewTestData ? { test_data_set_ids: caseDataSetId ? [caseDataSetId] : [], test_data_options: { ...caseParameterSaveOptions(activeCase.test_data_options, testCaseParameterValues, activeCase.parameter_values, visiblePrivateNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : [], privateCaseParameterDraft.scope === caseParameterPrivacyScope ? privateCaseParameterDraft.names : []), override_shared_sections: overrideSharedSteps, shared_data_kind: "sections" } } : {}),
                 automated: "yes",
                 manual_test_case_ids: automationManualLinkDraftIds,
                 execution_hooks: mapCaseHooksToExecutionHooks(executionHookDraft),
@@ -112,6 +164,6 @@ export function useAutomationCaseDataActions(input: AutomationCaseScope & Automa
         },
         onError: (error) => showError(error, "Unable to delete automation case.")
     });
-    return { updateAutomationCase, saveAutomationHooks, deleteAutomationCase };
+    return { updateAutomationCase, saveAutomationHooks, deleteAutomationCase, dataSettingsChanged, saveAutomationDataSettings, saveAutomationParameters, suiteParameterDraftChanged };
 }
 export type AutomationCaseDataActions = ReturnType<typeof useAutomationCaseDataActions>;

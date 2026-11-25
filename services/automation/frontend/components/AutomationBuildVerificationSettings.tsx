@@ -1,9 +1,9 @@
-import type { AutomationBuildVerificationChoice } from "../lib/automationBuildPipeline";
+import { resolveBuildVerificationChoice, type AutomationBuildVerificationChoice } from "../lib/automationBuildPipeline";
 
-export function AutomationBuildVerificationSettings({mode,onModeChange,canVerify,interactive,disabled=false}: {
- mode:AutomationBuildVerificationChoice;onModeChange:(value:AutomationBuildVerificationChoice)=>void;canVerify:boolean;interactive:boolean;disabled?:boolean;
+export function AutomationBuildVerificationSettings({mode,onModeChange,canVerify,interactive,disabled=false,hasEnvironment=false}: {
+ mode:AutomationBuildVerificationChoice;onModeChange:(value:AutomationBuildVerificationChoice)=>void;canVerify:boolean;interactive:boolean;disabled?:boolean;hasEnvironment?:boolean;
 }) {
- const canRun=canVerify&&interactive,selected=canRun?mode:"generate_only";
+ const canRun=canVerify&&interactive,selected=resolveBuildVerificationChoice(mode,canRun,hasEnvironment);
  const usesCli=selected==="verify_cli"||selected==="verify_repair_cli",repairs=selected==="verify_repair"||selected==="verify_repair_cli";
  return <label className="form-field"><span>After generating</span><select aria-label="After generating" value={selected} disabled={disabled} onChange={event=>onModeChange(event.target.value as AutomationBuildVerificationChoice)}>
   <option value="generate_only">Save instructions only</option><option value="verify" disabled={!canRun}>Run generated test</option><option value="verify_repair" disabled={!canRun}>Run with bounded locator repair</option>

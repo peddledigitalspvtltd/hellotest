@@ -1,5 +1,6 @@
 import type { TestStep } from "@hellotest/platform/frontend/src/types";
 import { usesExpressionParameterBindings } from "../../shared/automationParameterMode.mjs";
+import { parseApiRequestSource } from "../../shared/apiRequestSource.mjs";
 
 /** Field changes and blur normalization may share one React batch. Merge
  * each patch against the latest draft rather than the originating render. */
@@ -8,7 +9,10 @@ export function patchAutomationStepDraft<T extends object>(current: Record<strin
 }
 
 export function isAutomationStepMapped(step: Pick<TestStep, "automation_code" | "api_request" | "step_type">) {
-  if (step.step_type === "api") return Boolean(step.api_request?.url?.trim());
+  if (step.step_type === "api") {
+    try { parseApiRequestSource(JSON.stringify(step.api_request ?? null)); return true; }
+    catch { return false; }
+  }
   const executable = String(step.automation_code || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/[^\n]*$/gm, "").trim();
   return Boolean(executable);
 }

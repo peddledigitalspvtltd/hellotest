@@ -35,7 +35,6 @@
     "./ui": "./frontend/entry.ts",
     "./frontend/lib/repositoryEntries": "./frontend/lib/repositoryEntries.ts",
     "./frontend/lib/automationGherkin": "./frontend/lib/automationGherkin.ts",
-    "./frontend/components/AgentAutomationBuildAction": "./frontend/components/AgentAutomationBuildAction.tsx",
     "./frontend/components/AutomationSourceSections": "./frontend/components/AutomationSourceSections.tsx",
     "./frontend/components/SharedAutomationSectionsEditor": "./frontend/components/SharedAutomationSectionsEditor.tsx",
     "./frontend/lib/localAgentPairing": "./frontend/lib/localAgentPairing.ts",

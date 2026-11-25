@@ -7,11 +7,13 @@ const require = createRequire(new URL('../../../../../testengine/backend/package
 const { chromium } = require('playwright');
 const root = new URL('../../', import.meta.url);
 const source = await readFile(new URL('../../../test/browser/projectMetrics.test.mjs', import.meta.url), 'utf8');
+const main = await readFile(new URL('src/main.tsx', root), 'utf8');
+const appStyles = [...main.matchAll(/^import "\.\/(.+\.css)";$/gm)].map(([, path]) => `import '/src/${path}';`).join('\n');
 const baseFixture = source.match(/const fixture = `([\s\S]*?)`;/)[1];
-const fixture = (baseFixture + "\nimport '/src/product-experience.css';").replace('const client=new QueryClient', `
+const fixture = baseFixture.replace(/^import '\/src\/styles\.css'.*$/m, appStyles).replace('const client=new QueryClient', `
 const roles=[{id:'admin-role',name:'admin'},{id:'jira-admin',name:'Jira Administrator'},{id:'qa-member',name:'QA Member'},{id:'owner-role',name:'Product Owner'},{id:'automation-role',name:'Automation Engineer'},{id:'custom-role',name:'Delivery Reviewer'}];
 const users=[{id:'reviewer',name:'Reviewer',email:'reviewer@example.test',role:'admin'},{id:'collaborator',name:'Ada Tester',email:'ada@example.test'}];
-window.createInputs=[];window.memberUpdates=[];window.projectDetailRequests=[];
+window.createInputs=[];window.memberUpdates=[];window.projectDetailRequests=[];window.projectUploads=[];
 const memberships=[{id:'existing-member',project_id:'commerce',user_id:'collaborator',role_id:'qa-member'}];
 api.roles.list=async()=>roles;
 api.users.list=async()=>users;
@@ -19,8 +21,48 @@ api.projectMembers.list=async({project_id})=>memberships.filter(member=>member.p
 api.projectMembers.update=async(id,input)=>{window.memberUpdates.push({id,...input});const member=memberships.find(item=>item.id===id);Object.assign(member,input);return {...member};};
 api.projects.get=async(id)=>{window.projectDetailRequests.push(id);return projects.find(p=>p.id===id);};
 api.metadata.domain=async()=>({app_types:{default_type:'web',types:[{value:'web',label:'Web'}]}});
+api.attachments.meta=async()=>({enabled:true,uploadLimit:1024*1024});
+api.attachments.upload=async(scope,file)=>{window.projectUploads.push({scope,name:file.name});return {id:file.name};};
 api.projects.create=async(input)=>{window.createInputs.push(input);const created={id:'created-project',name:input.name,description:input.description,visibility:input.visibility,has_access:true,created_by:'reviewer'};projects.push(created);for(const member of input.members)memberships.push({id:'created-'+member.user_id,project_id:created.id,...member});return {...created,members_added:input.members.length+1,app_types_created:input.app_types.length};};
 const client=new QueryClient`);
+
+async function assertProjectFormLayout(dialog, { stacked } = {}) {
+  const geometry = await dialog.evaluate(node => {
+    const body = node.querySelector('.project-create-modal-body');
+    const sections = ['.project-create-general-section', '.project-create-attachments-section', '.project-create-app-section', '.project-create-members-section']
+      .map(selector => node.querySelector(selector));
+    const footer = node.querySelector('.project-create-footer');
+    const bounds = element => {
+      const { top, bottom, left, right } = element.getBoundingClientRect();
+      return { top, bottom, left, right };
+    };
+    body.scrollTop = 0;
+    const start = sections.map(bounds);
+    const footerStart = bounds(footer);
+    body.scrollTop = 100;
+    const delta = body.scrollTop;
+    const end = sections.map(bounds);
+    const nestedScrollers = [...body.querySelectorAll('*')].filter(element => element.scrollHeight > element.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(element).overflowY));
+    body.scrollTop = 0;
+    return {
+      start, end, delta, footerStart, footerEnd: bounds(footer), nestedScrollers: nestedScrollers.map(element => element.className),
+      title: bounds(node.querySelector('#create-project-title')), close: bounds(node.querySelector('.dialog-close-button')),
+      bodyBounds: bounds(body), overflowX: body.scrollWidth - body.clientWidth, viewportHeight: innerHeight
+    };
+  });
+  const [details, attachments, apps, members] = geometry.start;
+  assert.ok(attachments.bottom <= details.bottom, 'Attachments fit inside Project Details');
+  assert.ok(apps.top >= details.bottom + 8, 'Applications sit below the complete details card');
+  if (stacked) assert.ok(members.top >= apps.bottom + 8, 'The sections stack in reading order on mobile');
+  else assert.ok(apps.right < members.left && Math.abs(apps.top - members.top) < 2, 'Applications and members share a desktop row');
+  assert.ok(geometry.delta > 0, 'The form body scrolls');
+  geometry.end.forEach((bounds, index) => assert.ok(Math.abs(geometry.start[index].top - bounds.top - geometry.delta) < 2, 'Every section scrolls with the form body'));
+  assert.deepEqual(geometry.nestedScrollers, [], 'No form section has an independent scroll area');
+  assert.deepEqual(geometry.footerStart, geometry.footerEnd, 'The footer is stationary');
+  assert.ok(geometry.footerStart.top >= geometry.bodyBounds.bottom - 1 && geometry.footerStart.bottom <= geometry.viewportHeight + 1, 'Actions stay in view beyond the scroll area');
+  assert.ok(geometry.close.left > geometry.title.right && Math.abs(geometry.close.top + geometry.close.bottom - geometry.title.top - geometry.title.bottom) < 3, 'The title and close control sit on one row');
+  assert.ok(geometry.overflowX <= 1, 'The form does not overflow horizontally');
+}
 
 test('project filters, required fields, available role parity and attention disclosure work together', { timeout: 45000 }, async () => {
   const name = 'project-controls-' + randomUUID();
@@ -76,12 +118,13 @@ test('project filters, required fields, available role parity and attention disc
     const updateOptions=await updateRole.locator('option').evaluateAll(nodes=>nodes.map(node=>({value:node.value,label:node.textContent})));
     await updateRole.selectOption('automation-role');
     await page.waitForFunction(()=>window.memberUpdates.length===1);
+    await page.getByRole('button',{name:'Dismiss message',exact:true}).click();
     await page.getByRole('button',{name:/Back to.*projects/i}).click();
     await page.getByRole('button',{name:'Create New Project',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Project',exact:true});
     await dialog.waitFor();
     const sectionHeight=await dialog.locator('.project-app-type-list').count()?await dialog.locator('.project-app-type-list').evaluate(node=>node.offsetHeight):await dialog.evaluate(node=>node.offsetHeight);
-    await dialog.getByRole('button',{name:'Select platform type for application 1',exact:true}).click();
+    await dialog.getByRole('button',{name:/^Select platform type for application 1:/}).click();
     const platformMenu=page.getByRole('listbox',{name:'Select platform type for application 1',exact:true});await platformMenu.waitFor();
     assert.equal(await platformMenu.evaluate(node=>getComputedStyle(node).position),'fixed');
     const menuBounds=await platformMenu.boundingBox();assert.ok(menuBounds.x>=0&&menuBounds.y>=0&&menuBounds.x+menuBounds.width<=1441&&menuBounds.y+menuBounds.height<=1101,'Platform menu stays in the viewport');
@@ -94,6 +137,23 @@ test('project filters, required fields, available role parity and attention disc
     await dialog.getByRole('textbox',{name:'App Name',exact:true}).fill('Checkout Web');
     await dialog.getByRole('textbox',{name:'Project name',exact:true}).fill('Role parity project');
     await dialog.getByRole('combobox',{name:'Project type',exact:true}).selectOption('public');
+    const files = Array.from({length: 8}, (_, index) => ({ name: `project-reference-${index}.txt`, mimeType: 'text/plain', buffer: Buffer.from('Project fixture') }));
+    await dialog.locator('input[type="file"]').setInputFiles(files);
+    await dialog.getByText('8/10 files · gzip compressed on upload', { exact: true }).waitFor();
+    await assertProjectFormLayout(dialog);
+    await page.screenshot({path:'/tmp/qaira-project-controls/create-project-desktop-top.png'});
+    await page.setViewportSize({ width: 390, height: 690 });
+    await assertProjectFormLayout(dialog, { stacked: true });
+    await page.screenshot({path:'/tmp/qaira-project-controls/create-project-mobile.png'});
+    await dialog.getByRole('textbox',{name:'Project description',exact:true}).fill('Keep the application and team in scope. '.repeat(40));
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await assertProjectFormLayout(dialog, { stacked: true });
+    await page.screenshot({path:'/tmp/qaira-project-controls/create-project-mobile-dark.png'});
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+    await dialog.getByRole('textbox',{name:'Project description',exact:true}).fill('');
+    await dialog.getByRole('button',{name:'Remove project-reference-7.txt',exact:true}).click();
+    await dialog.getByText('7/10 files · gzip compressed on upload', { exact: true }).waitFor();
+    await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.locator('.project-member-option').filter({has:page.getByText('Ada Tester',{exact:true})}).getByRole('checkbox').check();
     const createRole=dialog.getByRole('combobox',{name:'HelloTest role for Ada Tester',exact:true});
     const createOptions=await createRole.locator('option').evaluateAll(nodes=>nodes.filter(node=>node.value).map(node=>({value:node.value,label:node.textContent})));
@@ -105,6 +165,7 @@ test('project filters, required fields, available role parity and attention disc
     await page.screenshot({path:'/tmp/qaira-project-controls/create-project-desktop.png'});
     await dialog.getByRole('button',{name:'Create Project',exact:true}).click();
     await page.waitForFunction(()=>window.createInputs.length===1);
+    await page.waitForFunction(()=>window.projectUploads.length===7);
     assert.deepEqual(await page.evaluate(()=>window.createInputs[0].members),[{user_id:'collaborator',role_id:'custom-role'}]);
     await page.getByRole('tab',{name:/Members/}).click();
     assert.equal(await page.getByRole('combobox',{name:'HelloTest role for Ada Tester',exact:true}).inputValue(),'custom-role');

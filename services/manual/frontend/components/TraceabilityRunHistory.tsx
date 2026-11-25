@@ -8,6 +8,7 @@ import { DisplayIdBadge } from "@hellotest/platform/frontend/src/shared/componen
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import { testingApi } from "@hellotest/testing/frontend/api.client";
+import { executionCaseInstanceKey } from "@hellotest/testing/frontend/lib/executionCaseLifecycle";
 import { useCapabilityAccess } from "@hellotest/platform/frontend/src/platform/hooks/useCapabilityAccess";
 import { optionalQueryView } from "@hellotest/platform/frontend/src/shared/lib/optionalQueryView";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
@@ -19,19 +20,11 @@ const formatTimestamp = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 };
 
-const formatDuration = (startedAt?: string | null, endedAt?: string | null) => {
-  if (!startedAt || !endedAt) return "—";
-  const durationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime();
-  if (!Number.isFinite(durationMs) || durationMs < 0) return "—";
-  const totalSeconds = Math.round(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
-};
-
 const durationMsFor = (item: TraceabilityRunHistoryItem) => {
-  if (!item.started_at || !item.ended_at) return null;
-  const durationMs = new Date(item.ended_at).getTime() - new Date(item.started_at).getTime();
+  if (item.derived) return null;
+  if (item.duration_ms != null && Number.isFinite(Number(item.duration_ms)) && Number(item.duration_ms) >= 0) return Number(item.duration_ms);
+  if (!item.result_started_at || !item.result_ended_at) return null;
+  const durationMs = new Date(item.result_ended_at).getTime() - new Date(item.result_started_at).getTime();
   return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null;
 };
 
@@ -47,12 +40,14 @@ export function TraceabilityRunHistory({
   appTypeId,
   projectId,
   requirementId,
-  testCaseId
+  testCaseId,
+  compact = false
 }: {
   appTypeId?: string;
   projectId: string;
   requirementId?: string;
   testCaseId?: string;
+  compact?: boolean;
 }) {
   const navigate = useNavigate();
   const { can } = useCapabilityAccess(projectId);
@@ -100,7 +95,7 @@ export function TraceabilityRunHistory({
     const comparableStatuses = ["passed", "failed", "blocked", "error"];
     const finalized = rows.filter((row) => comparableStatuses.includes(String(row.result_status || "").toLowerCase()));
     const recent = rows.slice(0, 16).reverse();
-    const latestFirst = [...recent].reverse();
+    const latestFirst = finalized.slice(0, 16);
     const latestStatus = String(latestFirst[0]?.result_status || "").toLowerCase();
     const streak = latestFirst.findIndex((row) => String(row.result_status || "").toLowerCase() !== latestStatus);
     const rateFor = (items: TraceabilityRunHistoryItem[]) => {
@@ -145,8 +140,12 @@ export function TraceabilityRunHistory({
   }, [rows]);
 
   const openRun = (item: TraceabilityRunHistoryItem) => {
-    const view = item.trigger === "local" ? "local-runs" : item.suite_ids.length ? "suite-runs" : "suite-runs";
-    const params = new URLSearchParams({ view, execution: item.execution_id, testCase: item.source_test_case_id || item.test_case_id });
+    const view = item.trigger === "local" ? "local-runs" : "suite-runs";
+    const testCase = item.source_test_case_id || item.test_case_id;
+    const params = new URLSearchParams({ view, execution: item.execution_id, testCase });
+    if (item.data_set_iteration_index != null || item.data_set_iteration_key) {
+      params.set("iteration", executionCaseInstanceKey(testCase, item.data_set_iteration_index, item.data_set_iteration_key));
+    }
     navigate(`/executions?${params.toString()}`);
   };
 
@@ -167,7 +166,7 @@ export function TraceabilityRunHistory({
       key: "testCase",
       label: "Test case",
       sortValue: (item) => item.test_case_title,
-      render: (item) => item.test_case_title
+      render: (item) => <div className="traceability-run-name"><strong>{item.test_case_title}</strong>{item.data_set_iteration_index != null && !item.derived ? <small>Data row {item.data_set_iteration_index + 1}</small> : null}</div>
     },
     {
       key: "result",
@@ -190,13 +189,14 @@ export function TraceabilityRunHistory({
     {
       key: "started",
       label: "Started",
-      sortValue: (item) => item.started_at || item.result_created_at || "",
-      render: (item) => formatTimestamp(item.started_at || item.result_created_at)
+      sortValue: (item) => item.result_started_at || item.started_at || item.result_created_at || "",
+      render: (item) => formatTimestamp(item.result_started_at || item.started_at || item.result_created_at)
     },
     {
       key: "duration",
       label: "Duration",
-      render: (item) => formatDuration(item.started_at, item.ended_at)
+      sortValue: (item) => durationMsFor(item),
+      render: (item) => formatDurationMs(durationMsFor(item))
     },
     {
       key: "release",
@@ -216,9 +216,8 @@ export function TraceabilityRunHistory({
 
   if (!canView) return <p className="muted">Run history is unavailable.</p>;
 
-  return (
-    <div className="traceability-run-history">
-      <section className={`story-run-health-trend execution-health-overview is-${runHealth.direction} health-${runHealth.health.tone}`} aria-label={`${testCaseId ? "Test case" : "Story"} execution health trend`}>
+  const healthTrend = (
+    <section className={`story-run-health-trend execution-health-overview is-${runHealth.direction} health-${runHealth.health.tone}`} aria-label={`${testCaseId ? "Test case" : "Story"} execution health trend`}>
         <header className="execution-health-header">
           <div>
             <span>Execution health</span>
@@ -227,7 +226,7 @@ export function TraceabilityRunHistory({
               ? `${runHealth.recentRate ?? "—"}% pass rate across the latest ${Math.min(runHealth.finalized, 5)} finalized outcomes${runHealth.defectCount ? ` · ${runHealth.defectCount} linked ${runHealth.defectCount === 1 ? "Defect" : "Defects"}` : ""}.`
               : "Finalized outcomes will establish the first health signal."}</p>
           </div>
-          <span className="story-run-trend-direction">{runHealth.direction}</span>
+          {runHealth.rateDelta !== null ? <span className="story-run-trend-direction">{runHealth.direction}</span> : null}
         </header>
         <div className="story-run-health-summary execution-health-metrics">
           <div><span>Recent pass rate</span><strong>{runHealth.recentRate === null ? "—" : `${runHealth.recentRate}%`}</strong><small>Latest {Math.min(runHealth.finalized, 5)} finalized</small></div>
@@ -259,7 +258,11 @@ export function TraceabilityRunHistory({
             <div className="execution-health-legend" aria-label="Outcome legend"><span className="is-passed">Passed</span><span className="is-failed">Failed / error</span><span className="is-blocked">Blocked</span><span className="is-skipped">Skipped</span></div>
           </div>
         ) : <div className="story-run-trend-empty">Run outcomes will form a health trend here after the first linked execution.</div>}
-      </section>
+    </section>
+  );
+  return (
+    <div className="traceability-run-history">
+      {compact ? null : healthTrend}
       <div className="traceability-section-toolbar">
         <ActivityIcon />
         <strong>{filteredRows.length} of {rows.length} run outcome{rows.length === 1 ? "" : "s"}</strong>
@@ -316,6 +319,10 @@ export function TraceabilityRunHistory({
         rows={filteredRows}
         storageKey={`hellotest:traceability-runs:${requirementId ? "requirement" : "test-case"}`}
       />
+      {compact && rows.length ? <details className="automation-run-profile">
+        <summary>Execution health{runHealth.recentRate === null ? "" : ` · ${runHealth.recentRate}% recent pass rate`}</summary>
+        {healthTrend}
+      </details> : null}
     </div>
   );
 }

@@ -87,3 +87,38 @@ test('each nested case acceptance selects its own recorded assessment and automa
   }
   assert.equal(requests.length, 16, 'Every legacy cumulative packet case remains independently acceptable.');
 });
+
+test('direct manual automation saves a linked revision-pinned draft and reuses its acceptance receipt',async t=>{
+  const source={id:'manual',revision:4,title:'Search the Catalog',description:'Look up a named item'};
+  const draft={title:source.title,description:source.description,authoring_mode:'structured',steps:[{action:'Search the catalog',expected_result:'The result is visible',step_type:'web'}]};
+  const generated={steps:draft.steps.map(item=>({...item,automation_code:"await expect(page.getByText('result')).toBeVisible()"})),
+    validation:{status:'passed'},verification_status:'verified',verification:{status:'passed',verification_id:'verify-fixture'}};
+  let current=4, previous=null;
+  t.mock.method(tasks,'access',async()=>{});
+  t.mock.method(require('../../backend/workflows/manualAutomationTask'),'loadSource',async()=>({source:{...source,revision:current},draft}));
+  t.mock.method(db,'transaction',operation=>async()=>operation());
+  const locks=[];
+  t.mock.method(db,'prepare',sql=>({
+    get:async()=>sql.includes('SELECT request_hash,receipt')?previous:sql.includes('FOR UPDATE')?(locks.push('case'),{id:source.id}):null,
+    all:async()=>{if(sql.includes('FOR SHARE'))locks.push('steps');return [];},
+    run:async(...args)=>{if(sql.includes('INSERT INTO workflow_draft_acceptances'))previous={request_hash:args[5],receipt:args[6]};}
+  }));
+  const create=t.mock.method(require('@hellotest/testing/backend/services/testCase.service'),'createTestCase',async()=>({id:'saved-automation'}));
+  const run={id:'run',project_id:'project',app_type_id:'app',execution_mode:'review',status:'completed',
+    workflow_snapshot:{nodes:[{id:'build',data:{kind:'artifactTask',artifactTask:'automation-engineer',automationSource:'manual_case'}}]},
+    node_results:[{node_id:'build',node_type:'artifactTask',status:'completed',output:{artifact_task:'automation-engineer',generation_mode:'native',
+      data:{manual_case:{...source,source_fingerprint:tasks.fingerprint(draft)},automation:generated}}}]};
+  const request={user:{id:'actor'},body:{node_id:'build',story_index:0,case_index:0,kind:'automation'}};
+  current=5;
+  await assert.rejects(publication.accept(null,request,run),/manual Test Case changed/);
+  assert.equal(create.mock.callCount(),0);
+  current=4;
+  const saved=await publication.accept(null,request,run);
+  assert.deepEqual(locks,['case','steps','case','steps']);
+  assert.equal(saved.review_status,'pending');
+  assert.equal(saved.verification_status,'unverified','The Library case must receive its own execution evidence.');
+  assert.deepEqual(create.mock.calls[0].arguments[0].manual_test_case_ids,[source.id]);
+  assert.equal(create.mock.calls[0].arguments[0].steps[0].automation_code,generated.steps[0].automation_code);
+  assert.equal((await publication.accept(null,request,run)).reused,true);
+  assert.equal(create.mock.callCount(),1);
+});

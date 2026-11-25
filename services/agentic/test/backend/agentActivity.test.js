@@ -30,3 +30,16 @@ test('activity rejects an unbounded or malformed pagination cursor before runnin
 });
 
 test('history listing checks native source scope in bounded batches after source deletion or movement',async()=>{const ok=fixture();assert.equal((await ok.service.availableSources([ok.run])).length,1);ok.source.project_id='foreign';assert.deepEqual(await ok.service.availableSources([ok.run]),[]);const missing=fixture({sourceMissing:true});assert.deepEqual(await missing.service.availableSources([missing.run]),[]);});
+test('scorecards report accepted drafts and measured usage without treating missing tokens as zero', () => {
+  const { service } = fixture();
+  const started_at = '2026-11-24T00:00:00.000Z';
+  const payload = (metrics, source_kind = 'agentic_assistant_session') => ({ source_kind, metrics });
+  const source = { system: 'workflow', agent_id: 'test-designer', started_at };
+  const summaries = service.scorecardRows([
+    { ...source, status: 'succeeded', source_run_id: 'done', completed_at: '2026-11-24T00:00:10.000Z', payload: payload({ tokens: 1200, drafts: 2 }) },
+    { ...source, status: 'failed', source_run_id: 'failed', completed_at: '2026-11-24T00:00:30.000Z', payload: payload({ tokens: null, failure_code: 'AGENT_OUTPUT_INVALID' }) },
+    { ...source, status: 'succeeded', source_run_id: 'whole-workflow', payload: payload({ tokens: 0 }, 'workflow') }
+  ], new Map([['done', 1]]));
+  assert.deepEqual(summaries, [{ key:'workflow:test-designer', runs:2, completed:1, drafts:2, accepted:1,
+    median_duration_ms:20000, duration_samples:2, median_tokens:1200, token_samples:1, failure_codes:{ AGENT_OUTPUT_INVALID:1 } }]);
+});

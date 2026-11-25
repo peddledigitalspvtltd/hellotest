@@ -16,6 +16,7 @@ import type {
   AgenticWorkflowNode,
   AgenticWorkflowNodeData,
   AgenticWorkflowRun,
+  AgenticWorkflowFailureDetails,
 } from "@hellotest/platform/frontend/src/types";
 import { HELLOTEST_AGENT_CATALOG } from "../components/AgenticExperience";
 import { REPOSITORY_AGENTS } from "../agents/RepositoryAgents";
@@ -27,10 +28,12 @@ import { WorkflowDataView } from "./WorkflowDataView";
 import { WorkflowNodeModelCalls } from "./WorkflowNodeModelCalls";
 import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
-import { WorkflowFailureDetails } from './WorkflowFailureDetails';
+import { WorkflowFailureDetails, WorkflowFailureResolution } from './WorkflowFailureDetails';
+import { WorkflowAutomationResult, WorkflowSprintAutomationResult } from './WorkflowAutomationResult';
 import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
 import {
   nodeKindLabels,
+  legacyNodeKinds,
   buildNodeDefaults,
   type WorkflowNodeKind,
 } from "./workflowGraph";
@@ -109,6 +112,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
     setAdvanced(JSON.stringify(node.data, null, 2));
   }, [node.id, run?.id]);
   const kind = String(node.data.kind || "agent");
+  const automationAgent = kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer';
   const specialist = ["agent", "llmAgent", "customAI"].includes(kind) || (kind === "loop" && node.data.loopAction === "customAI");
   const canRetry = specialist || (["apiTool", "apiAgent", "webAgent"].includes(kind) && ["GET", "HEAD"].includes(kind === "webAgent" ? "GET" : String(node.data.apiMethod || "GET").trim().toUpperCase()));
   const recordedInput = result && Object.prototype.hasOwnProperty.call(result, "input") ? result.input : result?.input_context;
@@ -123,10 +127,6 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         automation_progress?: {
           total?: number;
           active_case_index?: number;
-          active_step_order?: number;
-          completed_sections?: number;
-          total_sections?: number;
-          active_message?: string;
         };
         stages?: Array<{
           id: string;
@@ -136,11 +136,18 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         }>;
       }
     | undefined;
-  const automationProgress = kind === "artifactTask" && node.data.artifactTask === "automation-engineer" ? progress?.automation_progress : undefined;
+  const automationProgress = automationAgent ? progress?.automation_progress : undefined;
   const activeCase = progress?.current_case ?? (automationProgress?.active_case_index == null ? undefined : automationProgress.active_case_index + 1);
   const totalCases = progress?.total_cases ?? automationProgress?.total;
   const output = result?.output as Record<string, unknown> | undefined;
-  const splitData = expanded && !["logs", "model calls"].includes(tab) && (!run || editable || tab !== "parameters");
+  const automationCounts = output?.automation_counts as {verified:number;unverified:number;failed:number;needs_input:number} | undefined;
+  const batchFailures = Array.isArray(output?.iteration_failures) ? output.iteration_failures : [];
+  const template = (run?.workflow_snapshot.settings as {template_id?: string} | undefined)?.template_id;
+  const artifactOutput = automationAgent || kind === 'output' && Boolean(automationCounts)
+    && (template === 'manual-test-automation' || template === 'sprint-automator');
+  const splitData = expanded && !artifactOutput && !["logs", "model calls"].includes(tab) && (!run || editable || tab !== "parameters");
+  const availableTabs = artifactOutput ? (["parameters", "output"] as const) : (["parameters", "input", "output", "logs", "model calls"] as const);
+  const selectedTab = artifactOutput && tab !== 'parameters' ? 'output' : tab;
   const field = (name: string, label: string, multiline = false) => (
     <label>
       <span>{label}</span>
@@ -206,21 +213,29 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         </p>
       )}
       {result?.error ? <p role="alert" className="studio-notice">{typeof result.error === "string" ? result.error : JSON.stringify(result.error)}</p> : null}
-      <WorkflowFailureDetails value={result?.error_details} />
-      {progress && (
+      {artifactOutput ? <WorkflowFailureResolution value={(result?.error_details as AgenticWorkflowFailureDetails | undefined)?.resolution} /> : <WorkflowFailureDetails value={result?.error_details} />}
+      {run && automationAgent && <WorkflowAutomationResult
+        key={JSON.stringify([run.id,node.id,result?.iteration_path])} value={output?.data} runId={run.id} nodeId={node.id} projectId={run.project_id}
+        iterationPath={Array.isArray(result?.iteration_path) ? result.iteration_path : undefined}
+        canAccept={result?.status==='completed' && ['completed','needs_review'].includes(run.status)}/>}
+      {run && automationAgent && <WorkflowSprintAutomationResult value={output?.data} projectId={run.project_id} />}
+      {automationCounts && <p role="status">{automationCounts.verified} verified · {automationCounts.unverified} generated, unverified · {automationCounts.failed} failed · {automationCounts.needs_input} need input</p>}
+      {batchFailures.length > 0 && <section aria-label="Failed loop batches"><h4>Failed loop batches</h4><ol>{batchFailures.map((failure,index)=><li key={index}>
+        <strong>{failure.origin?.node_name || failure.failed_node_id} · Batch {Number(failure.batch_index)+1}</strong>
+        <p>{failure.message}</p>{artifactOutput ? <WorkflowFailureResolution value={failure.resolution}/> : <WorkflowFailureDetails value={failure}/>}
+      </li>)}</ol></section>}
+      {progress && (!automationAgent || result?.status === 'running') && (
         <div className="studio-source-progress">
           {automationProgress && <div role="status">
             <strong>Automation progress</strong>
             {activeCase != null && <p>Case {activeCase}{totalCases != null ? ` of ${totalCases}` : ""}</p>}
-            {automationProgress.active_step_order != null && <p>Section {automationProgress.active_step_order}{automationProgress.total_sections != null ? ` of ${automationProgress.total_sections}` : ""}{automationProgress.completed_sections != null ? ` · ${automationProgress.completed_sections} completed` : ""}</p>}
-            {automationProgress.active_message && <p>{automationProgress.active_message}</p>}
           </div>}
           <progress
             max={100}
             value={Number(progress.percent) || 0}
             aria-label={automationProgress ? "Automation generation progress" : "Source analysis progress"}
           />
-          <ol>
+          {!automationAgent && <ol>
             {progress.stages?.map((stage) => (
               <li key={stage.id}>
                 <strong>{stage.label}</strong>
@@ -228,7 +243,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                 {stage.detail && <small>{stage.detail}</small>}
               </li>
             ))}
-          </ol>
+          </ol>}
           {!output && progress.repository_run_id && props.onOpenSource && (
             <button
               className="ghost-button"
@@ -245,19 +260,20 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           )}
         </div>
       )}
-      <WorkflowDataView
+      {artifactOutput ? !output && !result?.error && <p>{result?.status === 'running' ? 'The automation draft appears here when the build completes.'
+        : result?.status === 'skipped' ? String(result.skip_reason || 'This step was not reached.') : 'No automation draft was recorded.'}</p> : <WorkflowDataView
         value={output}
         defaultMode={run ? "json" : "readable"}
         jsonLabel="Node output JSON"
         copyJsonLabel="Copy output JSON"
         empty={
           result?.status === "running"
-            ? automationProgress ? "Completed automation code appears here when this case finishes." : "This step is running. Output appears here when it completes."
+            ? "This step is running. Output appears here when it completes."
             : result?.status === "skipped"
               ? String(result.skip_reason || "This step was not reached.")
               : run ? "No output was recorded for this step." : undefined
         }
-      />
+      />}
       {output?.session_id && props.onOpenReview ? (
         <button
           type="button"
@@ -316,7 +332,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
               })
             }
           >
-            {Object.entries(nodeKindLabels).map(([value, label]) => (
+            {Object.entries(nodeKindLabels).filter(([value])=>value===kind||!legacyNodeKinds.has(value as WorkflowNodeKind)).map(([value, label]) => (
               <option value={value} key={value}>
                 {label}
               </option>
@@ -619,14 +635,14 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
               return <option key={index} value={index}>{`Batch ${batch} · ${String(item.status || "recorded").replace(/_/g, " ")}${range}${iterationPath(item.iteration_path) ? ` · ${iterationPath(item.iteration_path)}` : ""}`}</option>;
             })}
           </select></label>
-          <p className="studio-caption">{snapshot ? `${iterationPath(snapshot.iteration_path) || "Recorded batch"}. Input, output, errors and logs below belong to this batch.` : `${iterations.length} recorded batch results. Latest follows the current node result.`}</p>
+          <p className="studio-caption">{snapshot ? `${iterationPath(snapshot.iteration_path) || "Recorded batch"}.` : `${iterations.length} recorded batch results. Latest follows the current node result.`}</p>
         </div>}
         <nav aria-label="Node details">
-          {(["parameters", "input", "output", "logs", "model calls"] as const).map((item) => (
+          {availableTabs.map((item) => (
             <button
               key={item}
               type="button"
-              aria-pressed={tab === item}
+              aria-pressed={selectedTab === item}
               onClick={() => setTab(item)}
             >
               {item === "model calls" ? "Model calls" : item[0].toUpperCase() + item.slice(1)}
@@ -643,13 +659,13 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
               {(!run || editable) && parameters}
               {outputPane}
             </>
-          ) : tab === "input" ? (
+          ) : selectedTab === "input" ? (
             input
-          ) : tab === "output" ? (
+          ) : selectedTab === "output" ? (
             outputPane
-          ) : tab === "model calls" ? (
+          ) : selectedTab === "model calls" ? (
             <section className="studio-inspector-pane">{iterations.length > 0 && <p className="studio-caption">Model calls show this node across all recorded batches. Use each call's captured context to identify its iteration.</p>}<WorkflowNodeModelCalls key={`${run?.id}:${node.id}`} projectId={props.projectId} runId={run?.id} nodeId={node.id} live={run?.status === "running" || run?.status === "queued"} /></section>
-          ) : tab === "logs" ? (
+          ) : selectedTab === "logs" ? (
             <section className="studio-inspector-pane">
               <h3>Execution log</h3>
               <WorkflowExecutionLog logs={result?.logs} />

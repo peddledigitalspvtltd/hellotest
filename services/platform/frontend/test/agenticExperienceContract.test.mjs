@@ -42,9 +42,9 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
   assert.match(page, /<AgentDirectory/);
   assert.match(page, /onOpenSpecialist=\{openAgentWorkbench\}/);
   assert.match(page, /<AgentActivityTimeline/);
-  assert.match(page, /<AgenticOutcomePanel/);
+  assert.match(page, /<AgentReviewBrief/);
   assert.doesNotMatch(page, /Plan a reusable workflow/);
-  assert.match(component, /label: "Model calls"/);
+  assert.match(component, /can\("ops\.view"\)[^\n]*label: "Run details"/);
   assert.match(page, /setAssistantContextScopes\(agent\.contextScopes\)/);
   assert.match(component, /contextScopes: profile.scopes/);
 });
@@ -79,7 +79,9 @@ test("agent traces expose evidence and evaluation without hidden reasoning", asy
   assert.match(component, /Human decision/);
   assert.match(component, /Outcome summary/);
   assert.match(component, /Findings and supporting evidence/);
-  assert.match(component, /Drafts and supporting reports/);
+  assert.match(component, /label: "Drafts & actions"/);
+  assert.match(component, /label: "Analysis"/);
+  assert.doesNotMatch(component, /label: "Full brief"/);
   assert.match(component, /Evidence gaps/);
   assert.match(component, /Why this evidence was selected/);
   assert.doesNotMatch(component, /chain.of.thought/i);

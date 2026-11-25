@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconArrowRight, IconCheck, IconSearch, IconShieldCheck, IconSparkles } from "@tabler/icons-react";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
@@ -11,21 +11,38 @@ import { AiReferenceImages } from './AiReferenceImages';
 import { AiReviewControls } from "./AiReviewControls";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
+import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import "./DefectTriageDialog.css";
 
 type Props = {
   projectId: string;
   issues: Issue[];
   canViewIntegrations: boolean;
+  correctionLockedIssueId?: string;
   onClose: () => void;
   onOpenIssue: (id: string) => void;
+  onApplied?: () => void;
 };
 const highPriority = (item: AiBugTriageRecommendation) => ["Highest", "High"].includes(item.recommended_priority);
-const fieldLabel = (field: string) => formatDefectFieldLabel(field.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()));
+const fieldLabel = (field: string) => field === "linked_test_case_ids" ? "Linked Test Cases" : formatDefectFieldLabel(field, field.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()));
+const correctionValue = (value: string | string[]) => (Array.isArray(value) ? value.join(", ") : richTextToPlainText(value)) || "Not recorded";
 
-export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onClose, onOpenIssue }: Props) {
+export function DefectTriageDialog({ projectId, issues, canViewIntegrations, correctionLockedIssueId, onClose, onOpenIssue, onApplied }: Props) {
   const titleId = useId();
-  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
+  const queryClient = useQueryClient();
+  const [postedTokens, setPostedTokens] = useState<string[]>([]);
+  const [approvedCorrectionToken, setApprovedCorrectionToken] = useState("");
+  const save = useMutation({
+    mutationFn: ({ issueId, token, corrections }: { issueId: string; token: string; corrections: boolean }) =>
+      api.issues.applyAiTriage(issueId, { project_id: projectId, token, apply_corrections: corrections }),
+    onSuccess: ({ corrections_applied }, { issueId, token }) => {
+      setPostedTokens((tokens) => [...tokens, token]);
+      void queryClient.invalidateQueries({ queryKey: ["hellotest-comments", projectId, "issue", issueId] });
+      if (corrections_applied) onApplied?.();
+    }
+  });
+  const close = () => { if (!save.isPending) onClose(); };
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose: close });
   const { getPrompt, getLlmIntegrationId, query: promptQuery } = useAiPromptRegistry();
   const [integrationId, setIntegrationId] = useState("");
   const [promptGuidance, setPromptGuidance] = useState<string>();
@@ -53,8 +70,13 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
     && [item.display_id, item.title, item.category].join(" ").toLowerCase().includes(search.trim().toLowerCase())
   );
   const active = visible.find(item => item.issue_id === selectedId) || visible[0];
+  const approval = active?.approval;
+  const correctionsLocked = Boolean(correctionLockedIssueId && active?.issue_id === correctionLockedIssueId);
+  const approved = Boolean(!correctionsLocked && approval && approvedCorrectionToken === approval.token);
+  const posted = Boolean(approval && postedTokens.includes(approval.token));
+  const corrections = asArray(active?.corrections);
   const evidence = asArray(preview.data?.evidence_sources).filter(source => active?.evidence_refs.includes(source.ref));
-  const busy = preview.isPending || contextBusy || imageBusy;
+  const busy = preview.isPending || save.isPending || contextBusy || imageBusy;
   const analyze = () => {
     if (busy || !issues.length || issues.length > 10) return;
     setSubmittedSettings(settings);
@@ -69,12 +91,12 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
     });
   };
 
-  return <div className="modal-backdrop defect-triage-backdrop" role="presentation" onClick={onClose}>
+  return <div className="modal-backdrop defect-triage-backdrop" role="presentation" onClick={close}>
     <div className="defect-triage-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dialogRef} tabIndex={-1} onClick={event => event.stopPropagation()}>
       <header className="defect-triage-header">
         <span className="defect-triage-mark"><IconSparkles size={23} aria-hidden="true" /></span>
         <div><span className="defect-triage-eyebrow">DEFECT REVIEW</span><h2 id={titleId}>AI Defect Triage</h2><p>Review classification, priority signals, and missing evidence before editing a Defect.</p></div>
-        <DialogCloseButton label="Close AI Defect Triage" onClick={onClose} />
+        <DialogCloseButton label="Close AI Defect Triage" onClick={close} />
       </header>
       <div className="defect-triage-body">
         <section className="defect-triage-setup" aria-label="Triage setup">
@@ -94,18 +116,34 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
           {visible.length ? <div className="defect-triage-results">
             <nav className="defect-triage-queue" aria-label="Defect recommendations">{visible.map(item => <button key={item.issue_id} aria-pressed={active?.issue_id === item.issue_id} onClick={() => setSelectedId(item.issue_id)} type="button"><span>{issues.find(issue => issue.id === item.issue_id)?.display_id || item.display_id}</span><strong>{item.title}</strong><small>{item.category}</small><span className={`defect-triage-priority${highPriority(item) ? " is-high" : ""}`}>{item.recommended_priority}</span></button>)}</nav>
             {active ? <section className="defect-triage-finding" aria-label="Selected recommendation">
-              <header><div><span className="defect-triage-eyebrow">{active.category}</span><h3>{active.title}</h3></div><button className="ghost-button" disabled={stale} onClick={() => onOpenIssue(active.issue_id)} type="button">Review Defect<IconArrowRight size={16} aria-hidden="true" /></button></header>
+              <header><div><span className="defect-triage-eyebrow">{active.category}</span><h3>{active.title}</h3></div><button className="ghost-button" disabled={stale || save.isPending} onClick={() => onOpenIssue(active.issue_id)} type="button">Review Defect<IconArrowRight size={16} aria-hidden="true" /></button></header>
               <div className="defect-triage-priority-change"><span>Current priority <strong>{active.current_priority}</strong></span><IconArrowRight size={18} aria-hidden="true" /><span>Suggested priority <strong className={highPriority(active) ? "is-high" : ""}>{active.recommended_priority}</strong></span></div>
               <p>{active.explanation}</p>
+              {active.failure_context ? <section><h4>Failure evidence</h4>
+                {active.failure_context.attempt ? <p><strong>{active.failure_context.attempt.test_case_title}</strong> · {active.failure_context.attempt.status}{active.failure_context.attempt.step_order ? ` · Step ${active.failure_context.attempt.step_order}` : ""}</p> : null}
+                {active.failure_context.attempt?.step_action ? <p>{active.failure_context.attempt.step_action}</p> : null}
+                <p>{active.failure_context.detail}</p>
+              </section> : null}
+              {corrections.length ? <section className="defect-triage-corrections"><h4>Evidence-backed corrections</h4>
+                {[...new Set(corrections.map(item => item.rationale))].map((rationale) => <p key={rationale}>{rationale}</p>)}
+                <dl>{corrections.map((item) => <div key={item.field}><dt>{fieldLabel(item.field)}</dt><dd><strong>Recorded</strong> {correctionValue(item.before)}</dd><dd><strong>Proposed</strong> {correctionValue(item.after)}</dd></div>)}</dl>
+                {approval && !posted ? <label><input type="checkbox" checked={approved} disabled={correctionsLocked || stale || save.isPending} onChange={(event) => setApprovedCorrectionToken(event.target.checked ? approval.token : "")} /> Apply these corrections when posting</label> : null}
+                {correctionsLocked && approval && !posted ? <p>Save your Defect edits before applying these corrections.</p> : null}
+              </section> : null}
               <section className="defect-triage-evidence-gaps"><h4>{active.readiness.missing_fields.length ? "Evidence to complete" : "Required fields recorded"}</h4>{active.readiness.missing_fields.length ? <ul>{active.readiness.missing_fields.map(field => <li key={field}>{fieldLabel(field)}</li>)}</ul> : <p><IconCheck size={16} aria-hidden="true" />{active.readiness.completed_field_count} of {active.readiness.total_field_count} required fields recorded.</p>}</section>
               <section><h4>Recommended next steps</h4><ol>{asArray(active.review_actions).map(action => <li key={action}>{action}</li>)}</ol></section>
               <details className="defect-triage-evidence"><summary>Supporting evidence ({evidence.length})</summary>{evidence.length ? evidence.map(source => <article key={source.ref}><strong>{source.title}</strong><p>{source.excerpt || "Recorded relationship"}</p></article>) : <p>No specific field citation was returned. Verify the recommendation in the Defect.</p>}</details>
+              {approval ? <section className="defect-triage-approval">
+                <details className="defect-triage-evidence"><summary>Preview triage comment</summary><p>{approval.comment}</p></details>
+                {posted ? <p role="status"><IconCheck size={16} aria-hidden="true" /> Triage comment posted.</p> : <button className="primary-button" disabled={stale || busy} onClick={() => save.mutate({ issueId: active.issue_id, token: approval.token, corrections: approved })} type="button">{save.isPending ? "Posting…" : approved ? "Apply corrections and post comment" : "Post triage comment"}</button>}
+                {save.error && save.variables?.token === approval.token ? <p role="alert">{save.error instanceof Error ? save.error.message : "Could not post the triage comment."}</p> : null}
+              </section> : null}
             </section> : null}
           </div> : <p className="defect-triage-empty">{recommendations.length ? "No recommendations match these filters." : "No recommendation was returned for the selected Defects. Try the analysis again."}</p>}
           <details className="defect-triage-provenance"><summary>Analysis details and limitations</summary><p><strong>Source:</strong> {preview.data.integration?.name || preview.data.provenance?.provider || "Recorded Defect fields"}{preview.data.integration?.model ? ` · ${preview.data.integration.model}` : ""}</p><p>Priority and evidence completeness use recorded-field rules. AI may refine a category only with valid field citations. Recommendations do not change your records.</p>{asArray(preview.data.limitations).map((item, index) => <p key={index}>{item}</p>)}{preview.data.partial_sources ? <p>Some fields exceeded the context limit. Review the full records before deciding.</p> : null}{asArray(preview.data.boundaries?.omissions).map((item, index) => <p key={index}>{issues.find(issue => issue.id === item.issue_id)?.display_id || "Selected Defect"}: {item.omitted} {item.unit} omitted from {formatDefectFieldLabel(item.field)}.</p>)}</details>
         </> : <div className="defect-triage-empty"><IconShieldCheck size={30} aria-hidden="true" /><h3>Start with the evidence</h3><p>Choose your review settings, then analyze the selected Defects. Each recommendation includes its priority signal and next steps.</p></div>}
       </div>
-      <footer className="defect-triage-footer"><span>Preview only · Review and save changes in the Defect workspace.</span><button className="ghost-button" onClick={onClose} type="button">Close</button></footer>
+      <footer className="defect-triage-footer"><span>Review the evidence and confirm when ready to post.</span><button className="ghost-button" disabled={save.isPending} onClick={close} type="button">Close</button></footer>
     </div>
   </div>;
 }

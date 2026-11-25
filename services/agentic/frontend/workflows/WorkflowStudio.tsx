@@ -19,6 +19,7 @@ import {
 import type { OnNodesChange, OnEdgesChange, OnConnect } from "@xyflow/react";
 import type {
   AgenticWorkflowNode,
+  AgenticWorkflowNodeData,
   AgenticWorkflowEdge,
   AgenticWorkflowReadiness,
   AgenticWorkflowRun,
@@ -44,6 +45,8 @@ import { searchWorkflowNodes } from "./workflowPresentation";
 import { WorkflowTriggerSettings } from "./WorkflowTriggerSettings";
 import { WorkflowConnections } from "./WorkflowConnections";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
+import { WorkflowFailureResolution } from "./WorkflowFailureDetails";
+import { automationAgentDefaults, automationAgentPresets } from "./nativeTaskProfiles";
 
 import type { ProjectAgent } from "../agents/agentDefinitions";
 
@@ -70,7 +73,7 @@ type Props = {
   readiness?: AgenticWorkflowReadiness;
   readinessCurrent: boolean;
   onSelect: (id: string) => void;
-  onAdd: (kind: WorkflowNodeKind, insertion?: NodeInsertion) => void;
+  onAdd: (kind: WorkflowNodeKind, insertion?: NodeInsertion, defaults?: AgenticWorkflowNodeData) => void;
   onNodesChange: OnNodesChange<AgenticWorkflowNode>;
   onEdgesChange: OnEdgesChange<AgenticWorkflowEdge>;
   onConnect: OnConnect;
@@ -106,6 +109,7 @@ export function WorkflowStudio(props: Props) {
   );
   const [nodeQuery,setNodeQuery] = useState("");
   const [focusRequest,setFocusRequest] = useState(0);
+  const [collapsedInspector,setCollapsedInspector] = useState('');
   const specialists = workflowSpecialistCount(props.nodes);
   const atNodeCap = props.nodes.length >= WORKFLOW_LIMITS.max_nodes;
   const atSpecialistCap = specialists >= WORKFLOW_LIMITS.max_specialists;
@@ -119,8 +123,25 @@ export function WorkflowStudio(props: Props) {
     [expanded, setExpanded] = useState(false);
   const [inputOpen, setInputOpen] = useState(false),
     [readinessOpen, setReadinessOpen] = useState(false);
-  const matchingProjectAgents = props.nodes.length ? (props.projectAgents || []).filter(agent => `${(agent.active_definition || agent.definition).name} ${(agent.active_definition || agent.definition).description}`.toLowerCase().includes(query.trim().toLowerCase())) : [];
+  const search = query.trim().toLowerCase();
+  const matchingProjectAgents = props.nodes.length ? (props.projectAgents || []).filter(agent => `${(agent.active_definition || agent.definition).name} ${(agent.active_definition || agent.definition).description}`.toLowerCase().includes(search)) : [];
+  const matchingPalette = library ? nodePaletteGroups.map(group => {
+    const available = group.kinds.filter(kind => {
+      if (kind === 'repositoryAgent' && repositoryUnavailable) return false;
+      if (!props.nodes.length) return kind === 'trigger';
+      return kind !== 'trigger' && !(insertion?.edgeId && ['output', 'stop', 'errorHandler'].includes(kind));
+    });
+    const entries = available.flatMap(kind => {
+      const entry = { kind, label: nodeKindLabels[kind], description: nodeKindDescriptions[kind], defaults: undefined as AgenticWorkflowNodeData | undefined };
+      if (kind !== 'artifactTask') return [entry];
+      return [entry, ...automationAgentPresets.map(preset => ({
+        kind, label: preset.label, description: preset.description, defaults: automationAgentDefaults(preset),
+      }))];
+    }).filter(({ label, description }) => `${label} ${description}`.toLowerCase().includes(search));
+    return { label: group.label, entries };
+  }).filter(group => group.entries.length) : [];
   const selected = props.nodes.find((node) => node.id === props.selectedNodeId);
+  const inspectorHidden = Boolean(selected && collapsedInspector === selected.id);
   useEffect(() => {
     if (props.error || props.readiness) setReadinessOpen(true);
   }, [props.error, props.readiness]);
@@ -293,12 +314,14 @@ export function WorkflowStudio(props: Props) {
           </button>}
           {props.readinessCurrent &&
             props.readiness?.blockers.map((item, index) => (
-              <p key={index} className="studio-notice">
+              <div key={index} className="studio-notice">
+                <p>
                 {item.node_id && (
                   <button
                     type="button"
                     onClick={() => {
                       props.onSelect(item.node_id!);
+                      setCollapsedInspector('');
                       setTab("editor");
                     }}
                   >
@@ -306,7 +329,9 @@ export function WorkflowStudio(props: Props) {
                   </button>
                 )}{" "}
                 {item.message}
-              </p>
+                </p>
+                <WorkflowFailureResolution value={item.resolution} />
+              </div>
             ))}
           {props.error && (
             <p role="alert" className="studio-notice">
@@ -317,7 +342,7 @@ export function WorkflowStudio(props: Props) {
       )}
       {tab === "editor" ? (
         <div
-          className={`studio-workspace ${library ? "has-library" : ""} ${selected ? "has-inspector" : ""}`}
+          className={`studio-workspace ${library ? "has-library" : ""} ${selected && !inspectorHidden ? "has-inspector" : ""}`}
         >
           {library && (
             <aside className="studio-library">
@@ -344,22 +369,16 @@ export function WorkflowStudio(props: Props) {
               </label>
               <div className="studio-library-list">
                 {matchingProjectAgents.length > 0 && <section><h3>Project agents</h3>{matchingProjectAgents.map(agent => <button key={agent.id} type="button" disabled={!props.editable || props.busy || atNodeCap || atSpecialistCap} onClick={() => { props.onAddAgent?.(agent, insertion); setLibrary(false); }}><span className="studio-library-icon" data-kind="agent"><WorkflowNodeIcon kind="agent" /></span><span><strong>{(agent.active_definition || agent.definition).name}</strong><small>Version {agent.active_version} · LLM required</small></span></button>)}</section>}
-                {nodePaletteGroups.map((group) => {
-                  const kinds = group.kinds.filter(kind=>!(kind==="repositoryAgent" && repositoryUnavailable)).filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "stop", "errorHandler"].includes(kind))).filter((kind) =>
-                    `${nodeKindLabels[kind]} ${nodeKindDescriptions[kind]}`
-                      .toLowerCase()
-                      .includes(query.toLowerCase()),
-                  );
-                  return kinds.length ? (
+                {matchingPalette.map((group) => (
                     <section key={group.label}>
                       <h3>{group.label}</h3>
-                      {kinds.map((kind) => (
+                      {group.entries.map(({kind, label, description, defaults}) => (
                         <button
-                          key={kind}
+                          key={label}
                           type="button"
                           disabled={!props.editable || props.busy || atNodeCap || (nodeKinds.kinds[kind].specialist && atSpecialistCap)}
                           onClick={() => {
-                            props.onAdd(kind, insertion);
+                            props.onAdd(kind, insertion, defaults);
                             setLibrary(false);
                           }}
                         >
@@ -370,26 +389,21 @@ export function WorkflowStudio(props: Props) {
                             <WorkflowNodeIcon kind={kind} />
                           </span>
                           <span>
-                            <strong>{nodeKindLabels[kind]}</strong>
-                            <small>{nodeKindDescriptions[kind]}</small>
+                            <strong>{label}</strong>
+                            <small>{description}</small>
                             {nodeKinds.kinds[kind].specialist && atSpecialistCap && <em>Specialist limit reached</em>}
                           </span>
                         </button>
                       ))}
                     </section>
-                  ) : null;
-                })}
-                {!matchingProjectAgents.length && !Object.keys(nodeKindLabels).some((kind) =>
-                  `${nodeKindLabels[kind as WorkflowNodeKind]} ${nodeKindDescriptions[kind as WorkflowNodeKind]}`
-                    .toLowerCase()
-                    .includes(query.toLowerCase()),
-                ) && <p className="studio-empty">No matching nodes.</p>}
+                ))}
+                {!matchingProjectAgents.length && !matchingPalette.length && <p className="studio-empty">No matching nodes.</p>}
               </div>
             </aside>
           )}
           <div className="studio-canvas-workspace">
             <div className="studio-canvas-actions">
-              <div className="studio-node-search"><label className="studio-search"><IconSearch size={15}/><input aria-label="Find a step in this workflow" placeholder="Find a step…" value={nodeQuery} onChange={event=>setNodeQuery(event.target.value)}/></label>{nodeQuery.trim()&&<div className="studio-node-search-results" role="list" aria-label="Matching workflow steps">{searchWorkflowNodes(props.nodes,nodeQuery).map(node=><button type="button" role="listitem" key={node.id} onClick={()=>{props.onSelect(node.id);setFocusRequest(value=>value+1);setNodeQuery("");}}><strong>{String(node.data.label||node.id)}</strong><small>{node.id} · {nodeKindLabels[node.data.kind as WorkflowNodeKind]}</small></button>)}{!searchWorkflowNodes(props.nodes,nodeQuery).length&&<p>No matching steps.</p>}</div>}</div>
+              <div className="studio-node-search"><label className="studio-search"><IconSearch size={15}/><input aria-label="Find a step in this workflow" placeholder="Find a step…" value={nodeQuery} onChange={event=>setNodeQuery(event.target.value)}/></label>{nodeQuery.trim()&&<div className="studio-node-search-results" role="list" aria-label="Matching workflow steps">{searchWorkflowNodes(props.nodes,nodeQuery).map(node=><button type="button" role="listitem" key={node.id} onClick={()=>{props.onSelect(node.id);setCollapsedInspector('');setFocusRequest(value=>value+1);setNodeQuery("");}}><strong>{String(node.data.label||node.id)}</strong><small>{node.id} · {nodeKindLabels[node.data.kind as WorkflowNodeKind]}</small></button>)}{!searchWorkflowNodes(props.nodes,nodeQuery).length&&<p>No matching steps.</p>}</div>}</div>
               {props.editable && <div className="studio-history-actions" role="group" aria-label="Edit history">
                 <button type="button" className="studio-icon-button" disabled={props.busy || !graphHistory.canUndo} onClick={graphHistory.undo} aria-label="Undo graph edit" title="Undo graph edit (⌘/Ctrl Z)"><IconArrowBackUp size={18} /></button>
                 <button type="button" className="studio-icon-button" disabled={props.busy || !graphHistory.canRedo} onClick={graphHistory.redo} aria-label="Redo graph edit" title="Redo graph edit (⌘/Ctrl Shift Z)"><IconArrowForwardUp size={18} /></button>
@@ -416,6 +430,10 @@ export function WorkflowStudio(props: Props) {
                   Arrange
                 </button>
               )}
+              {selected && <button type="button" className="ghost-button" aria-expanded={!inspectorHidden}
+                onClick={()=>{setExpanded(false);setCollapsedInspector(inspectorHidden ? '' : selected.id);}}>
+                {inspectorHidden ? 'Show inspector' : 'Hide inspector'}
+              </button>}
               {props.editable && selectedEdgeId && (
                 <button
                   type="button"
@@ -457,10 +475,12 @@ export function WorkflowStudio(props: Props) {
               }
               onNodeClick={(_, node) => {
                 setSelectedEdgeId("");
+                setCollapsedInspector('');
                 props.onSelect(node.id);
               }}
               onNodeDoubleClick={(_, node) => {
                 props.onSelect(node.id);
+                setCollapsedInspector('');
                 setExpanded(true);
               }}
               onPaneClick={() => {
@@ -494,7 +514,7 @@ export function WorkflowStudio(props: Props) {
               )}
             </footer>
           </div>
-          {selected && (
+          {selected && !inspectorHidden && (
             <WorkflowNodeInspector
               {...props.inspector}
               workflowInput={props.input}

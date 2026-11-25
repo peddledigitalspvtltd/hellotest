@@ -80,6 +80,7 @@ export type PlaywrightMcpDependencies = {
   headless?: boolean;
 };
 type Session = {
+  navigation?: { url: string; httpStatus?: number };
   server: NativeServer; transport: NativeTransport; proxy: Awaited<ReturnType<typeof createInspectionProxy>>;
   outputDir: string; browser?: NativeBrowser; starting?: Promise<NativeContext>;
   busy: boolean; closed: boolean; expires: number; toolTimeout: number;
@@ -239,6 +240,18 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
             session.browser = browser;
             const browserContext = await browser.newContext(nativeConfig.browser?.contextOptions);
             if (session.closed) { await browser.close(); throw new Error("Playwright MCP session closed"); }
+            browserContext.on("response", response => {
+              if (!session.navigation || !response.request().isNavigationRequest()) return;
+              try {
+                const frame = response.frame();
+                if (frame !== frame.page().mainFrame()) return;
+                let first = response.request();
+                while (first.redirectedFrom()) first = first.redirectedFrom()!;
+                const requested = new URL(session.navigation.url), initial = new URL(first.url());
+                requested.hash = initial.hash = "";
+                if (requested.href === initial.href) session.navigation.httpStatus = response.status();
+              } catch { /* A response without an owned frame cannot establish navigation status. */ }
+            });
             // This is initial lifecycle evidence, not an assertion about the
             // site's current cookies or signed-in state after navigation.
             const contextOptions = nativeConfig.browser?.contextOptions;
@@ -345,6 +358,8 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
     }
     if (session.busy) return reply.code(409).send(rpcError(message.id, -32000, "A browser tool is already running"));
     session.busy = true;
+    const args = message.params?.arguments;
+    session.navigation = message.method === "tools/call" && message.params?.name === "browser_navigate" && record(args) && typeof args.url === "string" ? { url: args.url } : undefined;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const aborted = () => { void close(id); };
     request.raw.once("aborted", aborted);
@@ -374,6 +389,10 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
         response._meta = { ...response._meta, hellotest: {
           ...(record(response._meta?.hellotest) ? response._meta.hellotest : {}), browser_context: session.browserContextReceipt } };
       }
+      if (response && session.navigation?.httpStatus !== undefined && !session.closed) {
+        response._meta = { ...response._meta, hellotest: {
+          ...(record(response._meta?.hellotest) ? response._meta.hellotest : {}), navigation_http_status: session.navigation.httpStatus } };
+      }
       // Preserve the official result, including native Playwright code. The
       // trusted host extracts code before creating its own redacted diagnostics.
       return response;
@@ -385,6 +404,7 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
       request.raw.off("aborted", aborted);
       reply.raw.off("close", disconnected);
       session.busy = false;
+      session.navigation = undefined;
       session.expires = Date.now() + ttl;
     }
   });

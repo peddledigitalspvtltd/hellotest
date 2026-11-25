@@ -89,6 +89,18 @@ test('shared section authoring preserves identity, ordered instructions and priv
       assert.equal((await groups.getSharedStepGroup(group.id)).app_type_id, 'app');
     });
 
+    await context.test('a case edit publishes the shared section atomically and rolls back a split group', async () => {
+      await steps.updateTestStep(firstOpenId, { expected_result:'The login form is visible' });
+      const shared = await groups.getSharedStepGroup(group.id);
+      const first = await steps.getTestSteps({ test_case_id:'first-case' });
+      const second = await steps.getTestSteps({ test_case_id:'second-case' });
+      assert.equal(shared.steps[0].expected_result, 'The login form is visible');
+      assert.equal(second[0].expected_result, shared.steps[0].expected_result);
+      await assert.rejects(steps.updateTestStep(firstOpenId, {step_order:4,expected_result:'Impossible split'}), {code:'SHARED_GROUP_REFERENCE_SPLIT'});
+      assert.deepEqual(await steps.getTestSteps({test_case_id:'first-case'}), first);
+      assert.deepEqual((await groups.getSharedStepGroup(group.id)).steps, shared.steps);
+    });
+
     await context.test('converting selected sections copies only their referenced public defaults', async () => {
       const converted = await steps.groupTestSteps({ test_case_id: 'source-case', step_ids: ['source-step'], name: 'Copied source', create_shared_group: true, created_by: 'actor' });
       const saved = await groups.getSharedStepGroup(converted.reusable_group_id);

@@ -4,6 +4,12 @@ import { request } from "@hellotest/platform/frontend/src/lib/httpClient";
 
 export type AutomationAuthoringState = { case_id:string;state:'idle'|'building'|'recording'|'conflict';build:{activity_id:string;status:string;phase?:string}|null;recording:{activity_id:string;status:string;phase?:string}|null;can_build:boolean;can_record:boolean };
 export const automationApi = {
+  browserPreflight: (input: {
+    case_id: string; start_url: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string;
+    test_suite_id?: string; integration_id?: string;
+  }, signal?: AbortSignal) => request<{status:"ready";browser:"reachable";environment?:{id:string;name:string}}>('/automation/browser-preflight', {
+    method: 'POST', body: JSON.stringify(input), signal
+  }),
   authoringState: (caseId:string, signal?:AbortSignal) => request<AutomationAuthoringState>(`/test-cases/${encodeURIComponent(caseId)}/automation/authoring-state`,{signal,cache:'no-store'}),
 localAgent: {
     status: () =>

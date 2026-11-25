@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 const require=createRequire(new URL('../../../../testengine/backend/package.json',import.meta.url));
 const {chromium}=require('playwright');
 const root=new URL('../../../platform/frontend/',import.meta.url);
-test('repository has a quiet toolbar, stable field selection and an editable DOM locator builder', {timeout:60000}, async()=>{
+test('repository has a quiet toolbar, stable field selection and an editable DOM locator builder', {timeout:120000}, async()=>{
   const template=await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs',import.meta.url),'utf8');
   let fixture=runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
   fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';");
@@ -17,6 +17,7 @@ test('repository has a quiet toolbar, stable field selection and an editable DOM
   const row={id:'email',project_id:'p',app_type_id:'a',test_case_id:'case1',page_key:'Login',page_url:'https://app.example.test/login',locator_intent:'Email',locator:'input[name="email"]',locator_kind:'css',confidence:.8,metadata:{screen_name:'Login',object_name:'Email',object_role:'input / textbox',source_owners:[{entry_id:'legacy-email',source:'legacy'}],screen_dom_compressed:dom,dom_structure:'<input id="email" name="email" aria-label="Email" type="email">'}};
   fixture=fixture.replace('const client=new QueryClient',`const entries=[${JSON.stringify(row)},${JSON.stringify({...row,id:'password',locator_intent:'Password',locator:'#password',metadata:{...row.metadata,source_owners:[],object_name:'Password'}})},${JSON.stringify({...row,id:'address',page_key:'Checkout',locator_intent:'Address',locator:'#address',metadata:{...row.metadata,source_owners:[],screen_name:'Checkout',object_name:'Address'}})}];
 api.testCases.learningCache=async()=>structuredClone(entries);
+api.testCases.learningCacheUsage=async id=>id==='address'?[{id:'case1',title:'Checkout smoke test',automated:'yes'}]:[];
 window.applies=[];
 window.repositoryWrites=[];
 api.testCases.createLearningCacheEntry=async input=>{window.repositoryWrites.push(structuredClone(input));const row={id:'saved-'+window.repositoryWrites.length,...input};entries.push(row);return row;};
@@ -39,6 +40,21 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
     assert.equal(await page.getByRole('button',{name:'Inspect evidence',exact:true}).count(),0);
     const screen = name => page.locator('.pom-page-select').filter({hasText:name});
     const field = name => page.locator('.repository-members-table tbody > tr').filter({hasText:name});
+    await page.getByRole('searchbox',{name:'Find a screen or field'}).fill('checkout #address');
+    const matches=page.locator('.repository-search-result');
+    await matches.getByRole('button',{name:'Address',exact:true}).click();
+    await page.getByLabel('Object configuration',{exact:true}).getByText('Element Configuration: Address',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Review locator in browser',exact:true}).click();
+    const inspector=page.getByRole('dialog',{name:'Object repository inspector'});
+    await inspector.getByText('Open the screen in a browser to validate Address.',{exact:true}).waitFor();
+    await page.keyboard.press('Escape');
+    await inspector.waitFor({state:'hidden'});
+    await page.getByRole('tab',{name:/^Evidence/}).click();
+    await page.getByText('Used by saved cases',{exact:true}).click();
+    const boundCase=page.getByRole('link',{name:'Checkout smoke test',exact:true});
+    await boundCase.waitFor();
+    assert.equal(await boundCase.getAttribute('href'),'/automation?case=case1&tab=steps');
+    await page.getByRole('button',{name:'Close object configuration',exact:true}).click();
     for(let cycle=0;cycle<3;cycle++){
       await screen('Login').click();await page.getByRole('tab',{name:/^Fields/}).click();
       await field('Email').click();await page.getByRole('tab',{name:/AI Meaning/}).click();await page.getByRole('tab',{name:/Evidence/}).click();

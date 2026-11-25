@@ -29,11 +29,18 @@ const list = async ({ projectId, appTypeId, requirementId, testCaseId, pageSize 
       execution_results.result_origin,execution_results.derived,execution_results.source_result_id,execution_results.source_test_case_id,execution_results.source_display_id,execution_results.covers_entire_case,execution_results.effective_at,execution_results.source_results,execution_results.source_duration_ms,
       COALESCE(execution_results.test_case_title, test_cases.title) AS test_case_title,
       execution_results.status AS result_status, execution_results.defects,
+      execution_results.duration_ms, execution_results.started_at AS result_started_at,
+      execution_results.ended_at AS result_ended_at,
+      source.data_set_iteration_index,
+      CASE WHEN source.data_set_iteration_index IS NOT NULL AND source.test_data_set_id IS NOT NULL
+        THEN source.test_data_set_id || ':' || (source.data_set_iteration_index + 1)::text
+        ELSE source.data_set_iteration_key END AS data_set_iteration_key,
       execution_results.created_at AS result_created_at,
       executions.started_at, executions.ended_at, executions.release, executions.sprint, executions.build
     FROM test_case_effective_results AS execution_results
     JOIN executions ON executions.id = execution_results.execution_id
     LEFT JOIN test_cases ON test_cases.id = execution_results.test_case_id
+    LEFT JOIN execution_results source ON source.id = execution_results.source_result_id AND source.execution_id = executions.id
     WHERE ${conditions.join(" AND ")}
     ORDER BY execution_results.effective_at DESC,execution_results.derived ASC,execution_results.id DESC
     LIMIT ?

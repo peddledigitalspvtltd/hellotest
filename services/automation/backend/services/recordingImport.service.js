@@ -13,6 +13,7 @@ function recordingImportIdentity(input) {
   return { id: hash(scope), input_sha256: hash({ targetStepId: input.targetStepId || null,
     bindings: [...(input.parameterBindings || [])].sort((a, b) => a.source_action_index - b.source_action_index),
     actions: Array.isArray(input.includedActionIndices) ? [...input.includedActionIndices].sort((a, b) => a - b) : null,
+    ...(input.excludedActionIndices?.length ? { excludedActions: [...new Set(input.excludedActionIndices)].sort((a, b) => a - b) } : {}),
     context: input.additionalContext || null, capture: input.capture || null }) };
 }
 

@@ -71,6 +71,25 @@ test('catalog and module metrics are normalized from one aggregate request indep
   assert.equal(result.unassigned.pendingReviewCount, 12);
 });
 
+test('Automation outcome filtering uses the latest finalized result independently of the recent sample', async () => {
+  const calls = [];
+  const svc = loadService({ prepare: sql => ({ all: async (...params) => {
+    calls.push({sql,params});
+    return sql.includes('cursor_activity') ? [{id:'case',cursor_activity:null}] : [{id:'case',latest_finalized_status:'failed',run_count:11}];
+  } }) });
+  const filters = { automated:'yes',automation_plan:'ready',automation_case_type:'api',automation_outcome:'failed' };
+  assert.throws(() => svc.buildScope(filters), {statusCode:400});
+  const page = await svc.listPage({...filters,include_execution:true,include_total:false,projection:'summary'});
+  assert.equal(page.items[0].latest_finalized_status,'failed');
+  assert.match(calls[0].sql,/tc\.automation_status = 'ready'/);
+  assert.match(calls[0].sql,/test_data_options->>'automation_case_type' = \?/);
+  assert.match(calls[0].sql,/er\.status IN \('passed','failed','blocked'\)\s+ORDER BY er\.effective_at/);
+  assert.ok(calls[0].params.includes('failed'));
+  assert.match(calls[1].sql,/COUNT\(DISTINCT er.execution_id\)::int FROM/);
+  assert.match(calls[1].sql,/AS latest_finalized_status/);
+  assert.match(calls[1].sql,/AS recent_results/);
+});
+
 test('summary pages can skip full-scope totals and never select authoring JSON columns', async () => {
   const calls = [];
   const svc = loadService({ prepare: (sql) => ({

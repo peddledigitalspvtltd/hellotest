@@ -1,7 +1,9 @@
 import "../../components/AutomationWorkspace.css";
 import "./RepositoryWorkspace.css";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
-import { type CSSProperties } from "react";
+import { useDeferredValue, useMemo, useState, type CSSProperties } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
 import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { RepositoryLocatorBuilder } from "../../components/RepositoryLocatorBuilder";
@@ -17,11 +19,37 @@ import { RichTextEditor } from "@hellotest/platform/frontend/src/platform/compon
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import { SubnavTabs } from "@hellotest/platform/frontend/src/shared/components/SubnavTabs";
 import { ToastMessage } from "@hellotest/platform/frontend/src/shared/components/ToastMessage";
+import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { TileCardSkeletonGrid } from "@hellotest/platform/frontend/src/shared/components/TileCardSkeletonGrid";
 import {getRepositoryMemberName,isLikelyImageUrl,getRepositoryImportKindLabel,inferLocatorStrategy} from '../../lib/automationWorkspaceSupport';
 import type {RepositoryWorkspaceController} from './useRepositoryWorkspaceController';
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
+
+function RepositoryReferencedCases({ entryId }: { entryId: string }) {
+    const [open, setOpen] = useState(false);
+    const usage = useQuery({
+        queryKey: ["automation-repository-context", "field-usage", entryId],
+        queryFn: ({ signal }) => api.testCases.learningCacheUsage(entryId, { signal }),
+        enabled: open,
+        retry: false
+    });
+    return <details onToggle={event => setOpen(event.currentTarget.open)}>
+        <summary>Used by saved cases</summary>
+        {open && <>
+            {usage.isLoading && <p role="status">Finding saved bindings…</p>}
+            {usage.isError && <p role="alert">Unable to load cases. <button type="button" className="ghost-button compact" onClick={() => void usage.refetch()}>Retry</button></p>}
+            {usage.data && (usage.data.length
+                ? <ul>{usage.data.map(item => <li key={item.id}><Link to={item.automated === "yes"
+                    ? `/automation?case=${encodeURIComponent(item.id)}&tab=steps`
+                    : `/test-cases?case=${encodeURIComponent(item.id)}`}>{item.display_id ? `${item.display_id} · ` : ""}{item.title}</Link></li>)}</ul>
+                : <p>No cases reference this field in their saved steps.</p>)}
+        </>}
+    </details>;
+}
+
 export function RepositoryWorkspaceView({controller}:{controller:RepositoryWorkspaceController}){
+const [repositorySearch, setRepositorySearch] = useState("");
+const search = useDeferredValue(repositorySearch.trim().toLowerCase());
 const {
     canImportRepository,
     canExportRepository,
@@ -135,6 +163,7 @@ const {
     selectRepositoryScreen,
     selectRepositoryEntry,
     openRepositoryInspect,
+    reviewSavedRepositoryLocator,
     exportRepositoryCsv,
     importRepositoryEntries,
     saveRepositoryEntry,
@@ -154,6 +183,18 @@ const {
     appTypeId,
     caseBindings,
 }=controller;
+const searchResults = useMemo(() => {
+    if (!search) return null;
+    const words = search.split(/\s+/);
+    const matches = (...values: Array<string | undefined | null>) => {
+        const index = values.filter(Boolean).join(" ").toLowerCase();
+        return words.every(word => index.includes(word));
+    };
+    return pageObjectModels.flatMap(page => {
+        const fields = page.members.filter(member => matches(page.pageName, member.memberName, member.ref, member.entry.locator));
+        return matches(page.pageName, page.url) || fields.length ? [{ page, fields }] : [];
+    });
+}, [pageObjectModels, search]);
 if(!controller.canViewObjectRepository)return <div className="empty-state" role="status">Object Repository access is unavailable for this scope.</div>;
 const renderRepositoryConfiguration = () => selectedRepositoryEntry && isRepositoryConfigOpen ? (<aside className="panel card automation-detail-panel object-repository-config-drawer" aria-label="Object configuration">
 		              <button aria-label="Resize object configuration panel" className="object-repository-config-resize-handle" onKeyDown={handleRepositoryConfigResizeKeyDown} onPointerDown={handleRepositoryConfigResizeStart} title="Drag left or right to resize object configuration" type="button"/>
@@ -177,10 +218,10 @@ const renderRepositoryConfiguration = () => selectedRepositoryEntry && isReposit
     ]}/>
 <fieldset className="repository-config-fields" disabled={!canInspectRepository}>
                   <div className="testops-action-row object-repository-config-actions">
-	                {<button className="ghost-button" onClick={() => void highlightRepositoryLocator(selectedRepositoryEntry.locator, `${activeScreenName}.${getRepositoryMemberName(selectedRepositoryEntry)}`, selectedRepositoryEntry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."))} type="button">
+	                <button className="ghost-button" onClick={reviewSavedRepositoryLocator} type="button">
 	                  <MousePointerIcon />
-	                  <span>Highlight</span>
-	                </button>}
+	                  <span>Review locator in browser</span>
+	                </button>
 
 	                <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
 	                  <PlayIcon />
@@ -285,13 +326,15 @@ const renderRepositoryConfiguration = () => selectedRepositoryEntry && isReposit
                     </label>
                     </div>
                   </div>) : null}
-                {fieldDetailTab === "evidence" ? (<div className="record-grid testops-builder-form">
+                {fieldDetailTab === "evidence" ? (<>
+                  <RepositoryReferencedCases key={selectedRepositoryEntry.id} entryId={selectedRepositoryEntry.id} />
+                  <div className="record-grid testops-builder-form">
                     <label className="form-field"><span>Element screenshot URL</span><input value={repositoryDraft.element_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, element_screenshot_url: event.target.value }))}/></label>
                     <label className="form-field"><span>Ancestor screenshot URL</span><input value={repositoryDraft.ancestor_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_screenshot_url: event.target.value }))}/></label>
                     <label className="form-field repository-span-two"><span>Parent / ancestor DOM snapshot</span><textarea rows={5} value={repositoryDraft.ancestor_dom || repositoryDraft.dom_structure} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_dom: event.target.value }))}/></label>
                     <label className="form-field repository-span-two"><span>Inherited screen accessibility tree</span><textarea readOnly rows={5} value={screenInfoDraft.accessibility_tree}/></label>
                     {repositoryDraft.element_screenshot_url && isLikelyImageUrl(repositoryDraft.element_screenshot_url) ? <div className="object-repository-snapshot"><img alt={`${repositoryDraft.object_name} element`} src={repositoryDraft.element_screenshot_url}/></div> : null}
-                  </div>) : null}
+                  </div></>) : null}
                 {fieldDetailTab === "meaning" ? (<div className="record-grid testops-builder-form">
                     <label className="form-field repository-span-two"><span>AI-generated description</span><RichTextEditor disabled={!canInspectRepository} appearance="canonical" rows={3} value={repositoryDraft.description} onChange={(description) => setRepositoryDraft((current) => ({ ...current, description }))}/></label>
                     <label className="form-field repository-span-two"><span>Business meaning</span><textarea rows={3} value={repositoryDraft.business_meaning} onChange={(event) => setRepositoryDraft((current) => ({ ...current, business_meaning: event.target.value }))}/></label>
@@ -333,37 +376,37 @@ return (<div className={`page-content page-content--automation${""}`}>
             void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
         } : undefined}/> : null}
       {!caseBindings?<PageHeader className={"object-repository-page-header"} eyebrow={automationPageHeader.eyebrow} title={automationPageHeader.title} description={automationPageHeader.description} actions={canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent}/> : undefined} meta={[{ label: "Repository objects", value: learningCacheQuery.data ? learningCache.length : "—" }]}/>:null}
-      {caseBindings?<div className="object-repository-inspector-section-head"><h3>Objects used by this case</h3><span>Only fields referenced by the current plan are shown. Changes update the shared repository.</span></div>:null}
+      {caseBindings && <h3 className="repository-case-heading">Objects used by this case</h3>}
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone}/>
 
 	      {(<div className={[
             "automation-workspace-grid automation-workspace-grid--repository",
             selectedRepositoryEntry && isRepositoryConfigOpen ? "has-config-drawer" : ""
         ].filter(Boolean).join(" ")} style={selectedRepositoryEntry && isRepositoryConfigOpen ? ({ "--object-repository-config-width": `${repositoryConfigDrawerWidth}px` } as CSSProperties) : undefined}>
-          <Panel title={caseBindings?"Objects used by this case":"Object repository"} subtitle={caseBindings?"Only bindings referenced by the current plan are shown. Saved source and context hashes govern inferred matches.":"Screen-level fields grouped by page, with friendly member names, HTML tag details, locator, DOM, image, and fallback intelligence."} actions={(<div className="testops-action-row repository-toolbar">
-                <button className="primary-button" disabled={!canInspectRepository} onClick={() => {
+          <Panel title={caseBindings?"Objects used by this case":"Screens and fields"} subtitle={caseBindings?"Changes update the shared repository.":undefined} actions={(<div className="testops-action-row repository-toolbar">
+                {!caseBindings && <button className="primary-button" disabled={!canInspectRepository} onClick={() => {
                 setIsAddingRepositoryScreen((current) => !current);
                 setIsAddingRepositoryField(false);
             }} type="button">
                   <AddIcon />
                   <span>New screen</span>
-                </button>
+                </button>}
 	                {canInspectRepository ? (<button className="ghost-button" disabled={!activePageObject || !canInspectRepository} onClick={() => openRepositoryInspect(activePageObject)} type="button">
 	                  <MousePointerIcon />
 	                  <span>Inspect selected</span>
 	                </button>) : null}
-	                <button className="ghost-button" disabled={!canImportRepository} onClick={() => setIsRepositoryImportModalOpen(true)} type="button">
+	                {!caseBindings && <button className="ghost-button" disabled={!canImportRepository} onClick={() => setIsRepositoryImportModalOpen(true)} type="button">
 	                  <ImportIcon />
 	                  <span>{isParsingRepositoryImport ? "Reading..." : "Import"}</span>
-	                </button>
-                <button className="ghost-button" disabled={!canExportRepository || !appTypeId || exportRepositoryCsv.isPending} onClick={() => exportRepositoryCsv.mutate()} type="button">
+	                </button>}
+                {!caseBindings && <button className="ghost-button" disabled={!canExportRepository || !appTypeId || exportRepositoryCsv.isPending} onClick={() => exportRepositoryCsv.mutate()} type="button">
                   <ExportIcon />
                   <span>{exportRepositoryCsv.isPending ? "Exporting..." : "Export CSV"}</span>
-                </button>
-                <button className="ghost-button danger" disabled={!canInspectRepository || !activePageObject || deleteRepositoryScreen.isPending} onClick={() => deleteRepositoryScreen.mutate(false)} type="button">
+                </button>}
+                {!caseBindings && <button className="ghost-button danger" disabled={!canInspectRepository || !activePageObject || deleteRepositoryScreen.isPending} onClick={() => deleteRepositoryScreen.mutate(false)} type="button">
                   <TrashIcon size={16}/>
                   <span>{deleteRepositoryScreen.isPending ? "Checking..." : "Delete screen"}</span>
-                </button>
+                </button>}
               </div>)}>
             {learningCacheQuery.isLoading ? <TileCardSkeletonGrid /> : null}
             {learningCacheQuery.isError ? (<div className="empty-state compact" role="alert">
@@ -412,7 +455,18 @@ return (<div className={`page-content page-content--automation${""}`}>
             {!learningCacheQuery.isLoading && !learningCacheQuery.isError && !groupedRepository.length ? (<div className="empty-state compact">{caseBindings?'This case does not reference any saved repository fields. Add an object binding to a plan step to use the shared editor.':'No repository objects have been learned for this scope yet.'}</div>) : null}
             <div className="pom-workspace">
               <aside className="pom-page-list" aria-label="Repository pages">
-                {pageObjectModels.map((page) => (<div className={activePageObject?.screenName === page.screenName ? "pom-page-item is-active" : "pom-page-item"} key={page.screenName}>
+                {pageObjectModels.length > 1 || pageObjectModels[0]?.members.length > 1 ? <label className="form-field repository-search">
+                  <span>Find a screen or field</span>
+                  <input type="search" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)}/>
+                </label> : null}
+                {searchResults ? (searchResults.length ? searchResults.map(({page,fields}) => <div className="repository-search-result" key={page.screenName}>
+                  <button className="pom-page-select" type="button" onClick={() => { selectRepositoryScreen(page.screenName); setRepositorySearch(""); }}><strong>{page.pageName}</strong></button>
+                  {fields.map(field => <button className="ghost-button compact" key={field.entry.id} type="button" onClick={() => {
+                    setScreenDetailTab("fields");
+                    selectRepositoryEntry(field.entry.id, page.screenName);
+                    setRepositorySearch("");
+                  }}>{field.memberName}</button>)}
+                </div>) : <p className="muted" role="status">No matching screens or fields.</p>) : pageObjectModels.map((page) => (<div className={activePageObject?.screenName === page.screenName ? "pom-page-item is-active" : "pom-page-item"} key={page.screenName}>
                     {renamingScreenName === page.screenName ? (<form className="pom-page-rename-form" onSubmit={(event) => {
                     event.preventDefault();
                     renameRepositoryScreen.mutate();
@@ -446,7 +500,7 @@ return (<div className={`page-content page-content--automation${""}`}>
             ]}/>
                   {screenDetailTab === "overview" ? renderRepositoryScreenOverview() : null}
                   {screenDetailTab === "fields" ? (<div className="repository-fields-panel">
-                      <div className="testops-action-row">
+                      {!caseBindings && <div className="testops-action-row">
                         <button className="ghost-button" disabled={!canInspectRepository} onClick={() => {
                     setIsAddingRepositoryField((current) => !current);
                     setIsAddingRepositoryScreen(false);
@@ -454,7 +508,7 @@ return (<div className={`page-content page-content--automation${""}`}>
                           <AddIcon />
                           <span>Add field</span>
                         </button>
-                      </div>
+                      </div>}
                       {isAddingRepositoryField ? (<div className="automation-create-card">
                           <strong>Add repository field manually</strong>
                           <div className="record-grid testops-builder-form">

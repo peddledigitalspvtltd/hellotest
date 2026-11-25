@@ -6,8 +6,8 @@ import { useAutomationBuildState } from './useAutomationBuildState';
 import { useAutomationRecorderState } from './useAutomationRecorderState';
 import { useAutomationRunsState } from './useAutomationRunsState';
 import { useAutomationNoticeState } from './useAutomationNoticeState';
-export function useAutomationCaseState(scope: AutomationCaseScope) {
-    const selection = useAutomationCaseSelection(scope);
+export function useAutomationCaseState(scope: AutomationCaseScope, defaultTab?: Parameters<typeof useAutomationCaseSelection>[1]) {
+    const selection = useAutomationCaseSelection(scope, defaultTab);
     const plan = useAutomationPlanState(scope, selection);
     const dataState = useAutomationDataState(scope, selection);
     const buildState = useAutomationBuildState(scope, selection);

@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AuthoringDataSetPanel } from "@hellotest/platform/frontend/src/platform/components/AuthoringDataSetPanel";
 import { useDomainMetadata } from "@hellotest/platform/frontend/src/platform/hooks/useDomainMetadata";
@@ -13,7 +13,7 @@ import { buildDataSetPayload, buildEmptyDataSetDraft, dataSetToDraft, DataSetFor
 
 /** Reuse manual authoring's picker, validation, CSV import and data utilities. */
 export function AutomationDataSets({ expanded = false, valuesOnly = false, inheritedLink = false, projectId, appTypeId, dataSets, linkedId, isLoading, error, onRetry,
-  canView, canLink, canManage, overrideSharedSteps, onOverrideSharedStepsChange, onLink, parameters, parameterValues = {}, canEditParameters = canLink, onManageParameters
+  canView, canLink, canManage, overrideSharedSteps, onOverrideSharedStepsChange, onLink, parameters, parameterValues = {}, canEditParameters = canLink, onManageParameters, settingsFooter
 }: {
   expanded?: boolean; valuesOnly?: boolean; inheritedLink?: boolean; projectId: string; appTypeId: string; dataSets: TestDataSet[]; linkedId: string;
   isLoading: boolean; error?: string; onRetry: () => void;
@@ -21,6 +21,7 @@ export function AutomationDataSets({ expanded = false, valuesOnly = false, inher
   overrideSharedSteps: boolean; onOverrideSharedStepsChange: (value: boolean) => void;
   onLink: (id: string) => void; parameters: StepParameterDefinition[]; parameterValues?: Record<string, string>;
   canEditParameters?: boolean; onManageParameters: () => void;
+  settingsFooter?: ReactNode;
 }) {
   const client = useQueryClient();
   const mounted = useRef(true);
@@ -73,6 +74,12 @@ export function AutomationDataSets({ expanded = false, valuesOnly = false, inher
     </div>)}</dl> : <p className="muted">No Test Params yet. Add @t.name, @s.name or @r.name to this case's steps to define one.</p>}
     <button className="link-button" type="button" onClick={onManageParameters}>{canEditParameters ? "Edit Test Params" : "View Test Params"}</button>
   </>;
+  const settings = <><AuthoringDataSetPanel sharedGroupKind="sections" dataSet={linked} linkedDataSetId={linkedId} isLoading={isLoading} error={error} onRetry={onRetry}
+    canView={canView} canLink={canLink} canUnlink={!inheritedLink} canCreate={canLink && canManage}
+    overrideSharedSteps={overrideSharedSteps} onOverrideSharedStepsChange={onOverrideSharedStepsChange}
+    hasParameters={parameters.length > 0} onManageParameters={onManageParameters}
+    onDownloadTemplate={() => downloadParameterCsvTemplate(parameters, "automation-parameter-template.csv")}
+    onCreate={create} onLink={() => { setSelectedId(linkedId); setSearch(""); setPickerOpen(true); }} onUnlink={() => onLink("")} />{settingsFooter}</>;
   return <>
     {valuesOnly && !linkedId ? <section className="automation-case-test-params" aria-label="Test Params"><details>
       <summary><strong>Test Params</strong><span>{parameters.length} parameter{parameters.length === 1 ? "" : "s"}</span></summary>
@@ -81,18 +88,14 @@ export function AutomationDataSets({ expanded = false, valuesOnly = false, inher
     <section className="automation-data-sets" aria-label="Data Sets">
     <h3>Data Sets</h3>
     {inheritedLink ? <p className="muted">Inherited from the linked manual case. Case parameter overrides can replace values without changing its data set link.</p> : null}
-    {!valuesOnly ? <AuthoringDataSetPanel sharedGroupKind="sections" dataSet={linked} linkedDataSetId={linkedId} isLoading={isLoading} error={error} onRetry={onRetry}
-      canView={canView} canLink={canLink} canUnlink={!inheritedLink} canCreate={canLink && canManage}
-      overrideSharedSteps={overrideSharedSteps} onOverrideSharedStepsChange={onOverrideSharedStepsChange}
-      hasParameters={parameters.length > 0} onManageParameters={onManageParameters}
-      onDownloadTemplate={() => downloadParameterCsvTemplate(parameters, "automation-parameter-template.csv")}
-      onCreate={create} onLink={() => { setSelectedId(linkedId); setSearch(""); setPickerOpen(true); }} onUnlink={() => onLink("")} /> : null}
+    {!valuesOnly || !linkedId ? settings : <details className="automation-linked-parameter-values"><summary>Data set link and overrides</summary>{settings}</details>}
     {valuesOnly && linked ? <header className="automation-linked-data-heading"><div><strong>{linked.name}</strong><span>{linked.mode === "table" ? `${linked.rows.length} data rows` : `${linked.rows.length} values`}</span></div>
       {canLink && canManage ? <button className="link-button" disabled={save.isPending || editor === "edit"} type="button" onClick={() => {
         setDraft(dataSetToDraft(linked)); setSaveError(""); setEditor("edit");
       }}>Edit linked data set</button> : null}
     </header> : null}
     {expanded && linked ? <div className="automation-linked-data-editor">
+      {editor === "edit" ? <p className="muted">Saving this reusable data set updates every case that uses it.</p> : null}
       {saveError ? <p role="alert">{saveError}</p> : null}
       <DataSetForm draft={draft} onChange={setDraft} savedDataSets={dataSets} isSubmitting={save.isPending} readOnly={editor !== "edit" || !canManage || !canLink}
         dataSetModeOptions={metadata.data?.test_data_sets?.modes?.length ? metadata.data.test_data_sets.modes : [{value:"table",label:"Table"},{value:"key_value",label:"Key/value"}]}
@@ -100,7 +103,6 @@ export function AutomationDataSets({ expanded = false, valuesOnly = false, inher
       {editor === "edit" ? <button className="ghost-button compact" disabled={save.isPending} type="button" onClick={() => { setEditor(null); setSaveError(""); }}>Cancel data changes</button> : null}
     </div> : null}
     {valuesOnly && linkedId ? <details className="automation-linked-parameter-values"><summary>Parameter values and case overrides ({parameters.length})</summary>{parameterContent}</details> : null}
-    {valuesOnly && !linked ? <div className="empty-state compact">{isLoading ? "Loading linked data set…" : error || "No data set linked. Link a data set from the Plan tab."}{error ? <button type="button" className="link-button" onClick={onRetry}>Retry</button> : null}</div> : null}
     {pickerOpen && canLink ? createPortal(<TestDataSetPickerDialog dataSets={dataSets} canCreateDataSet={canManage}
       isLoading={isLoading} error={error} onRetry={onRetry} search={search} selectedId={selectedId}
       onSearchChange={setSearch} onSelect={setSelectedId} onCreateNew={create} onClose={() => setPickerOpen(false)}

@@ -31,6 +31,9 @@ test('used-only case objects ignore captured ownership and literal data but reso
   assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await web.fill("#note", "Login.Email");'}],{includeCaseOwned:false}),false);
   assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await page.locator("#note").fill("Login.Email");'}],{includeCaseOwned:false}),false);
   assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await web.expectText("Login.Email");'}],{includeCaseOwned:false}),false);
+  assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await web.expectText("Login.Email", null);'}],{includeCaseOwned:false}),false);
+  assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await web.setInputFiles("Login.Email", "sample.txt");'}],{includeCaseOwned:false}),true);
+  assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await playwrightPage["getAttribute"]("Login.Email", "type");'}],{includeCaseOwned:false}),true);
   assert.equal(isRepositoryMemberUsed(member,'case',[{automation_code:'await web.click(params["t.field"]);'}],{includeCaseOwned:false,parameterValues:{'t.field':'Login.Email'}}),true);
   assert.equal(isRepositoryMemberUsed(member,'case',[{objectRefs:['@t.field']}],{includeCaseOwned:false,parameterValues:{'t.field':'Login.Email'}}),true);
   assert.equal(isRepositoryMemberUsed({ref:'Login.Submit',entry:{id:'submit',locator:'page.getByRole("button",{name:"Submit"}).first()'}},'case',[{automation_code:"await page.getByRole('button',{name:'Submit',exact:true}).first().click();"}],{includeCaseOwned:false}),true);

@@ -36,7 +36,15 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
   if(id.endsWith('/automationBrowserParameters')){const parameters=original(id);return environmentFixture||dataSetFixture?{...parameters,loadBrowserParameterResolver:async input=>{resolverInputs.push(input);return parameters.createBrowserParameterResolver({...input,environment:environmentFixture,dataSet:dataSetFixture});}}:parameters;}
   if(id.endsWith('/automationBrowserAgent')&&browserFixture)return browserFixture;
   if(id.endsWith('/automationUpstreamMcpClient')&&upstreamFixture)return upstreamFixture;
-  if(id.endsWith('/automationUpstreamEngineer')||id.endsWith('/automationUpstreamSectionSource')||id.endsWith('/automationBuildPipelineOptions')||id.endsWith('/automationReadiness.service'))return original(id);
+  if(id.endsWith('/automationPreviewBrowser')){
+    const module={exports:{}};
+    const filename=require.resolve('../../backend/lib/upstream/automationPreviewBrowser');
+    const nativeRequire=require('node:module').createRequire(filename);
+    new Function('require','module',fs.readFileSync(filename,'utf8'))(specifier=>
+      specifier==='./automationUpstreamMcpClient'&&upstreamFixture?upstreamFixture:nativeRequire(specifier),module);
+    return module.exports;
+  }
+  if(id.endsWith('/automationUpstreamEngineer')||id.endsWith('/automationUpstreamSectionSource')||id.endsWith('/automationBuildPipelineOptions')||id.endsWith('/automationBuildInputPreflight')||id.endsWith('/automationBuildEnvironment')||id.endsWith('/automationReadiness.service'))return original(id);
   if(id.endsWith('/integration.service'))return {getActiveIntegrationByTypeForProject:async()=>integrationFixture===undefined?{base_url:'http://engine.fixture',config:{}}:integrationFixture};
   if(id.endsWith('/automationAssertionTimeout'))return original(id);
   if(id.endsWith('/automationGeneratedProgram')||id.endsWith('/automationGenerationGrounding')||id.endsWith('/automationBuildCompletion')||id.endsWith('/automationStartUrl')||id.endsWith('/automationKnowledgeContext')||id.endsWith('/automationPortableArtifact'))return original(id);
@@ -156,6 +164,7 @@ test('the native builder accepts mixed inferred API and Web mappings without cha
  const steps=[{id:'create',step_order:1,step_type:'web',action:'Send a POST request to https://api.fixture/orders',expected_result:'201 order is created'},{id:'page',step_order:2,step_type:'web',action:'Click the order',expected_result:'Order details shown'}];
  const built=testNormalize({steps:[{step_id:'create',step_type:'api',api_request:{method:'POST',url:'https://api.fixture/orders',validations:[{kind:'status',expected:'201'}]}},{step_id:'page',step_type:'web',automation_code:'await page.locator("#order").click(); await expect(page.locator("#details")).toBeVisible();'}]},steps,[],null);
  assert.deepEqual(built.updates.map(row=>row.step_type),['api','web']);assert.equal(built.updates[0].automation_code,null);assert.equal(built.updates[1].api_request,null);assert.equal(steps[0].step_type,'web');assert.equal(built.updates[0].step.action,steps[0].action);
+ assert.throws(()=>testNormalize({steps:[{step_id:'create',step_type:'api',api_request:{method:'DELETE',url:'https://api.fixture/orders',validations:[{kind:'status',expected:'201'}]}}]},[steps[0]],[],null),/Preserve the authored HTTP method POST/);
  assert.throws(()=>testNormalize({steps:[{step_id:'create',step_type:'api',api_request:{method:'POST',url:'https://invented.fixture/orders',validations:[{kind:'status',expected:'201'}]}}]},[steps[0]],[],null,{apiOrigins:new Set(['https://api.fixture'])}),{code:'AUTOMATION_UNGROUNDED_API_TARGET'});
 });
 
@@ -259,7 +268,7 @@ test('workflow browser inspection uses upstream MCP, closes the session and publ
 });
 
 test('an explicit workflow browser build performs native steps and returns one complete mapped artifact without browser presentation',async()=>{
- const calls=[],requests=[],writes=[],actors=new Map(),startUrl='https://ui.fixture/employees';let typedValue;
+ const calls=[],requests=[],writes=[],progress=[],actors=new Map(),startUrl='https://ui.fixture/employees';let typedValue;
  const originalTools=require('../../../platform/backend/test/fixtures/upstreamPlaywrightMcpTools.v0.0.84.json');
  const native=code=>({content:[{type:'text',text:'### Ran Playwright code\n```js\n'+code+'\n```\n### Snapshot\n- textbox "First Name" [ref=e1]\n- button "Save" [ref=e2]\n- status "Saved"'}]});
  const goto='await page.goto("'+startUrl+'");',fill='await page.getByLabel("First Name").fill(params["r.employee_name"]);',click='await page.getByRole("button",{name:"Save"}).click();';
@@ -277,12 +286,16 @@ test('an explicit workflow browser build performs native steps and returns one c
   },providerMessage:(request,output)=>request.tools&&output.tool?{tool_calls:[{id:'native-tool-call',type:'function',function:{name:output.tool.name,arguments:JSON.stringify(output.tool.arguments)}}]}:undefined});
  const result=await builder.previewAutomationDraft({draft:{title:'Create employee',automation_start_url:startUrl,parameter_values:{'r.employee_name':'QAIra{{randomString:8}}'},steps:[
   {action:'Enter @r.employee_name in First Name',expected_result:'First Name contains @r.employee_name'},
-  {action:'Click Save',expected_result:'Saved confirmation is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true,allow_browser_actions:true});
+  {action:'Click Save',expected_result:'Saved confirmation is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true,allow_browser_actions:true,
+  presentation:'artifact',onProgress:async event=>progress.push(event.phase)});
  assert.deepEqual(calls.map(call=>call.name),['browser_navigate','browser_type','browser_click','close']);
  assert.match(typedValue,/^QAIra[A-Za-z0-9]{8}$/);assert.equal(result.parameter_values['r.employee_name'],typedValue);
  assert.equal(result.side_effects.browser_actions,2);assert.equal(result.side_effects.cases_saved,0);assert.deepEqual(writes,[]);
  assert.equal(result.steps.length,2);assert.ok(result.steps.every(step=>step.automation_instructions));assert.equal(result.executable.filename,'automation.spec.ts');
- assert.match(result.executable.code,/First Name/);assert.match(result.executable.code,/Saved/);assert.equal(result.browser_evidence.interaction_mode,'interactive');
+ assert.match(result.executable.code,/First Name/);assert.match(result.executable.code,/Saved/);
+ assert.equal(result.browser_evidence,undefined);
+ assert.deepEqual(progress,['automation.agent.section.started','automation.agent.section.completed','automation.agent.section.started','automation.agent.section.completed']);
+ assert.deepEqual(result.instructions[0].automation_instructions,result.steps[0].automation_instructions);
  const mappingCalls=requests.filter(request=>request.messages.at(-1).content.includes('Map the authoritative'));
  assert.equal(mappingCalls.length,0,'Complete native statements receive source-linked deterministic display mappings.');assert.equal(requests.filter(request=>request.tools).length,4);
  assert.equal(result.verification_status,'unverified','Developing the flow does not impersonate a saved-plan Run.');
@@ -360,7 +373,7 @@ test('mixed workflow API retries remain grounded and never turn invalid API outp
   browserFixture:{connectAutomationBrowser:async()=>assert.fail('Mixed API validation must stay on the upstream path.')},
   response:(_,request)=>readOnlyUpstreamResponse(request,{apiRequest:{method:'GET',url:'https://invented.fixture/invoices/one',validations:[{kind:'status',expected:'200'}]}})});
  await assert.rejects(builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{step_type:'api',action:'GET https://api.fixture/invoices/one',expected_result:'HTTP 200'},{step_type:'web',action:'Read Invoice',expected_result:'Invoice visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'AUTOMATION_UNGROUNDED_API_TARGET'});
- assert.equal(requests.length,3);assert.deepEqual(calls,['close'],'An invalid leading API section stops before browser navigation.');
+ assert.equal(requests.length,3);assert.deepEqual(calls,['browser_navigate','close'],'Only the initial reachability check runs before invalid leading API authoring stops the case.');
 });
 
 test('a generated action without its authored expected-result assertion cannot become a validated workflow draft',async()=>{

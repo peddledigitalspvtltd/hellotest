@@ -56,5 +56,33 @@ test('whole-case PostgreSQL edits preserve referenced step identities, source an
       assert.deepEqual(await steps.getTestSteps({ test_case_id: automation.id }), [after]);
       assert.equal((await db.prepare('SELECT count(*)::int AS count FROM test_case_versions WHERE test_case_id=?').get(automation.id)).count, versionCount);
     }
+    const literalRequest = { method: 'GET', url: 'https://api.example.test/health', validations: [{ kind: 'status', expected: '200', operator: null }] };
+    const literalCase = await cases.createTestCase({ app_type_id: app, created_by: author, title: 'API health',
+      automated: 'yes', automation_case_type: 'api', steps: [{ action: 'Check health', api_request: literalRequest }] });
+    const apiStep = (await steps.getTestSteps({ test_case_id: literalCase.id }))[0];
+    assert.equal(apiStep.step_type, 'api');
+    assert.equal(apiStep.api_request.validations[0].expected, '200');
+    assert.deepEqual((await cases.getTestCase(literalCase.id)).parameter_values, {});
+
+    const draftRequest = { ...literalRequest, url: '@r.base_url/health', validations: [{ kind: 'status', expected: '@t.status' }],
+      auth: { type: 'bearer' }, captures: [{ path: '$.requestId' }] };
+    await cases.updateTestCase(literalCase.id, { expected_revision: 1, updated_by: author, steps: [{ id: apiStep.id, api_request: draftRequest }] });
+    const updatedApiStep = await steps.getTestStep(apiStep.id);
+    assert.equal(updatedApiStep.api_request.url, '@r.base_url/health');
+    assert.equal(updatedApiStep.api_request.validations[0].expected, '@t.status');
+    assert.deepEqual(updatedApiStep.api_request.captures, [{ path: '$.requestId', parameter: null }]);
+    const legacy = { ...literalRequest, method: 'FETCH' };
+    await db.prepare('UPDATE test_steps SET api_request=? WHERE id=?').run(legacy, apiStep.id);
+    await cases.updateTestCase(literalCase.id, { expected_revision: 2, updated_by: author, steps: [{ id: apiStep.id, expected_result: 'Health is available', api_request: legacy }] });
+    assert.deepEqual((await steps.getTestStep(apiStep.id)).api_request, legacy);
+
+    const standalone = await steps.createTestStep({ test_case_id: manual.id, step_order: 2, action: 'Inspect API health', api_request: literalRequest });
+    assert.equal((await steps.getTestStep(standalone.id)).step_type, 'api');
+    await steps.updateTestStep(standalone.id, { api_request: draftRequest });
+    const savedDraft = await steps.getTestStep(standalone.id);
+    assert.equal(savedDraft.api_request.auth.type, 'bearer');
+    assert.equal(savedDraft.api_request.validations[0].expected, '@t.status');
+    await assert.rejects(steps.updateTestStep(standalone.id, { api_request: { ...literalRequest, method: 'FETCH' } }), { statusCode: 422, code: 'INVALID_API_REQUEST' });
+    assert.deepEqual(await steps.getTestStep(standalone.id), savedDraft);
   } finally { await Promise.all([db.close(), obs.close()]); }
 });

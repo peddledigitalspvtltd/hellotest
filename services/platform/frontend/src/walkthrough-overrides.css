@@ -8,20 +8,3 @@
   z-index: var(--z-feedback) !important;
   max-width: min(30rem, calc(100vw - 2rem));
 }
-.project-create-modal .project-create-modal-body {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 1.25rem;
-}
-.project-create-modal .project-create-general-section { width: 100%; min-width: 0; }
-.project-create-modal .project-create-left-column {
-  display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  width: 100%;
-  gap: 1rem;
-}
-.project-create-modal .project-create-general-card { max-width: none; }
-@media (max-width: 850px) {
-  .project-create-modal .project-create-left-column { grid-template-columns: minmax(0, 1fr); }
-}

@@ -1,5 +1,5 @@
 import { parseAutomationStepDraft, buildAutomationStepAction, buildAutomationApiRequest, buildAutomationCodeFromDraft } from "../../lib/automationStepDraft";
-import { parseApiRequestSource } from "../../lib/apiRequestSource";
+import { parseApiRequestDraftSource } from "../../lib/apiRequestSource";
 import { applyAutomationStepOptions, parseAutomationStepOptions } from "../../lib/automationStepOptions";
 import { useMutation } from "@tanstack/react-query";
 import { automationMappingIsComplete } from "../../lib/automationPlan";
@@ -12,7 +12,7 @@ import type { AutomationCaseState } from './useAutomationCaseState';
 import type { AutomationCaseModel } from './useAutomationCaseModel';
 import type { AutomationCaseServices } from './useAutomationCaseServices';
 export function useAutomationCasePlanActions(input: AutomationCaseScope & AutomationCaseState & AutomationCaseModel & AutomationCaseServices) {
-    const {activeCase, sectionGroupDialog, automationGroupName, saveAutomationGroupAsShared, setSectionGroupDialog, caseSelection, setAutomationGroupName, setSaveAutomationGroupAsShared, showSuccess, queryClient, showError, automatedSteps, setIsSharedGroupLibraryOpen, canEditAutomationCode, automationDraftStore, refreshAutomationStepAfterSave, syncAutomationStepDrafts, flushAutomationBuildParameters, setApiSourceDrafts, setAutomationStudioStep, canUseAutomationAi, appTypeId, agentMission, testCaseParameterValues, visiblePrivateNames, sectionClipboard, projectId, unsavedAutomationStepIds, setStepDrafts, setStepCodeDrafts, setStepOptionDrafts} = input;
+    const {activeCase, sectionGroupDialog, automationGroupName, saveAutomationGroupAsShared, setSectionGroupDialog, caseSelection, setAutomationGroupName, setSaveAutomationGroupAsShared, showSuccess, queryClient, showError, automatedSteps, setIsSharedGroupLibraryOpen, canEditAutomationCode, automationDraftStore, refreshAutomationStepAfterSave, syncAutomationStepDrafts, setApiSourceDrafts, setAutomationStudioStep, canUseAutomationAi, appTypeId, agentMission, testCaseParameterValues, visiblePrivateNames, sectionClipboard, projectId, unsavedAutomationStepIds, setStepDrafts, setStepCodeDrafts, setStepOptionDrafts} = input;
     const groupAutomationSteps = useMutation({
         mutationFn: async () => {
             if (!activeCase || !sectionGroupDialog?.stepIds.length)
@@ -98,11 +98,14 @@ export function useAutomationCasePlanActions(input: AutomationCaseScope & Automa
         mutationFn: async (step: TestStep) => {
             if (!canEditAutomationCode)
                 throw new Error("Permission required: automation.build and automation.code.view");
-            await flushAutomationBuildParameters([step.test_case_id]);
             if (step.step_type === "api") {
-                const request = parseApiRequestSource(automationDraftStore.read("api")[step.id] ?? JSON.stringify(step.api_request || {}, null, 2));
+                const source = automationDraftStore.read("api")[step.id];
                 const draft = automationDraftStore.read("steps")[step.id] || parseAutomationStepDraft(step);
-                await api.testSteps.update(step.id, { action: buildAutomationStepAction(draft), expected_result: draft.expected_result, api_request: request, automation_code: applyAutomationStepOptions("", automationDraftStore.read("options")[step.id] || parseAutomationStepOptions(step)) });
+                const savedOptions = parseAutomationStepOptions(step);
+                const options = automationDraftStore.read("options")[step.id] || savedOptions;
+                await api.testSteps.update(step.id, { action: buildAutomationStepAction(draft), expected_result: draft.expected_result,
+                    ...(source !== undefined ? { api_request: parseApiRequestDraftSource(source) } : {}),
+                    ...(JSON.stringify(options) !== JSON.stringify(savedOptions) ? { automation_code: applyAutomationStepOptions(step.automation_code || "", options) } : {}) });
                 setApiSourceDrafts((current) => { const next = { ...current }; delete next[step.id]; return next; });
                 return refreshAutomationStepAfterSave(step.test_case_id, step.id);
             }

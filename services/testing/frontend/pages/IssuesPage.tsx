@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 import { FormEvent, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { BugIcon, ChevronRightIcon, ExportIcon, ImportIcon, SearchIcon, SelectionToggleIcon, SparkIcon, TestCaseIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 
@@ -32,7 +32,8 @@ import { FormField } from "@hellotest/platform/frontend/src/shared/components/Fo
 import { ContextSelect } from "@hellotest/platform/frontend/src/shared/components/ContextSelect";
 import { AuthoringContextMenu } from "@hellotest/platform/frontend/src/shared/components/AuthoringContextMenu";
 import { IconChecklist, IconLink, IconPaperclip, IconSettings, IconTarget, IconWorld } from "@tabler/icons-react";
-import { JiraAttachmentIcon, JiraAttachmentPanel } from "@hellotest/integration/frontend/components/JiraAttachmentPanel";
+import { JiraAttachmentPanel } from "@hellotest/integration/frontend/components/JiraAttachmentPanel";
+import { DefectPendingAttachments } from "../components/DefectPendingAttachments";
 import { IssueActivityPanel } from "../components/IssueActivityPanel";
 import { JiraRequiredFields } from "@hellotest/integration/frontend/components/JiraRequiredFields";
 import { HierarchyAutoLoadSentinel } from "../components/HierarchyLoadMoreButton";
@@ -62,7 +63,9 @@ import { BUG_TO_TEST_CASE_STORAGE_KEY, buildBugToTestCaseDraft } from "../lib/bu
 import { isJiraCoreFieldRequired } from "@hellotest/integration/frontend/lib/jiraCreateMetadata";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles } from "@hellotest/ai/frontend/lib/aiDesignStudio";
 import { areFeatureFlagsEnabled } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
-import { safeBugReportReturnRoute } from "../lib/bugReportNavigation";
+import { bugReportExactOrigin, safeBugReportReturnRoute } from "../lib/bugReportNavigation";
+import type { ExecutionDefectReport } from "../lib/executionDefectReport";
+import { useDefectSourceAttachments } from "../workspaces/issues/useDefectSourceAttachments";
 import {
   buildDeliveryScopeOptions,
   resolveDeliveryScopePrefill,
@@ -416,6 +419,7 @@ function IssueEditorSurface({
 export function IssuesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const { session } = useAuth();
   const { getLlmIntegrationId, getMetricCriteria, getPrompt } = useAiPromptRegistry();
   const [projectId] = useCurrentProject();
@@ -444,6 +448,9 @@ export function IssuesPage() {
   const canUseAiBugTriage = canManageBugs
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const reportFromRun = (location.state as { executionDefectReport?: ExecutionDefectReport } | null)?.executionDefectReport;
+  const incomingRunReport = canViewRuns && can("result.view") && reportFromRun?.projectId === projectId
+    && reportFromRun.runId === searchParams.get("run") ? reportFromRun : null;
   const bugReturnTo = safeBugReportReturnRoute(searchParams.get("returnTo"));
   const bugReturnLabel = String(searchParams.get("returnLabel") || "previous QA screen").slice(0, 80);
   const issueMetadata = domainMetadataQuery.data?.issues || domainMetadataQuery.data?.feedback;
@@ -493,7 +500,7 @@ export function IssuesPage() {
     setAiDraftPreview(null);
     setAiBugIntegrationId("");
     setPendingAttachments([]);
-    setPendingAiAttachments([]);
+    resetSourceAttachments();
     aiBugRequestSequence.current += 1;
   }, [projectId, searchParams]);
   const [draft, setDraft] = useState<IssueDraft>(emptyDraft);
@@ -501,11 +508,12 @@ export function IssuesPage() {
   const qaRootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.qa_root_causes", ISSUE_QA_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.qa_root_cause]);
   const bugTypeOptions = getDomainOptions(domainMetadataQuery.data, "issues.bug_types", ISSUE_BUG_TYPE_OPTIONS.map(value => ({ value, label: value })), [draft.bug_type]);
   const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
-  const [pendingAiAttachments, setPendingAiAttachments] = useState<{ id: string; name: string }[]>([]);
+  const sourceAttachments = useDefectSourceAttachments({ projectId, active: isCreating,
+    canCarryRunAttachments: canViewRuns && can("result.view") && canViewAttachments && canCreateAttachments });
+  const { resetSources: resetSourceAttachments, sources: pendingSourceAttachments, retainSources: retainSourceFiles,
+    setRetainedSources: setPendingAiAttachments, loading: loadingRunAttachments } = sourceAttachments;
   const [isSavingIssue, setIsSavingIssue] = useState(false);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
-  const [isPendingAttachmentDragActive, setIsPendingAttachmentDragActive] = useState(false);
-  const pendingAttachmentInputRef = useRef<HTMLInputElement>(null);
   const [duplicateCandidates, setDuplicateCandidates] = useState<Issue[]>([]);
   const [duplicateReviewAccepted, setDuplicateReviewAccepted] = useState(false);
   const [activeBugDeliveryPrefill, setActiveBugDeliveryPrefill] = useState<DeliveryScopePrefillInput | null>(null);
@@ -753,8 +761,8 @@ export function IssuesPage() {
   const executionById = useMemo(() => new Map(executionItems.map((execution) => [execution.id, execution])), [executionItems]);
   const testCaseById = useMemo(() => new Map(testCaseItems.map((testCase) => [testCase.id, testCase])), [testCaseItems]);
   const defectReproductionCaseIds = useMemo(
-    () => [...new Set(draft.linked_test_case_ids)].sort(),
-    [draft.linked_test_case_ids]
+    () => sourceAttachments.runReport ? [] : [...new Set(draft.linked_test_case_ids)].sort(),
+    [draft.linked_test_case_ids, sourceAttachments.runReport]
   );
   const defectCaseReproductionQuery = useQuery({
     queryKey: ["defect-case-reproduction", projectId, defectReproductionCaseIds],
@@ -824,6 +832,7 @@ export function IssuesPage() {
       const previousRequirementIds = new Set(requirementIdsFromTestCases(current.linked_test_case_ids));
       return {
         ...current,
+        ...(sourceAttachments.runReport && !uniqueIds.includes(sourceAttachments.runReport.caseId) ? { linked_execution_result_id: undefined, linked_step_id: undefined } : {}),
         linked_test_case_ids: uniqueIds,
         linked_test_suite_ids: [...new Set([...current.linked_test_suite_ids.filter((id) => !previousSuiteIds.has(id)), ...autoSuiteIds])],
         linked_module_ids: [...new Set([...current.linked_module_ids.filter((id) => !previousModuleIds.has(id)), ...autoModuleIds])],
@@ -1025,7 +1034,7 @@ export function IssuesPage() {
   };
   const openIssueWorkspace = (issueId: string) => {
     setPendingAttachments([]);
-    setPendingAiAttachments([]);
+    resetSourceAttachments();
     const catalogItem = items.find((item) => item.id === issueId);
     if (catalogItem) {
       setDraft(createIssueDraftFromItem(catalogItem, defaultIssueStatus));
@@ -1259,6 +1268,10 @@ export function IssuesPage() {
     const deliveryPrefill = readDeliveryScopePrefill(searchParams);
     const resolvedDeliveryPrefill = resolveDeliveryScopePrefill(deliveryPrefill, deliveryScopeCatalog);
     const nextDraft = createIssueDraftFromQuery(searchParams, defaultIssueStatus, session?.user.id);
+    if (incomingRunReport) {
+      const { title, message, stepsToReproduce, expectedResult, actualResult } = incomingRunReport;
+      Object.assign(nextDraft, { title, message, steps_to_reproduce: stepsToReproduce, expected_result: expectedResult, actual_result: actualResult });
+    }
     const agentProposal = takeAgentProposal(searchParams.get("agent_proposal"), projectId, appTypeId, "defect");
     if (agentProposal) Object.assign(nextDraft, { title: agentProposal.title, message: agentProposal.description, steps_to_reproduce: (agentProposal.reproduction_steps || []).join("\n"), expected_result: agentProposal.expected_result || "", actual_result: agentProposal.actual_result || "", severity: agentProposal.severity || "medium", priority: ({ P1: "Highest", P2: "High", P3: "Medium", P4: "Low", P5: "Lowest" } as Record<string, string>)[agentProposal.priority] || "Medium" });
     nextDraft.release = resolvedDeliveryPrefill.release || nextDraft.release;
@@ -1267,6 +1280,8 @@ export function IssuesPage() {
     setIsCreating(true);
     setSelectedIssueId("");
     setDraft(nextDraft);
+    resetSourceAttachments(incomingRunReport);
+    setPendingAttachments([]);
     setActiveBugDeliveryPrefill(hasDeliveryScopePrefill(deliveryPrefill) ? deliveryPrefill : null);
     appliedBugDeliveryPrefillRef.current = hasDeliveryScopePrefill(deliveryPrefill)
       ? { key: deliveryScopePrefillKey(deliveryPrefill), release: nextDraft.release, sprint: nextDraft.sprint }
@@ -1278,7 +1293,7 @@ export function IssuesPage() {
     nextParams.delete("agent_proposal");
     nextParams.delete("issue");
     setSearchParams(nextParams, { replace: true });
-  }, [canCreateBugs, defaultIssueStatus, deliveryScopeCatalog, searchParams, setSearchParams, session?.user.id]);
+  }, [canCreateBugs, defaultIssueStatus, deliveryScopeCatalog, incomingRunReport, resetSourceAttachments, searchParams, setSearchParams, session?.user.id]);
 
   useEffect(() => {
     if (!isCreating || !activeBugDeliveryPrefill || !resolvedActiveBugDeliveryPrefill) return;
@@ -1420,7 +1435,7 @@ export function IssuesPage() {
     setHasAppliedBugContextDefaults(true);
     setMessage("");
     setPendingAttachments([]);
-    setPendingAiAttachments([]);
+    resetSourceAttachments();
     setDuplicateCandidates([]);
     setDuplicateReviewAccepted(false);
   };
@@ -1453,8 +1468,9 @@ export function IssuesPage() {
     setIsAiBugDraftEvidenceOpen(false);
     setAiDraftMessage("");
     setAiDraftMessageTone("error");
-    setAiIntent(contextualTitle || (hasContextualScope ? "Investigate the selected failed QA context" : ""));
-    setAiEvidence([
+    setAiIntent(incomingRunReport?.aiIntent.slice(0, 4_000) || contextualTitle || (hasContextualScope ? "Investigate the selected failed QA context" : ""));
+    resetSourceAttachments(incomingRunReport);
+    setAiEvidence(incomingRunReport?.aiEvidence || [
       contextualMessage,
       contextualStatus ? `Source status: ${contextualStatus}` : "",
       contextualEnvironment ? `Environment: ${contextualEnvironment}` : "",
@@ -1642,10 +1658,8 @@ export function IssuesPage() {
         external_links: parseExternalLinks(aiExternalLinksText),
         reference_photos: aiReferenceImages,
         linked_test_run_id: canViewRuns ? aiLinkedRunId : undefined,
-        linked_execution_result_id: canViewRuns && aiLinkedRunId === searchParams.get("run")
-          && aiLinkedCaseIds.length === 1
-          && parseQueryIdList(searchParams.get("linked_test_case_ids"), searchParams.get("testCase")).includes(aiLinkedCaseIds[0])
-          ? searchParams.get("executionResult") || undefined : undefined,
+        linked_execution_result_id: canViewRuns && canViewTestCases
+          ? bugReportExactOrigin(searchParams, aiLinkedRunId, aiLinkedCaseIds, sourceAttachments.runReport?.caseId).linked_execution_result_id : undefined,
         linked_test_case_ids: canViewTestCases ? aiLinkedCaseIds : [],
         linked_test_suite_ids: aiBugMode === "create" && canViewSuites ? aiSuiteScopeIds : [],
         linked_module_ids: aiBugMode === "create" && canViewTestCases ? aiModuleScopeIds : [],
@@ -1693,6 +1707,10 @@ export function IssuesPage() {
       || searchParams.get("linked_test_suite_ids")
       || searchParams.get("suite")
     );
+    const linkedCaseIds = isHierarchyScopedContext ? [] : candidate.linked_test_case_ids;
+    const origin = bugReportExactOrigin(searchParams, candidate.linked_test_run_id, linkedCaseIds, sourceAttachments.runReport?.caseId);
+    const sourceReport = sourceAttachments.runReport;
+    if (sourceReport && (candidate.linked_test_run_id !== sourceReport.runId || !linkedCaseIds.includes(sourceReport.caseId))) sourceAttachments.setRunReport(null);
     setDraft({
       ...emptyDraft,
       title: candidate.title,
@@ -1715,8 +1733,8 @@ export function IssuesPage() {
       jira_bug_key: "",
       status: defaultIssueStatus,
       additional_fields: {},
-      linked_test_run_id: candidate.linked_test_run_id, linked_execution_result_id: candidate.linked_test_run_id === searchParams.get("run") ? searchParams.get("executionResult") || undefined : undefined, linked_step_id: candidate.linked_test_run_id === searchParams.get("run") ? searchParams.get("step") || undefined : undefined,
-      linked_test_case_ids: isHierarchyScopedContext ? [] : candidate.linked_test_case_ids,
+      linked_test_run_id: candidate.linked_test_run_id, ...origin,
+      linked_test_case_ids: linkedCaseIds,
       linked_test_suite_ids: parseQueryIdList(searchParams.get("linked_test_suite_ids"), searchParams.get("suite")),
       linked_module_ids: parseQueryIdList(searchParams.get("linked_module_ids"), searchParams.get("module")),
       linked_requirement_ids: candidate.linked_requirement_ids
@@ -1831,17 +1849,6 @@ export function IssuesPage() {
     }
   };
 
-  const retainAiSourceFiles = async (issueId: string) => {
-    const sources = pendingAiAttachments;
-    const results = await Promise.allSettled(sources.map(source => api.attachments.copy(source.id, {
-      project_id: projectId, entity_type: "issue", entity_id: issueId
-    })));
-    const failed = sources.filter((_, index) => results[index].status === "rejected");
-    if (projectId === aiBugProjectRef.current) setPendingAiAttachments(failed);
-    if (sources.length) await queryClient.invalidateQueries({ queryKey: ["hellotest-attachments", projectId, "issue"] });
-    return failed;
-  };
-
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -1861,7 +1868,7 @@ export function IssuesPage() {
       return;
     }
 
-    if (isSavingIssue || isUploadingAttachments || createIssue.isPending || updateIssue.isPending) return;
+    if (isSavingIssue || isUploadingAttachments || loadingRunAttachments || createIssue.isPending || updateIssue.isPending) return;
     if (!draft.title.trim()) { setMessageTone("error"); setMessage("Enter a Defect title."); return; }
     setIsSavingIssue(true);
     try {
@@ -1894,10 +1901,10 @@ export function IssuesPage() {
             setMessage(`Defect created. ${result.failed.length} attachment${result.failed.length === 1 ? "" : "s"} could not upload. Retry the retained files below. ${result.firstError}`);
           }
         }
-        const failedSources = await retainAiSourceFiles(response.id);
+        const failedSources = await retainSourceFiles(response.id);
         if (failedSources.length) {
           setMessageTone("error");
-          setMessage(`Defect created. ${failedSources.length} AI source file${failedSources.length === 1 ? "" : "s"} still need to be attached. Retry the retained files below.`);
+          setMessage(`Defect created. ${failedSources.length} source file${failedSources.length === 1 ? "" : "s"} still need to be attached. Retry the retained files below.`);
         }
         return;
       }
@@ -1905,10 +1912,10 @@ export function IssuesPage() {
         id: selectedItem.id,
         input: { ...buildIssuePayload({ ...draft, title: draft.title.trim() }, selectedItem.user_id, projectId, can), expected_revision: selectedItem.revision }
       });
-      const failedSources = await retainAiSourceFiles(selectedItem.id);
+      const failedSources = await retainSourceFiles(selectedItem.id);
       if (failedSources.length) {
         setMessageTone("error");
-        setMessage(`Defect updated. ${failedSources.length} AI source file${failedSources.length === 1 ? "" : "s"} still need to be attached. Retry the retained files below.`);
+        setMessage(`Defect updated. ${failedSources.length} source file${failedSources.length === 1 ? "" : "s"} still need to be attached. Retry the retained files below.`);
       }
     } catch (error) {
       setMessageTone("error");
@@ -1922,11 +1929,11 @@ export function IssuesPage() {
     try {
       const result = await uploadAttachmentBatch(pendingAttachments, (file) => api.attachments.upload({ project_id: projectId, entity_type: "issue", entity_id: selectedItem.id }, file));
       setPendingAttachments(result.failed);
-      const failedSources = await retainAiSourceFiles(selectedItem.id);
+      const failedSources = await retainSourceFiles(selectedItem.id);
       await queryClient.invalidateQueries({ queryKey: ["hellotest-attachments", projectId, "issue"] });
       const failedCount = result.failed.length + failedSources.length;
       setMessageTone(failedCount ? "error" : "success");
-      setMessage(failedCount ? `${failedCount} attachment${failedCount === 1 ? "" : "s"} still need retry. ${result.firstError || "Retry the AI source files."}` : "Attachments uploaded.");
+      setMessage(failedCount ? `${failedCount} attachment${failedCount === 1 ? "" : "s"} still need retry. ${result.firstError || "Retry the source files."}` : "Attachments uploaded.");
     } finally { setIsUploadingAttachments(false); }
   };
 
@@ -1938,7 +1945,7 @@ export function IssuesPage() {
     setIsCreating(false);
     setDraft(emptyDraft);
     setPendingAttachments([]);
-    setPendingAiAttachments([]);
+    resetSourceAttachments();
     if (bugReturnTo) {
       navigate(bugReturnTo);
       return;
@@ -2011,8 +2018,12 @@ export function IssuesPage() {
         projectId={projectId}
         issues={triageIssues}
         canViewIntegrations={can("integration.view")}
+        correctionLockedIssueId={selectedItem && (isSavingIssue || JSON.stringify(draft) !== JSON.stringify({
+          ...createIssueDraftFromItem(selectedItem, defaultIssueStatus), additional_fields: bugEditMetadataQuery.data?.current_values || {}
+        })) ? selectedItem.id : undefined}
         onClose={() => setIsAiBugTriageOpen(false)}
         onOpenIssue={id => { setIsAiBugTriageOpen(false); openIssueWorkspace(id); }}
+        onApplied={() => { void refresh(); }}
       /> : null}
       {isAiBugDraftOpen && canUseCurrentAiDraft ? createPortal(
         <div className="modal-backdrop story-ai-workbench-backdrop" onClick={() => !isAiBugDraftBusy && closeAiBugReport()} role="presentation">
@@ -3033,43 +3044,13 @@ export function IssuesPage() {
                     </FormField>
                   </div>
                 </details>
-                {(isCreating || pendingAttachments.length > 0 || pendingAiAttachments.length > 0) && canCreateAttachments ? (
-                  <section id="defect-attachments" className="jira-attachment-panel" aria-label={isCreating ? "Attachments for new Defect" : "Retry failed Defect attachments"}>
-                    <div className="jira-attachment-head"><div><strong>Attachments</strong><span>{isCreating ? `${pendingAttachments.length + pendingAiAttachments.length} ready to attach after creation` : `${pendingAttachments.length + pendingAiAttachments.length} files retained for retry`}</span></div></div>
-                    <div
-                      className={isPendingAttachmentDragActive ? "jira-attachment-dropzone is-dragging" : "jira-attachment-dropzone"}
-                      onDragEnter={(event) => { event.preventDefault(); if (!isSavingIssue && !isUploadingAttachments) setIsPendingAttachmentDragActive(true); }}
-                      onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsPendingAttachmentDragActive(false); }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(false); if (isSavingIssue || isUploadingAttachments) return; setPendingAttachments((current) => [...current, ...Array.from(event.dataTransfer.files)].slice(0, 10)); }}
-                    >
-                      <input hidden multiple onChange={(event) => setPendingAttachments((current) => [...current, ...Array.from(event.target.files || [])].slice(0, 10))} ref={pendingAttachmentInputRef} type="file" />
-                      <JiraAttachmentIcon />
-                      <span>Drop files to attach or</span>
-                      <button className="jira-attachment-browse-button" onClick={() => pendingAttachmentInputRef.current?.click()} type="button">Browse</button>
-                    </div>
-                    <div className="jira-attachment-grid">
-                      {pendingAttachments.map((file, index) => (
-                        <article className="jira-attachment-card" key={`${file.name}-${file.size}-${index}`}>
-                          <div className="jira-attachment-preview"><JiraAttachmentIcon /></div>
-                          <div className="jira-attachment-copy"><strong title={file.name}>{file.name}</strong><span>{Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB · pending</span></div>
-                          <div className="jira-attachment-actions"><button className="ghost-button compact danger" onClick={() => setPendingAttachments((current) => current.filter((_, fileIndex) => fileIndex !== index))} type="button">Remove</button></div>
-                        </article>
-                      ))}
-                      {pendingAiAttachments.map(source => (
-                        <article className="jira-attachment-card" key={source.id}>
-                          <div className="jira-attachment-preview"><JiraAttachmentIcon /></div>
-                          <div className="jira-attachment-copy"><strong title={source.name}>{source.name}</strong><span>AI source evidence · retained privately</span></div>
-                          <div className="jira-attachment-actions"><button className="ghost-button compact danger" type="button" disabled={isSavingIssue || isUploadingAttachments} onClick={() => setPendingAiAttachments(current => current.filter(item => item.id !== source.id))}>Remove</button></div>
-                        </article>
-                      ))}
-                    </div>
-                    {!pendingAttachments.length && !pendingAiAttachments.length ? <div className="empty-state compact">Drop a screenshot or log to add evidence.</div> : null}
-                    {!isCreating && (pendingAttachments.length || pendingAiAttachments.length) ? <button className="primary-button" disabled={isUploadingAttachments || isSavingIssue} onClick={() => void retryPendingAttachments()} type="button">{isUploadingAttachments ? "Uploading…" : "Retry file uploads"}</button> : null}
-                  </section>
-                ) : null}
+                {(isCreating || pendingAttachments.length || pendingSourceAttachments.length) && canCreateAttachments ? <DefectPendingAttachments
+                  creating={isCreating} busy={isSavingIssue || isUploadingAttachments} files={pendingAttachments} sources={pendingSourceAttachments}
+                  loadingSources={loadingRunAttachments} sourceLoadFailed={sourceAttachments.error} onRetrySources={() => void sourceAttachments.retry()}
+                  onFilesChange={setPendingAttachments} onRemoveSource={sourceAttachments.removeSource} onRetryUploads={() => void retryPendingAttachments()}
+                /> : null}
                 {!isCreating && selectedItem ? (
-                  <div id={pendingAttachments.length || pendingAiAttachments.length ? undefined : "defect-attachments"}>
+                  <div id={pendingAttachments.length || pendingSourceAttachments.length ? undefined : "defect-attachments"}>
                   <JiraAttachmentPanel
                     canDelete={canDeleteAttachments}
                     canUpload={canCreateAttachments}
@@ -3107,7 +3088,7 @@ export function IssuesPage() {
                     </button>
                     {canCreateBugs ? (<button
                       className="report-bug-modal-save-button primary-button"
-                      disabled={!draft.title.trim() || !canCreateBugs || isSavingIssue || createIssue.isPending || bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError}
+                      disabled={!draft.title.trim() || !canCreateBugs || isSavingIssue || loadingRunAttachments || createIssue.isPending || bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError}
                       type="submit"
                     >
                       <BugIcon />

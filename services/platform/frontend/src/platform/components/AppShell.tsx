@@ -735,7 +735,7 @@ function ReadyAppShell() {
 
       <Suspense fallback={null}>{isNavigatorOpen ? <WorkspaceNavigator onClose={() => setIsNavigatorOpen(false)} projectId={sidebarProjectId} projectName={currentProjectName} flags={featureFlagsQuery.data} flagsError={featureFlagsQuery.isError} pageAccess={pageAccess} /> : null}{isRegionalDialogOpen ? <RegionalPreferencesDialog onClose={() => setIsRegionalDialogOpen(false)} /> : null}</Suspense>
       <UserProfileDialog isOpen={isProfileDialogOpen} onClose={() => setIsProfileDialogOpen(false)} />
-      {sidebarProjectId && hasAnyPermission(session, ["knowledge.view"], sidebarProjectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.knowledge", "hellotest.ai.chatbot"]) ? <GroundedAssistant /> : null}
+      {sidebarProjectId && hasAnyPermission(session, ["knowledge.view"], sidebarProjectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.knowledge", "hellotest.ai.chatbot"]) ? <div className="workspace-assistant-host"><GroundedAssistant /></div> : null}
     </div>
   );
 }

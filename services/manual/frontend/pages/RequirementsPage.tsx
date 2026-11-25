@@ -5830,7 +5830,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           >
             <div className="design-list-toolbar catalog-command-toolbar requirement-catalog-toolbar">
               <div className="catalog-toolbar-discovery requirement-toolbar-discovery" aria-label="Story views, search, and selection">
-                <div aria-busy={isCatalogViewPending}><CatalogViewToggle onChange={(value) => startCatalogViewTransition(() => setCatalogViewMode(value))} value={catalogViewMode} /></div>
+                <div className="requirement-toolbar-view" aria-busy={isCatalogViewPending}><CatalogViewToggle onChange={(value) => startCatalogViewTransition(() => setCatalogViewMode(value))} value={catalogViewMode} /></div>
                 <CatalogSearchFilter
                   activeFilterCount={activeRequirementFilterCount}
                   ariaLabel="Search Stories"
@@ -5960,52 +5960,50 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   </button>
                 </div>
               </div>
-              <div className="catalog-toolbar-actions" role="group" aria-label="Sprint actions">{workspaceMode === "sprints" ? (canCreateRequirementIterations ? (<button
-                className="ghost-button catalog-selection-button"
-                disabled={!canCreateRequirementIterations || !projectId}
-                onClick={() => openCreateIteration(deleteSelectedRequirementIds)}
-                type="button"
-              >
-                <SprintIcon size={16} />
-                <span>Create sprint</span>
-              </button>) : null) : null}</div>
               <div className="catalog-toolbar-actions requirement-toolbar-actions" role="group" aria-label="Story actions">
-                <label className="catalog-hierarchy-move-control">
-                  <span className="sr-only">Move selected Stories to Sprint</span>
-                  <select
-                    aria-label={`Move ${deleteSelectedRequirementIds.length} selected ${deleteSelectedRequirementIds.length === 1 ? "Story" : "Stories"} to Sprint`}
-                    className="compact-select catalog-hierarchy-move-select"
-                    disabled={
-                      !deleteSelectedRequirementIds.length
-                      || !openRequirementIterations.length
-                      || !canUpdateRequirementIterations
-                      || assignRequirementsToIteration.isPending
-                      || isDeletingSelectedRequirements
-                    }
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        void moveRequirementsToIteration(event.target.value, deleteSelectedRequirementIds);
-                      }
-                    }}
-                    title={!deleteSelectedRequirementIds.length ? "Select one or more Stories to move" : !openRequirementIterations.length ? "No planned or active Sprint is available" : "Move selected Stories to a Sprint"}
-                    value=""
+                {workspaceMode === "sprints" && canCreateRequirementIterations ? (
+                  <button
+                    className="ghost-button catalog-selection-button"
+                    disabled={!projectId}
+                    onClick={() => openCreateIteration(deleteSelectedRequirementIds)}
+                    type="button"
                   >
-                    <option value="">Move selected to sprint…</option>
-                    {openRequirementIterations.map((iteration) => {
-                        const movableCount = deleteSelectedRequirementIds.filter((id) => requirementIterationById.get(id)?.id !== iteration.id).length;
-                        return (
-                          <option disabled={!movableCount} key={iteration.id} value={iteration.id}>
-                            {iteration.name}{movableCount ? "" : " · already assigned"}
-                          </option>
-                        );
-                      })}
-                  </select>
-                </label>
+                    <SprintIcon size={16} />
+                    <span>Create sprint</span>
+                  </button>
+                ) : null}
+                <select
+                  aria-label={`Move ${deleteSelectedRequirementIds.length} selected ${deleteSelectedRequirementIds.length === 1 ? "Story" : "Stories"} to Sprint`}
+                  className="compact-select catalog-hierarchy-move-select"
+                  disabled={
+                    !deleteSelectedRequirementIds.length
+                    || !openRequirementIterations.length
+                    || !canUpdateRequirementIterations
+                    || assignRequirementsToIteration.isPending
+                    || isDeletingSelectedRequirements
+                  }
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      void moveRequirementsToIteration(event.target.value, deleteSelectedRequirementIds);
+                    }
+                  }}
+                  title={!deleteSelectedRequirementIds.length ? "Select one or more Stories to move" : !openRequirementIterations.length ? "No planned or active Sprint is available" : "Move selected Stories to a Sprint"}
+                  value=""
+                >
+                  <option value="">Move selected to sprint…</option>
+                  {openRequirementIterations.map((iteration) => {
+                    const movableCount = deleteSelectedRequirementIds.filter((id) => requirementIterationById.get(id)?.id !== iteration.id).length;
+                    return (
+                      <option disabled={!movableCount} key={iteration.id} value={iteration.id}>
+                        {iteration.name}{movableCount ? "" : " · already assigned"}
+                      </option>
+                    );
+                  })}
+                </select>
               {canCreateRequirements ? (<button className="primary-button catalog-selection-button requirement-create-story-button" disabled={!canCreateRequirements || !projectId} onClick={() => openCreateRequirementModal()} type="button">
                 <AddIcon size={16} />
                 <span>Create Story</span>
               </button>) : null}
-              {canUseRequirementAi && deleteSelectedRequirementIds.length !== 1 ? <small role="status">Select one Story to enable AI completion and case generation.</small> : null}
               {canUseRequirementAi ? ((canUseRequirementAi && canUpdateRequirements ? (<button
                 className="primary-button catalog-selection-button requirement-ai-action-button requirement-ai-complete-button"
                 disabled={!canUseRequirementAi || !canUpdateRequirements || deleteSelectedRequirementIds.length !== 1}

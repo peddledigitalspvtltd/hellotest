@@ -19,7 +19,7 @@
 .agent-start { display: grid; grid-template-columns: minmax(210px, .85fr) minmax(0, 2fr); gap: 28px; align-items: center; padding: 26px; margin-bottom: 28px; border-radius: 12px; background: linear-gradient(120deg, var(--ui-surface-subtle), var(--ui-surface)); border: 1px solid var(--agent-line); }
 .agent-start h2 { margin: 8px 0; font-size: 1.4rem; letter-spacing: -.035em; line-height: 1.3; }
 .agent-start p { margin: 0; font-size: .82rem; line-height: 1.6; color: var(--agent-muted); }
-.agent-start-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.agent-start-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .agent-start-actions button { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 15px; min-height: 98px; border: 1px solid var(--agent-line); border-radius: 9px; background: var(--agent-panel); color: var(--agent-ink); text-align: left; cursor: pointer; }
 .agent-start-actions button:hover { border-color: var(--ui-teal-border); box-shadow: 0 4px 14px color-mix(in srgb, var(--ui-shadow) 4.314%, transparent); }
 .agent-start-actions button svg { flex-shrink: 0; color: var(--ui-teal-text); }
@@ -35,6 +35,7 @@
 .agent-library-search button { border: 0; padding: 2px; background: transparent; color: var(--agent-muted); font-size: .72rem; cursor: pointer; }
 .agent-library-search svg { flex-shrink: 0; }
 .agent-library-filters { display: flex; gap: 7px; padding-bottom: 19px; overflow-x: auto; }
+.agent-library-result-filter { max-width: 220px; margin-bottom: 18px; }
 .agent-library-filters button { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--agent-muted); padding: 8px 11px; font-size: .77rem; cursor: pointer; }
 .agent-library-filters button span { font-size: .66rem; opacity: .8; }
 .agent-library-filters button[aria-pressed="true"] { background: var(--agent-panel); border-color: var(--agent-line); color: var(--agent-ink); font-weight: 650; box-shadow: 0 1px 3px color-mix(in srgb, var(--ui-blue-strong) 3.137%, transparent); }

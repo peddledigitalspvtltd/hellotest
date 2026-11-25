@@ -10,6 +10,8 @@ const { storedAutomationCaseType, resolveAutomationCaseSteps } = require('@hello
 const {
   normalizeApiRequest,
   validateAuthoredApiRequest,
+  authoredStepType,
+  authoredApiRequestUnchanged,
   normalizeRichText,
   normalizeTestStepType,
   parseJsonValue
@@ -240,7 +242,7 @@ exports.createTestStep = async ({
       boundedOrder,
       normalizeText(action),
       normalizeText(expected_result),
-      normalizeTestStepType(step_type, "web"),
+      authoredStepType({ step_type, automation_code, api_request }),
       normalizeRichText(automation_code),
       normalizeApiRequest(api_request),
       normalizeText(group_id),
@@ -282,7 +284,7 @@ exports.createTestSteps = async ({ test_case_id, insertion_index = 0, steps = []
         firstOrder + index,
         normalizeText(step.action),
         normalizeText(step.expected_result),
-        normalizeTestStepType(step.step_type, "web"),
+        authoredStepType(step),
         normalizeRichText(step.automation_code),
         normalizeApiRequest(step.api_request),
         normalizeText(step.group_id),
@@ -367,7 +369,11 @@ exports.updateTestStep = async (id, data = {}, options = {}) => {
   const previousSteps = existing.reusable_group_id ? await listStepsForCase(existing.test_case_id) : undefined;
   const nextTestCaseId = data.test_case_id ?? existing.test_case_id;
   const nextStepOrder = data.step_order !== undefined ? normalizeStepOrder(data.step_order, existing.step_order) : existing.step_order;
-  if (data.api_request !== undefined) validateAuthoredApiRequest(data.api_request, {stepOrder:nextStepOrder});
+  const apiRequestChanged = data.api_request !== undefined && !authoredApiRequestUnchanged(data.api_request, existing.api_request);
+  if (apiRequestChanged) validateAuthoredApiRequest(data.api_request, { stepOrder: nextStepOrder });
+  const nextApiRequest = apiRequestChanged ? normalizeApiRequest(data.api_request) : parseJsonValue(existing.api_request, null);
+  const nextStepType = apiRequestChanged || data.step_type !== undefined
+    ? authoredStepType({ ...existing, ...data, api_request: nextApiRequest }) : existing.step_type;
   const sourceTestCase = await ensureTestCase(existing.test_case_id);
   const targetTestCase = await ensureTestCase(nextTestCaseId);
   assertCaseStepRuntime(targetTestCase, [{ ...existing, ...data }]);
@@ -380,6 +386,9 @@ exports.updateTestStep = async (id, data = {}, options = {}) => {
   }
 
   const transaction = db.transaction(async () => {
+    const syncReference = async () => {
+      if (options.syncSharedGroup !== false) await syncSharedGroupFromStep(await ensureStep(id), previousSteps);
+    };
     if (nextTestCaseId !== existing.test_case_id) {
       const targetSteps = await listStepsForCase(nextTestCaseId);
       const boundedOrder = Math.min(nextStepOrder, targetSteps.length + 1);
@@ -392,15 +401,16 @@ exports.updateTestStep = async (id, data = {}, options = {}) => {
         boundedOrder,
         data.action !== undefined ? normalizeText(data.action) : existing.action,
         data.expected_result !== undefined ? normalizeText(data.expected_result) : existing.expected_result,
-        data.step_type !== undefined ? normalizeTestStepType(data.step_type, existing.step_type || "web") : existing.step_type,
+        nextStepType,
         data.automation_code !== undefined ? normalizeRichText(data.automation_code) : existing.automation_code,
-        data.api_request !== undefined ? normalizeApiRequest(data.api_request) : parseJsonValue(existing.api_request, null),
+        nextApiRequest,
         data.group_id !== undefined ? normalizeText(data.group_id) : existing.group_id,
         data.group_name !== undefined ? normalizeText(data.group_name) : existing.group_name,
         data.group_kind !== undefined ? normalizeGroupKind(data.group_kind) : existing.group_kind,
         data.reusable_group_id !== undefined ? normalizeText(data.reusable_group_id) : existing.reusable_group_id,
         id
       );
+      await syncReference();
       return;
     }
 
@@ -415,19 +425,19 @@ exports.updateTestStep = async (id, data = {}, options = {}) => {
       nextStepOrder,
       data.action !== undefined ? normalizeText(data.action) : existing.action,
       data.expected_result !== undefined ? normalizeText(data.expected_result) : existing.expected_result,
-      data.step_type !== undefined ? normalizeTestStepType(data.step_type, existing.step_type || "web") : existing.step_type,
+      nextStepType,
       data.automation_code !== undefined ? normalizeRichText(data.automation_code) : existing.automation_code,
-      data.api_request !== undefined ? normalizeApiRequest(data.api_request) : parseJsonValue(existing.api_request, null),
+      nextApiRequest,
       data.group_id !== undefined ? normalizeText(data.group_id) : existing.group_id,
       data.group_name !== undefined ? normalizeText(data.group_name) : existing.group_name,
       data.group_kind !== undefined ? normalizeGroupKind(data.group_kind) : existing.group_kind,
       data.reusable_group_id !== undefined ? normalizeText(data.reusable_group_id) : existing.reusable_group_id,
       id
     );
+    await syncReference();
   });
 
   await transaction();
-  if (options.syncSharedGroup !== false) await syncSharedGroupFromStep(await ensureStep(id), previousSteps);
   return { updated: true };
 };
 

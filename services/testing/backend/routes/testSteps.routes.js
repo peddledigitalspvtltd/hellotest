@@ -101,6 +101,7 @@ module.exports = async function (fastify) {
     }, req.body);
 
     const scope = await requireCasePermission(fastify, req, "step.manage", req.body.test_case_id);
+    if (req.body.reusable_group_id) await fastify.requirePermission("shared_step.manage", { projectId: scope.projectId })(req);
     await requireMobileStepWrite(fastify, req, scope, req.body);
 
     return service.createTestStep(req.body);
@@ -159,6 +160,7 @@ module.exports = async function (fastify) {
     }, req.body);
 
     const { step, scope } = await requireStepPermission(fastify, req, "step.manage", req.params.id);
+    if (step.reusable_group_id || req.body.reusable_group_id) await fastify.requirePermission("shared_step.manage", { projectId: scope.projectId })(req);
     await requireMobileStepWrite(fastify, req, scope, req.body, step);
     if (req.body.test_case_id && req.body.test_case_id !== step.test_case_id) {
       const targetScope = await requireCasePermission(fastify, req, "step.manage", req.body.test_case_id);

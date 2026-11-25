@@ -1,9 +1,37 @@
 const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
+const { resolveAutomationDraftSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { referenceKey, referencedParameterNames, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/parameters');
 const { fail } = require('./endpointPolicy');
 
 const SENSITIVE = /password|passwd|secret|token|credential|api.?key|authorization|cookie|session|csrf|xsrf|private.?key|connection.?string|passcode|(?:^|[._ -])pin(?:$|[._ -])|otp|verification.?code|one.?time.?code/i;
+function checkedStartUrl(value) {
+  const href = normalizeAutomationStartUrl(value, { required: false });
+  if (!href) return null;
+  const url = new URL(href);
+  const fragment = url.hash.slice(1).split('?').at(-1);
+  const names = [...url.searchParams.keys(), ...new URLSearchParams(fragment).keys()];
+  if (names.some(name => SENSITIVE.test(name) || /^(?:signature|x-amz-signature|x-goog-signature)$/i.test(name))) {
+    throw Object.assign(fail('Keep credentials and signed tokens out of the Automation URL. Use a protected credential or parameter.', 422), { code: 'AUTOMATION_START_URL_INVALID' });
+  }
+  return href;
+}
+const manualCaseSource = data => data?.artifactTask === 'automation-engineer' && data.automationSource === 'manual_case';
+const validId = value => typeof value === 'string' && /^[\w-]{1,160}$/.test(value);
+function manualCaseId(data, payload) {
+  const value = data.automationManualCaseId || payload?.manual_test_case_id;
+  if (!validId(value)) throw Object.assign(fail('Select a saved manual Test Case or supply its ID as manual_test_case_id in the workflow input.', 422), {code:'AUTOMATION_MANUAL_CASE_REQUIRED'});
+  return value;
+}
+function checkManualInput(run, node) {
+  const payload = run.input_payload || {};
+  if (!run.app_type_id) throw fail('Select a workflow application for the manual Test Case.', 422);
+  if (payload.project_id && payload.project_id !== run.project_id || payload.app_type_id && payload.app_type_id !== run.app_type_id) {
+    throw fail('The trigger project and application must match the workflow scope.', 403);
+  }
+  if (Object.hasOwn(payload,'integration_id') && !validId(payload.integration_id)) throw fail('Supply a valid model integration ID or omit integration_id.', 422);
+  return manualCaseId(node.data,payload);
+}
 function parameterData(value) {
   if (value == null || value === '') return {};
   if (typeof value === 'string') {
@@ -29,20 +57,41 @@ function parameterData(value) {
     item && typeof item === 'object' ? JSON.stringify(item) : String(item ?? '')])), 't');
 }
 function validateNodeOptions(data = {}) {
+  const runtime = data.automationRuntime ?? 'auto';
+  if (!['auto', 'web', 'api'].includes(runtime)) throw fail('Choose automatic, web or API automation.', 422);
   const browserMode = data.automationBrowserMode ?? (data.inspectBrowser === false ? 'offline' : 'read_only');
+  if (data.automationSource != null && !['sprint', 'manual_case'].includes(data.automationSource)) throw fail('Choose Sprint Test Case or a saved manual Test Case as the automation source.', 422);
+  if (data.automationManualCaseId && !validId(data.automationManualCaseId)) throw fail('Select a valid manual Test Case.', 422);
   if (!['perform_steps', 'read_only', 'offline'].includes(browserMode)) throw fail('Choose perform steps, read-only inspection or offline generation for Automation Engineer.', 422);
+  const verificationMode = data.automationVerificationMode || 'generate_only';
+  if (!['generate_only', 'verify'].includes(verificationMode)) throw fail('Choose whether to run the generated automation.', 422);
+  if (runtime !== 'api' && verificationMode === 'verify' && (browserMode !== 'perform_steps' || !data.testEnvironmentId)) throw fail('Running generated automation requires Perform the test steps and a selected Test Environment.', 422);
   if (data.automationPassword != null && data.automationPassword !== '') throw fail('Store the Automation password in a protected credential and select it on the node.', 422);
   if (data.automationUsername != null && (typeof data.automationUsername !== 'string' || data.automationUsername.length > 255 || /[\r\n]/.test(data.automationUsername))) throw fail('Supply an Automation username of up to 255 characters without line breaks.', 422);
   if (data.automationCredentialId && (typeof data.automationCredentialId !== 'string' || !/^[\w-]{1,160}$/.test(data.automationCredentialId))) throw fail('Select a protected Automation credential.', 422);
   if (data.testEnvironmentId && (typeof data.testEnvironmentId !== 'string' || !/^[\w-]{1,160}$/.test(data.testEnvironmentId))) throw fail('Select a valid Test Environment.', 422);
-  const startUrl = data.automationStartUrl == null || data.automationStartUrl === '' ? null
-    : normalizeAutomationStartUrl(data.automationStartUrl, { required: false });
-  if (startUrl) {
-    const url = new URL(startUrl), names = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.slice(1)).keys()];
-    if (names.some(name=>SENSITIVE.test(name)||/^(?:signature|x-amz-signature|x-goog-signature)$/i.test(name))) throw fail('Keep credentials and signed tokens out of the Automation URL. Use a protected credential or parameter.',422);
-  }
-  return { startUrl, browserMode, values: parameterData(data.automationData), username: data.automationUsername,
+  const startUrl = checkedStartUrl(data.automationStartUrl);
+  return { startUrl, runtime, browserMode: runtime === 'api' ? 'offline' : browserMode,
+    verificationMode: runtime === 'api' ? 'generate_only' : verificationMode, values: parameterData(data.automationData), username: data.automationUsername,
     credentialId: data.automationCredentialId || null, testEnvironmentId: data.testEnvironmentId || null };
+}
+
+function caseRuntime(draft, appTypeKind, options) {
+  const nativeSteps = resolveAutomationDraftSteps(draft, draft.steps, { appTypeKind }).steps;
+  const hasWeb = nativeSteps.some(step => step.step_type === 'web');
+  let reason;
+  if (options.runtime === 'api' && (!nativeSteps.length || nativeSteps.some(step => step.step_type !== 'api'))) {
+    reason = 'API Automation Agent requires a manual case with API steps only.';
+  } else if (options.runtime === 'web' && (!hasWeb || nativeSteps.some(step => !['web', 'api'].includes(step.step_type)))) {
+    reason = 'Web Automation Agent requires a manual case with browser steps. The case can also include API steps.';
+  }
+  if (reason) throw Object.assign(fail(reason, 422), {
+    code: 'AUTOMATION_NODE_RUNTIME_MISMATCH', effect_dispatched: false, outcome_unknown: false,
+    blocked_steps: [{ reason, required_context: ['Select the matching Automation Agent or choose automatic runtime selection.'] }]
+  });
+  const interactive = hasWeb && options.browserMode === 'perform_steps';
+  return { nativeSteps, interactive, inspectBrowser: hasWeb && options.browserMode !== 'offline',
+    verificationMode: interactive && nativeSteps.every(step => step.step_type === 'web') ? options.verificationMode : 'generate_only' };
 }
 
 // Credential authority is scoped to the application origin and checked again
@@ -81,9 +130,8 @@ async function resolveNodeInputs({ run, node, user, access, startUrlFallback }) 
   const values = options.testEnvironmentId ? {} : { ...options.values }, privateValues = {};
   const environment = await selectedEnvironment({ run, node, user, access, options });
   const configuredStartUrl = Object.hasOwn(node.data || {},'automationStartUrl') ? options.startUrl
-    : validateNodeOptions({automationStartUrl:run.input_payload?.automation_start_url}).startUrl;
-  const environmentStartUrl = environment?.base_url ? normalizeAutomationStartUrl(environment.base_url, { required: false }) : null;
-  const startUrl = environmentStartUrl || configuredStartUrl || startUrlFallback || null;
+    : checkedStartUrl(run.input_payload?.automation_start_url);
+  const startUrl = checkedStartUrl(environment?.base_url) || configuredStartUrl || checkedStartUrl(startUrlFallback);
   if (!options.testEnvironmentId && options.username != null && options.username !== '') values['t.username'] = options.username;
   if (!options.testEnvironmentId && options.credentialId) {
     await access(user, run.project_id, ['automation.build', 'automation.code.view', 'data.view']);
@@ -100,7 +148,7 @@ async function resolveNodeInputs({ run, node, user, access, startUrlFallback }) 
     privateValues['t.password'] = password;
     if (!Object.hasOwn(values, 't.username')) values['t.username'] = credentialUsername;
   }
-  return { startUrl, browserMode: options.browserMode, values, privateValues, credentialId: options.testEnvironmentId ? null : options.credentialId, testEnvironmentId: options.testEnvironmentId,
+  return { startUrl, runtime: options.runtime, browserMode: options.browserMode, verificationMode: options.verificationMode, values, privateValues, credentialId: options.testEnvironmentId ? null : options.credentialId, testEnvironmentId: options.testEnvironmentId,
     environmentParameterNames: environmentParameterNames(environment), environmentPrivateParameterNames: environmentPrivateParameterNames(environment) };
 }
 
@@ -115,7 +163,7 @@ function storyStartUrl(story) {
   const urls = new Map();
   for (const candidate of candidates) {
     try {
-      const normalized = normalizeAutomationStartUrl(candidate, { required: false });
+      const normalized = checkedStartUrl(candidate);
       if (normalized) urls.set(normalized, normalized);
     } catch { /* Invalid or credential-bearing Story links are not execution targets. */ }
   }
@@ -188,4 +236,4 @@ function caseInputs(draft, steps, inputs) {
       ...(inputs.credentialId ? { credential_id: inputs.credentialId, credential_origin: new URL(inputs.startUrl).origin } : {}) }
   };
 }
-module.exports = { validateNodeOptions, resolveNodeInputs, resolveCaseNodeInputs, selectedEnvironment, environmentParameterNames, storyStartUrl, caseInputs, bindDraftParameters, parameterData };
+module.exports = { validateNodeOptions, caseRuntime, manualCaseSource, checkManualInput, resolveNodeInputs, resolveCaseNodeInputs, selectedEnvironment, environmentParameterNames, storyStartUrl, caseInputs, bindDraftParameters, parameterData };

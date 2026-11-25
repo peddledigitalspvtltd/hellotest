@@ -5,10 +5,14 @@ const denied=message=>Object.assign(new Error(message),{code:'AGENT_TOOL_DENIED'
 const kinds={stories:'requirement','test-cases':'test_case',runs:'execution',bugs:'bug'};
 const paths={requirement:'/requirements/:id',test_case:'/test-cases/:id',execution:'/executions/:id',bug:'/issues/:id'};
 const scopeFields={requirement:'story_id',test_case:'test_case_id',execution:'execution_id',bug:'bug_id'};
+const recordScopes=Object.fromEntries(Object.entries(kinds).map(([scope,kind])=>[kind,scope]));
 function createSpecialistTools({user,projectId,appTypeId,context,requestedScopes,policy,smartContext={},evidenceScope={},deadline,signal,onEvent,onEvidence,assertAccess,maxCalls=4,call=gateway.callSpecialistReadTool}){
   let used=0;const records=new Map(),ids=new Set();
   const allowed=new Set(policy.allowed_tools||[]),selected=new Set(requestedScopes||[]);
-  const remember=(kind,ref)=>{if(!paths[kind]||typeof ref!=='string'||ref.length>255||records.size>=100)return;const pinned=evidenceScope[scopeFields[kind]];if(pinned&&pinned!==ref)return;records.set(kind+':'+ref,{kind,id:ref});};
+  const configuredScopes = new Set(policy.context_scopes || requestedScopes);
+  const canUseAuxiliary = name => allowed.has(name) || !policy.explicit_tool_selection && allowed.has('project_evidence');
+  const remember=(kind,ref)=>{if(!paths[kind]||typeof ref!=='string'||ref.length>255||records.size>=100
+    || policy.explicit_tool_selection && !configuredScopes.has(recordScopes[kind]))return;const pinned=evidenceScope[scopeFields[kind]];if(pinned&&pinned!==ref)return;records.set(kind+':'+ref,{kind,id:ref});};
   function observeRecords(){
     for(const[scope,items]of Object.entries(context||{}))for(const item of Array.isArray(items)?items:[]){
       let body;try{body=JSON.parse(item.content||'{}');}catch{body={};}
@@ -24,8 +28,8 @@ function createSpecialistTools({user,projectId,appTypeId,context,requestedScopes
     const values=[];
     if(allowed.has('project_evidence')&&[...selected].some(scope=>scope!=='knowledge'))values.push({name:'project_evidence',description:'Fetch one missing piece of current project evidence inside the saved application, selected record scope and permissions. Read only.',parameters:{type:'object',properties:{question:{type:'string',minLength:1,maxLength:700}},required:['question'],additionalProperties:false}});
     if(allowed.has('knowledge_search')&&selected.has('knowledge'))values.push({name:'knowledge_search',description:'Search authorized indexed evidence within the saved source selection. Cite only returned evidence IDs.',parameters:{type:'object',properties:{question:{type:'string',minLength:1,maxLength:700}},required:['question'],additionalProperties:false}});
-    if((allowed.has('record_read')||allowed.has('project_evidence'))&&records.size)values.push({name:'record_read',description:'Read an exact record already observed in selected evidence; cannot enumerate arbitrary record identifiers.',parameters:{type:'object',properties:{record_ref:{type:'string',enum:[...records.keys()]}},required:['record_ref'],additionalProperties:false}});
-    if((allowed.has('graph_read')||allowed.has('project_evidence'))&&!constrained&&selected.has('knowledge')&&records.size)values.push({name:'graph_read',description:'Read witnessed graph relationships around one observed record. A relationship is evidence, not an executed effect.',parameters:{type:'object',properties:{record_ref:{type:'string',enum:[...records.keys()]}},required:['record_ref'],additionalProperties:false}});
+    if(canUseAuxiliary('record_read')&&records.size)values.push({name:'record_read',description:'Read an exact record already observed in selected evidence; cannot enumerate arbitrary record identifiers.',parameters:{type:'object',properties:{record_ref:{type:'string',enum:[...records.keys()]}},required:['record_ref'],additionalProperties:false}});
+    if(canUseAuxiliary('graph_read')&&!constrained&&configuredScopes.has('knowledge')&&records.size)values.push({name:'graph_read',description:'Read witnessed graph relationships around one observed record. A relationship is evidence, not an executed effect.',parameters:{type:'object',properties:{record_ref:{type:'string',enum:[...records.keys()]}},required:['record_ref'],additionalProperties:false}});
     return used>=maxCalls?[]:values.map(value=>({type:'function',function:value}));
   };
   const ingest=async value=>{
@@ -60,7 +64,9 @@ function createSpecialistTools({user,projectId,appTypeId,context,requestedScopes
           if(name==='graph_read'){tool='hellotest_graph_context';argumentsValue={seeds:[{kind:record.kind,ref_id:record.id}],...(appTypeId?{app_type_id:appTypeId}:{}),hops:1,max_nodes:20,max_edges:20,max_evidence:8,token_budget:3000,timeout_ms:Math.min(10000,Math.max(1,deadline-Date.now()))};}
           else{const operation=registry.all().find(op=>op.method==='GET'&&op.path===paths[record.kind]&&op.exposure==='read');if(!operation)throw denied('This record has no registered read contract.');tool='hellotest_operation_read';argumentsValue={operation_id:operation.id,arguments:{path:{id:record.id}}};}
         }
-        used++;const started=Date.now();await onEvent?.({phase:'tool.started',message:`Read-only ${name} requested.`,details:{tool:name,call:used,max_calls:maxCalls}});
+        used++;const started=Date.now();await onEvent?.({phase:'tool.started',message:`Read-only ${name} requested.`,details:{
+          tool:name,effect:'read',arguments:JSON.parse(sanitizeAiEvidence(args).text),call:used,max_calls:maxCalls
+        }});
         try{
           const value=await call({userId:user.id,projectId,name:tool,args:argumentsValue,signal,timeoutMs:Math.min(10000,Math.max(1,deadline-Date.now()))});
           const data=value?.data||value;if(data?.project_id&&data.project_id!==projectId)throw denied('The record is outside the selected project.');if(appTypeId&&data?.app_type_id&&data.app_type_id!==appTypeId)throw denied('The record is outside the selected application.');

@@ -22,17 +22,18 @@ function RecordingContinuity({ currentCaseId }: { currentCaseId: string }) {
   </aside>;
 }
 
-/** Each route loads its own queries, mutations and view state. The shared provider
- * retains only authoring claims, capture context and explicit selections. */
-export function AutomationPage({ initialView = 'cases' }: { initialView?: 'cases' | 'repository' } = {}) {
+/** Each route owns its queries and mutations. The shared provider keeps authoring
+ * claims, capture context, selections and catalog filters across case navigation. */
+export function AutomationPage({ initialView = 'cases' }: { initialView?: 'cases' | 'repository' | 'engineer' } = {}) {
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
   const [params] = useSearchParams();
-  const caseId = initialView === 'cases' && params.get('create') !== '1' ? params.get('case') || '' : '';
+  const caseId = initialView !== 'repository' && params.get('create') !== '1' ? params.get('case') || '' : '';
+  const engineer = initialView === 'engineer';
   return <AutomationAuthoringProvider projectId={projectId} appTypeId={appTypeId}>
     <RecordingContinuity currentCaseId={initialView === 'repository' ? '' : caseId}/>
     <Suspense fallback={<LoadingState label={initialView === 'repository' ? 'Loading object repository' : caseId ? 'Loading automation case' : 'Loading automation cases'}/>}>
-      {initialView === 'repository' ? <ObjectRepositoryPage/> : caseId ? <AutomationCaseDetailPage/> : <AutomationCasesPage/>}
+      {initialView === 'repository' ? <ObjectRepositoryPage/> : caseId ? <AutomationCaseDetailPage engineer={engineer}/> : <AutomationCasesPage engineer={engineer}/>}
     </Suspense>
   </AutomationAuthoringProvider>;
 }

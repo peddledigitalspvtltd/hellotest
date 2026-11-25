@@ -92,6 +92,35 @@
         "additionalProperties": true
       }
     },
+    "GET /agent-runs": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
     "GET /agentic-assistant/sessions": {
       "querystring": {
         "type": "object",
@@ -149,6 +178,20 @@
             "maximum": 10
           }
         }
+      }
+    },
+    "GET /automation/build-scorecard": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
       }
     },
     "GET /execution-results": {
@@ -342,7 +385,8 @@
               "queued",
               "running",
               "completed",
-              "failed"
+              "failed",
+              "cancelled"
             ]
           },
           "limit": {
@@ -530,9 +574,7 @@
             "maxLength": 320
           },
           "password": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128
+            "type": "string"
           },
           "name": {
             "type": "string",
@@ -550,6 +592,54 @@
           "role_id"
         ],
         "additionalProperties": true
+      }
+    },
+    "POST /agentic-assistant/evidence-preview": {
+      "body": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "project_id",
+          "agent_id",
+          "prompt",
+          "context_scopes"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "app_type_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "agent_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 12000
+          },
+          "inputs": {
+            "type": "object"
+          },
+          "context_scopes": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            }
+          }
+        }
       }
     },
     "POST /agentic-assistant/sessions": {
@@ -1396,8 +1486,7 @@
             "minLength": 3
           },
           "newPassword": {
-            "type": "string",
-            "minLength": 6
+            "type": "string"
           }
         },
         "required": [
@@ -1471,8 +1560,7 @@
             "minLength": 3
           },
           "password": {
-            "type": "string",
-            "minLength": 6
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -1533,6 +1621,39 @@
             "type": "number"
           }
         },
+        "additionalProperties": true
+      }
+    },
+    "POST /automation/browser-preflight": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string"
+          },
+          "start_url": {
+            "type": "string"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_suite_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "start_url"
+        ],
         "additionalProperties": true
       }
     },
@@ -2306,6 +2427,12 @@
           "linked_test_run_id": {
             "type": "string"
           },
+          "linked_execution_result_id": {
+            "type": "string"
+          },
+          "linked_step_id": {
+            "type": "string"
+          },
           "linked_test_case_ids": {
             "type": "array",
             "items": {
@@ -2378,6 +2505,28 @@
         "additionalProperties": true
       }
     },
+    "POST /feedback/:id/ai-triage-apply": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "apply_corrections": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "token",
+          "apply_corrections"
+        ],
+        "additionalProperties": true
+      }
+    },
     "POST /feedback/ai-draft-preview": {
       "body": {
         "type": "object",
@@ -2412,7 +2561,22 @@
           "linked_execution_result_id": {
             "type": "string"
           },
+          "linked_step_id": {
+            "type": "string"
+          },
           "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_test_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_module_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -2709,6 +2873,12 @@
           "linked_test_run_id": {
             "type": "string"
           },
+          "linked_execution_result_id": {
+            "type": "string"
+          },
+          "linked_step_id": {
+            "type": "string"
+          },
           "linked_test_case_ids": {
             "type": "array",
             "items": {
@@ -2781,6 +2951,28 @@
         "additionalProperties": true
       }
     },
+    "POST /issues/:id/ai-triage-apply": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "apply_corrections": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "token",
+          "apply_corrections"
+        ],
+        "additionalProperties": true
+      }
+    },
     "POST /issues/ai-draft-preview": {
       "body": {
         "type": "object",
@@ -2815,7 +3007,22 @@
           "linked_execution_result_id": {
             "type": "string"
           },
+          "linked_step_id": {
+            "type": "string"
+          },
           "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_test_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_module_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -3012,6 +3219,10 @@
           "selected_records": {
             "type": "object"
           },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
           "chunking": {
             "type": "object"
           }
@@ -3106,11 +3317,13 @@
             "type": "array"
           },
           "app_types": {
-            "type": "array"
+            "type": "array",
+            "minItems": 1
           }
         },
         "required": [
-          "name"
+          "name",
+          "app_types"
         ],
         "additionalProperties": true
       }
@@ -3611,6 +3824,21 @@
           "status": {
             "type": "string",
             "maxLength": 100
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/ai-create-jobs/:jobId/cancel": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
           }
         },
         "required": [
@@ -4369,6 +4597,12 @@
             "type": "string"
           },
           "included_action_indices": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "excluded_action_indices": {
             "type": "array",
             "items": {
               "type": "number"
@@ -5406,6 +5640,20 @@
             },
             "maxItems": 5000
           },
+          "module_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000
+          },
+          "module_membership": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "live"
+            ]
+          },
           "parallel_enabled": {
             "type": "boolean"
           },
@@ -5601,9 +5849,7 @@
             "minLength": 3
           },
           "password": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -5680,9 +5926,7 @@
             "maxLength": 128
           },
           "new_password": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 128
+            "type": "string"
           }
         },
         "required": [
@@ -6128,6 +6372,12 @@
           "linked_test_run_id": {
             "type": "string"
           },
+          "linked_execution_result_id": {
+            "type": "string"
+          },
+          "linked_step_id": {
+            "type": "string"
+          },
           "linked_test_case_ids": {
             "type": "array",
             "items": {
@@ -6286,6 +6536,12 @@
             "type": "string"
           },
           "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_execution_result_id": {
+            "type": "string"
+          },
+          "linked_step_id": {
             "type": "string"
           },
           "linked_test_case_ids": {
@@ -7409,6 +7665,20 @@
             },
             "maxItems": 5000
           },
+          "module_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000
+          },
+          "module_membership": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "live"
+            ]
+          },
           "parallel_enabled": {
             "type": "boolean"
           },
@@ -7451,9 +7721,7 @@
             "minLength": 3
           },
           "password": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -7477,9 +7745,7 @@
             "minLength": 1
           },
           "new_password": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128
+            "type": "string"
           }
         },
         "required": [

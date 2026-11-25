@@ -20,3 +20,19 @@ test('a connected loop body cannot be independently resumed without its owning c
  const loop={...source,workflow_snapshot:{...source.workflow_snapshot,execution_order:['input','loop','body','output'],nodes:[source.workflow_snapshot.nodes[0],{id:'loop',data:{kind:'loop',loopAction:'workflow'}},{id:'body',data:{kind:'transform'}},source.workflow_snapshot.nodes[2]],edges:[{source:'input',target:'loop'},{source:'loop',target:'body',sourceHandle:'loop'},{source:'body',target:'loop',targetHandle:'continue'},{source:'loop',target:'output',sourceHandle:'done'}]}};
  assert.throws(()=>planner.plan(loop,'body',[]),/owning loop/);
 });
+test('a partial continue loop keeps its composite receipt and requires reconciliation before replaying any browser operation',()=>{
+ const loop={...source,status:'needs_review',workflow_snapshot:{...source.workflow_snapshot,execution_order:['input','loop','body','output'],nodes:[source.workflow_snapshot.nodes[0],
+  {id:'loop',data:{kind:'loop',loopAction:'workflow',loopItemFailure:'continue'}},{id:'body',data:{kind:'artifactTask',artifactTask:'automation-engineer'}},source.workflow_snapshot.nodes[2]],
+  edges:[{source:'input',target:'loop'},{source:'loop',target:'body',sourceHandle:'loop'},{source:'body',target:'loop',targetHandle:'continue'},{source:'loop',target:'output',sourceHandle:'done'}]},
+  node_results:[{node_id:'input',status:'completed'},{node_id:'loop',status:'completed'},{node_id:'body',status:'completed'},{node_id:'output',status:'completed'}]};
+ const loopRecord=record('loop');
+ loopRecord.result.node_type='loop';
+ loopRecord.result.output={loop_mode:'workflow',data:[{value:1},{value:3}],verification:{status:'needs_input'},iteration_failures:[{batch_index:1,code:'AUTOMATION_UPSTREAM_SOURCE_INVALID'}]};
+ loopRecord.result_hash=receipts.digest(loopRecord.result);
+ const records=[record('input'),loopRecord,record('output')];
+ const operations=[{id:'browser-acknowledged',node_id:'body',state:'response_received',request_hash:'confirmed-effect'}];
+ assert.throws(()=>planner.plan(loop,'output',records,operations),/prior step still needs review/i);
+ const retry=planner.plan(loop,'loop',records,operations);
+ assert.deepEqual(retry.reuse.map(receipt=>receipt.node_id),['input']);
+ assert.ok(retry.reconciliation_required.some(item=>item.operation_id==='browser-acknowledged'));
+});

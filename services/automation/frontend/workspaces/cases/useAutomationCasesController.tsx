@@ -3,7 +3,7 @@ import { automationAgentSelection } from "@hellotest/ai/frontend/components/Auto
 import { useAutomationBuildParameters } from "../../hooks/useAutomationBuildParameters";
 import { useCallback, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useDeleteConfirmation } from "@hellotest/platform/frontend/src/shared/components/DeleteConfirmationDialog";
 import { useRepositoryInspectAgent } from "@hellotest/automation/frontend/hooks/useRepositoryInspectAgent";
 import { emptyAutomationMetadata, type AutomationMetadata } from "../../components/AutomationCaseMetadata";
@@ -18,9 +18,10 @@ import { useAutomationCaseCreation } from './useAutomationCaseCreation';
 import { useAutomationCaseBatchBuild } from './useAutomationCaseBatchBuild';
 import { useAutomationCaseRuns } from './useAutomationCaseRuns';
 import { useAutomationCaseColumns } from './useAutomationCaseColumns';
-export function useAutomationCasesController({projectId,appTypeId,setAppTypeId}:{projectId:string;appTypeId:string;setAppTypeId:(id:string)=>void}){
+export function useAutomationCasesController({projectId,appTypeId,setAppTypeId,engineer=false}:{projectId:string;appTypeId:string;setAppTypeId:(id:string)=>void;engineer?:boolean}){
 const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
 const navigate = useNavigate();
+const location = useLocation();
 const [searchParams, setSearchParams] = useSearchParams();
 const queryClient = useQueryClient();
 const access=useAutomationCasesAccess(projectId);const {
@@ -39,8 +40,7 @@ const state=useAutomationCasesState();const {
     consumedAutomationCreateRouteRef,
     automationCatalogViewMode,
     setAutomationCatalogViewMode,
-    automationCaseSearch,
-    setAutomationCaseSearch,
+    catalogFilters, filterCatalog,
     selectedAutomationCaseIds,
     setSelectedAutomationCaseIds,
     isCreateAutomationOpen,
@@ -116,7 +116,7 @@ useEffect(() => {
     setBatchBuildTargetIds([]);
 }, [projectId, appTypeId, session?.user.id]);
 const canVerifyBuild = canRunLocalAutomation && hasPermission(session, "run.create", projectId);
-const buildPipelineOptions = automationBuildPipelineRequest({ mode: buildVerificationMode, driver: "mcp", canVerify: canVerifyBuild, interactive: allowBrowserActions });
+const buildPipelineOptions = automationBuildPipelineRequest({ mode: buildVerificationMode, driver: "mcp", canVerify: canVerifyBuild, interactive: allowBrowserActions, hasEnvironment: Boolean(selectedExecutionEnvironmentId) });
 const { reviewBuildParameters, parameterReviewDialog } = useAutomationBuildParameters(JSON.stringify([
     projectId, appTypeId,
     "",
@@ -125,19 +125,20 @@ const { reviewBuildParameters, parameterReviewDialog } = useAutomationBuildParam
 ]));
 const inspectAgent = useRepositoryInspectAgent(Boolean(session) && (canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder), projectId);
 const needsAutomationEditorData = Boolean(isCreateAutomationOpen);
-const queries=useAutomationCasesQueries({...access,...state,projectId,appTypeId,needsAutomationEditorData});const {
+const prepareManualSource = searchParams.get("create") === "1" && Boolean(searchParams.get("manual"));
+const queries=useAutomationCasesQueries({...access,...state,projectId,appTypeId,needsAutomationEditorData,prepareManualSource});const {
     appTypesQuery,
     testCasesQuery,
     canViewExecutionMetrics,
     automationMetricsQuery,
     automationMetrics,
-    executionResultsQuery,
+    manualCasesQuery,
     createSourcesQuery,
     automationLlmIntegrationsQuery,
     appTypes,
     testCases,
 } = queries;
-const model=useAutomationCasesModel({...access,...state,...queries,projectId,appTypeId});const {
+const model=useAutomationCasesModel({...access,...state,...queries,projectId,appTypeId,automationCreationMode,importedApiPlanReady});const {
     automatedCases,
     automationDisplayIdByCaseId,
     metadataOptions,
@@ -145,7 +146,6 @@ const model=useAutomationCasesModel({...access,...state,...queries,projectId,app
     automationActionTargetIds,
     canDeleteAutomationCases,
     batchBuildReadinessQuery,
-    historyByCaseId,
     filteredAutomationCases,
     activeAutomationCaseSearchCount,
     areAllFilteredAutomationCasesSelected,
@@ -153,6 +153,7 @@ const model=useAutomationCasesModel({...access,...state,...queries,projectId,app
     automationCreateRuntimeTypes,
     creationAllowedStepTypes,
     creationIncompatibleRuntimes,
+    includeLinkedBehavior,
     automationCreateStartUrlRequired,
     automationCreateStartUrlValidation,
     batchStartUrlRequired,
@@ -216,7 +217,7 @@ useEffect(() => {
         consumedAutomationCreateRouteRef.current = "";
         return;
     }
-    if (isCreateAutomationOpen || testCasesQuery.isLoading) {
+    if (isCreateAutomationOpen || testCasesQuery.isLoading || (prepareManualSource && manualCasesQuery.isPending)) {
         return;
     }
     // Closing locally can render before the router removes the creation query.
@@ -226,12 +227,16 @@ useEffect(() => {
         return;
     consumedAutomationCreateRouteRef.current = routeKey;
     const manualCase = findByRoutableId(availableManualCases, requestedManualId);
+    if (requestedManualId && !manualCase) {
+        setMessageTone("error");
+        setMessage("The linked manual case could not be loaded. You can select a source in the case editor.");
+    }
     automationCreateTouchedMetadataRef.current.clear();
     if (apiTwin) { automationCreateTouchedMetadataRef.current.add("automationCaseType"); setAutomationCreationMode("blank"); setAutomationCreateSteps([]); }
     setAutomationCreateManualCaseIds(manualCase ? [manualCase.id] : []);
     setAutomationCreateMetadata({ ...emptyAutomationMetadata, title: manualCase ? `${manualCase.title} · Automation` : "", automationCaseType: apiTwin ? "api" : "", manualCaseIds: manualCase ? [manualCase.id] : [] });
     setIsCreateAutomationOpen(true);
-}, [availableManualCases, "cases", searchParams, testCasesQuery.isLoading, isCreateAutomationOpen, projectId, appTypeId]);
+}, [availableManualCases, searchParams, testCasesQuery.isLoading, prepareManualSource, manualCasesQuery.isPending, isCreateAutomationOpen, projectId, appTypeId]);
 useEffect(() => {
     {
         if (lastAutomationCaseDraftSeedRef.current) {
@@ -251,7 +256,19 @@ const invalidateAutomationData = () => {
         void queryClient.invalidateQueries({ queryKey: [key] });
     }
 };
-const selectAutomationCase = useCallback((testCaseId: string) => { selection.openCase(testCaseId); const targetCase = automatedCases.find(testCase => testCase.id === testCaseId) || null; setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("repository"); next.delete("agent_activity"); next.delete("tab"); next.delete("build_method"); next.set("case", getRoutableId(targetCase) || testCaseId); return next; }, { replace: true }); }, [automatedCases, setSearchParams, selection.openCase]);
+const selectAutomationCase = useCallback((testCaseId: string) => {
+    selection.openCase(testCaseId);
+    const targetCase = automatedCases.find(testCase => testCase.id === testCaseId);
+    setSearchParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.delete("repository");
+        next.delete("agent_activity");
+        next.delete("build_method");
+        if (engineer) next.set("tab", "build"); else next.delete("tab");
+        next.set("case", getRoutableId(targetCase) || testCaseId);
+        return next;
+    }, { replace: true });
+}, [automatedCases, engineer, setSearchParams, selection.openCase]);
 const showSuccess = (text: string) => {
     setMessageTone("success");
     setMessage(text);
@@ -261,7 +278,7 @@ const showError = (error: unknown, fallback: string) => {
     setMessage(error instanceof Error ? error.message : fallback);
 };
 const ports={queryClient,canCreateAutomationCase,automationCreationMode,importedApiPlanReady,...access,...state,...queries,...model,projectId,appTypeId,navigate,searchParams,setSearchParams,invalidateAutomationData,showError,showSuccess,selectAutomationCase,reviewBuildParameters,buildPipelineOptions};
-const creation=useAutomationCaseCreation(ports),batch=useAutomationCaseBatchBuild(ports),runs=useAutomationCaseRuns(ports),columns=useAutomationCaseColumns(ports);
+const creation=useAutomationCaseCreation(ports, engineer ? location.pathname : undefined),batch=useAutomationCaseBatchBuild(ports),runs=useAutomationCaseRuns(ports),columns=useAutomationCaseColumns(ports);
 const {
     applyApiSourceDraft,
     closeCreateAutomation,
@@ -315,8 +332,7 @@ return {
     setAutomationCatalogViewMode,
     automationCatalogViewMode,
     activeAutomationCaseSearchCount,
-    setAutomationCaseSearch,
-    automationCaseSearch,
+    catalogFilters, filterCatalog,
     areAllFilteredAutomationCasesSelected,
     filteredAutomationCases,
     setSelectedAutomationCaseIds,
@@ -336,12 +352,10 @@ return {
     canCreateAutomationDraft,
     setIsCreateAutomationOpen,
     testCasesQuery,
-    executionResultsQuery,
     automatedCases,
     session,
     featureFlagsQuery,
     navigate,
-    historyByCaseId,
     selectAutomationCase,
     automationDisplayIdByCaseId,
     automationCaseListColumns,
@@ -406,6 +420,7 @@ return {
     automationCreateSteps,
     createSourcesQuery,
     creationIncompatibleRuntimes,
+    includeLinkedBehavior,
     creationAllowedStepTypes,
     applyApiSourceDraft,
     automationCreateParameters,

@@ -1,27 +1,51 @@
 import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { IconBrain, IconCheck, IconShieldCheck } from '@tabler/icons-react';
 import { AiEvidenceFlyout, HELLOTEST_AGENT_CATALOG } from '../components/AgenticExperience';
 import { WorkflowSkills } from '../workflows/WorkflowSkills';
 import { SmartContextWorkbench } from '@hellotest/ai/frontend/components/SmartContextWorkbench';
-import { agentFromSpecialist, definitionNode, newAgentDefinition, type AgentDefinition, type ProjectAgent } from './agentDefinitions';
+import { AGENT_RECORD_INPUT_KEYS, agentFromSpecialist, agentInputFields, definitionNode, newAgentDefinition, type AgentDefinition, type AgentInputField, type ProjectAgent } from './agentDefinitions';
 import type { AgenticWorkflowNodeData } from '@hellotest/platform/frontend/src/types';
 import type { WorkflowSkill } from '../workflows/specialistProfiles';
 import './AgentDefinitionEditor.css';
 import { validateAgentDefinition } from './agentDefinitionValidation';
 import { NodeAiSettings, nodeAiDefaults } from '../workflows/NodeAiConfiguration';
+import { agenticApi } from '../api.client';
+import { AgentTaskInputs } from './AgentTaskInputs';
 
 const scopes = [['stories', 'Stories'], ['test-cases', 'Test cases'], ['runs', 'Runs'], ['bugs', 'Defects'], ['automation', 'Automation'], ['knowledge', 'Knowledge']];
 const resultTypes = [['review', 'Evidence review'], ['story', 'Story drafts'], ['test_case', 'Test case drafts'], ['defect', 'Defect drafts'], ['run', 'Run drafts'], ['automation', 'Automation Plan drafts']] as const;
 const resultHelp = { review: 'Findings, recommendations and cited sections or tables. No library record is required.', story: 'Title, description, acceptance criteria and priority.', test_case: 'Title, description, actions with expected results, priority, test case type and relevant test parameters.', defect: 'Title, description, reproduction steps, expected and actual behavior, severity and priority.', run: 'Title, description, selected existing test cases and exit criteria.', automation: 'A reviewable Plan with ordered actions and expected outcomes. Generating or executing a script requires Automation Engineer.' };
-export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, providers, busy, error, onClose, onSave }: {
+export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, providers, busy, error, onClose, onSave, onDuplicate }: {
   agent?: ProjectAgent; initial?: AgentDefinition; projectId: string; appTypeId: string;
   providers: Array<{ value: string; label: string }>; busy: boolean; error: string;
-  onClose: () => void; onSave: (definition: AgentDefinition, activate: boolean) => void;
+  onClose: () => void; onSave: (definition: AgentDefinition, activate: boolean, trialId?: string) => void;
+  onDuplicate: (definition: AgentDefinition) => void;
 }) {
   const [draft, setDraft] = useState<AgentDefinition>(() => structuredClone(agent?.definition || initial || newAgentDefinition()));
-  const [requiredInputText, setRequiredInputText] = useState(() => (agent?.definition || initial)?.required_inputs.join(', ') || '');
   const [tab, setTab] = useState('purpose');
+  const [trialInputs, setTrialInputs] = useState<Record<string, string>>({});
+  const [trialPrompt, setTrialPrompt] = useState('');
+  const [trialDefinition, setTrialDefinition] = useState('');
+  const [compareVersion, setCompareVersion] = useState<number>();
+  const descriptors = useQuery({queryKey: ['agent-descriptors', projectId], queryFn: () => agenticApi.agentDefinitions.descriptors(projectId), enabled: Boolean(projectId)});
+  const versions = useQuery({queryKey: ['project-agent-versions', agent?.id, agent?.current_version], queryFn: () => agenticApi.agentDefinitions.versions(agent!), enabled: Boolean(agent && tab === 'history')});
+  const projectAgents = useQuery({queryKey: ['agent-lineage-sources', projectId], queryFn: () => agenticApi.agentDefinitions.list(projectId), enabled: Boolean(draft.derived_from?.agent_id.startsWith('agent-'))});
+  const baseHash = descriptors.data?.find(item => item.id === draft.derived_from?.agent_id && item.system === 'workflow')?.descriptor_hash
+    || projectAgents.data?.find(item => item.id === draft.derived_from?.agent_id)?.definition_hash;
+  const trial = useMutation({ mutationFn: (definition: AgentDefinition) => agenticApi.agentDefinitions.trial({
+    project_id: projectId, app_type_id: appTypeId || undefined, definition, prompt: trialPrompt.trim() || definition.objective,
+    inputs: trialInputs
+  }, agent?.id), onSuccess: (_result, definition) => setTrialDefinition(JSON.stringify(definition)) });
+  const trialMatches = trial.data?.result?.verification?.status === 'passed' && trialDefinition === JSON.stringify(draft);
+  const locked = busy || trial.isPending;
   const change = (patch: Partial<AgentDefinition>) => setDraft(current => ({ ...current, ...patch }));
+  function replaceDraft(definition: AgentDefinition) {
+    setDraft(structuredClone(definition));
+  }
+  const inputFields = agentInputFields(draft);
+  const setInputFields = (input_fields: AgentInputField[]) => change({ input_fields, required_inputs: input_fields.filter(field => field.required).map(field => field.name) });
+  const setInputField = (index: number, patch: Partial<AgentInputField>) => setInputFields(inputFields.map((field, position) => position === index ? { ...field, ...patch } : field));
   const skillsChange = (patch: Partial<AgenticWorkflowNodeData>) => change({
     ...(patch.skills ? { skills: patch.skills as WorkflowSkill[] } : {}),
     ...(patch.allowedTools ? { allowed_tools: patch.allowedTools as string[] } : {}),
@@ -30,17 +54,31 @@ export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, pr
   const issues = validateAgentDefinition(draft);
   const output = draft.output_contract || { kind: 'review' as const, minimum_artifacts: 0 };
   const valid = issues.length === 0;
-  return <AiEvidenceFlyout open onClose={() => { if (!busy) onClose(); }} eyebrow="Agentic Studio / Agent builder"
+  const compared = versions.data?.versions.find(version => version.version === compareVersion);
+  const comparedKeys = compared ? (Object.keys({ ...draft, ...compared.definition }) as Array<keyof AgentDefinition>)
+    .filter(key => JSON.stringify(draft[key]) !== JSON.stringify(compared.definition[key])) : [];
+  const missingTrialInputs = inputFields.filter(field => field.required && !(trialInputs[field.name] ?? field.default)?.trim());
+  const trackSource = (id: string, name: string) => {
+    const descriptor = descriptors.data?.find(item => item.system === 'workflow' && item.id === id);
+    replaceDraft({ ...agentFromSpecialist(id, name), ...(descriptor ? { derived_from: { agent_id: id, descriptor_hash: descriptor.descriptor_hash } } : {}) });
+  };
+  const configureRule = (id: NonNullable<AgentDefinition['guardrail_rules']>[number]['id'], enabled: boolean, value?: number) => {
+    const otherRules = (draft.guardrail_rules || []).filter(rule => rule.id !== id);
+    change({ guardrail_rules: enabled ? [...otherRules, { id, ...(value === undefined ? {} : { value }) }] : otherRules });
+  };
+  return <AiEvidenceFlyout open onClose={() => { if (!locked) onClose(); }} eyebrow="Agentic Studio / Agent builder"
     title={agent ? `Edit ${agent.definition.name}` : 'Create an AI agent'}
     description="Purpose, evidence and a clear completion contract."
-    footer={<div className="agent-editor-footer">{issues.length ? <button type="button" className="agent-editor-validation" disabled={busy} onClick={() => setTab(issues[0].tab)}>{issues[0].message}{issues.length > 1 ? ` +${issues.length - 1} more` : ''}</button> : <span>{agent ? `Next version: ${agent.current_version + 1}` : 'Saved to this project'} · Activate to make available in workflows.</span>}<div><button type="button" className="ghost-button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="ghost-button" disabled={busy || !valid} onClick={() => onSave(draft, false)}>Save draft</button><button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onSave(draft, true)}>{busy ? 'Saving…' : 'Save and activate'}</button></div></div>}>
+    footer={<div className="agent-editor-footer">{issues.length ? <button type="button" className="agent-editor-validation" disabled={locked} onClick={() => setTab(issues[0].tab)}>{issues[0].message}{issues.length > 1 ? ` +${issues.length - 1} more` : ''}</button> : <span>{agent ? `Next version ${agent.current_version + 1}` : 'Project agent'} · {trialMatches ? 'Draft passed its trial' : 'Run a successful trial to activate'}</span>}<div><button type="button" className="ghost-button" disabled={locked} onClick={onClose}>Cancel</button><button type="button" className="ghost-button" disabled={locked || !valid} onClick={() => onSave(draft, false)}>Save draft</button>{trialMatches ? <button type="button" className="primary-button" disabled={locked || !valid} onClick={() => onSave(draft, true, trial.data?.transaction.id)}>{busy ? 'Saving…' : 'Save and activate'}</button> : <button type="button" className="primary-button" disabled={locked || !valid} onClick={() => setTab('trial')}>Try this draft</button>}</div></div>}>
     <div className="agent-definition-editor">
       <div className="agent-model-contract"><IconBrain size={21} /><div><strong>Model-backed, evidence-driven</strong><p>Runs use your configured LLM. Results include evidence and completion checks.</p></div></div>
-      <nav aria-label="Agent configuration">{[['purpose', '1. Purpose'], ['skills', '2. Skills & evidence'], ['completion', '3. Completion & limits']].map(([id, label]) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
+      <nav aria-label="Agent configuration">{[['purpose', 'Purpose'], ['skills', 'Skills & evidence'], ['completion', 'Completion & limits'], ['trial', 'Trial'], ...(agent ? [['history', 'Versions']] : [])].map(([id, label]) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
       {error && <div className="agent-editor-error" role="alert">{error}</div>}
-      <fieldset disabled={busy}>
+      <fieldset disabled={locked}>
         {tab === 'purpose' && <>
-          {!agent && <label><span>Start from</span><select defaultValue="" onChange={event => { const source = HELLOTEST_AGENT_CATALOG.find(item => item.id === event.target.value); setDraft(source ? agentFromSpecialist(source.id, source.name) : newAgentDefinition()); setRequiredInputText(""); }}><option value="">Blank agent</option>{HELLOTEST_AGENT_CATALOG.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><small>Use a specialist's skills and context as a starting point.</small></label>}
+          {!agent && <label><span>Start from</span><select defaultValue="" onChange={event => { const source = HELLOTEST_AGENT_CATALOG.find(item => item.id === event.target.value); if (source) trackSource(source.id, source.name); else replaceDraft(newAgentDefinition()); }}><option value="">Blank agent</option>{HELLOTEST_AGENT_CATALOG.map(item => <option key={item.id} value={item.id} disabled={descriptors.isLoading}>{item.name}</option>)}</select><small>Use a specialist's skills and context as a starting point.</small></label>}
+          {draft.derived_from && <p>Based on {descriptors.data?.find(item => item.id === draft.derived_from?.agent_id)?.name || projectAgents.data?.find(item => item.id === draft.derived_from?.agent_id)?.definition.name || draft.derived_from.agent_id}{baseHash && baseHash !== draft.derived_from.descriptor_hash ? ' · A newer source version is available.' : ''}</p>}
+          {agent && <button type="button" className="ghost-button" onClick={() => onDuplicate({ ...agent.definition, name: `${agent.definition.name.slice(0, 115)} copy`, derived_from: { agent_id: agent.id, descriptor_hash: agent.definition_hash } })}>Duplicate saved version</button>}
           <label><span>Agent name <b>*</b></span><input autoFocus data-autofocus="true" required value={draft.name} maxLength={120} onChange={event => change({ name: event.target.value })} placeholder="Release evidence reviewer" /></label>
           <label><span>Objective <b>*</b></span><textarea value={draft.objective} maxLength={2000} rows={4} onChange={event => change({ objective: event.target.value })} placeholder="Describe the result this agent should produce and who will use it." /></label>
           <label><span>Description</span><input value={draft.description} maxLength={600} onChange={event => change({ description: event.target.value })} placeholder="A short description for the agent library" /></label>
@@ -49,11 +87,59 @@ export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, pr
         </>}
         {tab === 'skills' && <>
           <WorkflowSkills editingAgent data={definitionNode(draft)} projectId={projectId} appTypeId={appTypeId} disabled={busy} onChange={skillsChange} />
+          <section><h3>Code-checked guardrails</h3>
+            {([['exclude_email_addresses', 'Exclude email addresses'], ['minimum_citations', 'Minimum citations'], ['maximum_drafts', 'Maximum drafts']] as const).map(([id, label]) => {
+              const selected = draft.guardrail_rules?.find(rule => rule.id === id);
+              const min = id === 'minimum_citations' ? 1 : 0;
+              const max = id === 'minimum_citations' ? 36 : 8;
+              return <div key={id}>
+                <label><input type="checkbox" checked={Boolean(selected)} onChange={event => configureRule(id, event.target.checked, id === 'exclude_email_addresses' ? undefined : id === 'maximum_drafts' ? max : min)} /><span>{label}</span></label>
+                {selected && id !== 'exclude_email_addresses' && <input aria-label={label} type="number" min={min} max={max} value={selected.value ?? min} onChange={event => configureRule(id, true, Number(event.target.value))} />}
+              </div>;
+            })}
+          </section>
           <section><h3>Evidence scope</h3><p>Only permitted records in this project can be retrieved.</p><div className="agent-scope-grid">{scopes.map(([id, label]) => <label key={id}><input type="checkbox" checked={draft.context_scopes.includes(id)} onChange={event => change({ context_scopes: event.target.checked ? [...draft.context_scopes, id] : draft.context_scopes.filter(value => value !== id) })} /><span>{label}</span></label>)}</div></section>
           {draft.allowed_tools.includes('knowledge_search') && draft.context_scopes.includes('knowledge') && <section><h3>Knowledge sources</h3><p>{draft.source_ids.length ? `${draft.source_ids.length} selected sources. Retrieval uses their current permitted content.` : 'Search all permitted project knowledge, or choose specific sources.'}</p><SmartContextWorkbench projectId={projectId} appTypeId={appTypeId} initialQuery={draft.objective} buttonLabel="Choose knowledge sources" disabled={busy} onApply={selection => change({ source_ids: selection.sourceIds, source_kinds: selection.sourceKinds })} />{draft.source_ids.length > 0 && <button type="button" className="ghost-button" onClick={() => change({ source_ids: [], source_kinds: [] })}>Clear source selection</button>}</section>}
           <label><span>Domain context and examples</span><textarea rows={5} maxLength={4000} value={draft.context} onChange={event => change({ context: event.target.value })} placeholder="Glossary, reviewed examples, assumptions and known limitations." /><small>Context is supplied data. It cannot override tool permissions or platform rules.</small></label>
-          <label><span>Required run inputs</span><input value={requiredInputText} aria-describedby="agent-required-input-help" onChange={event => { setRequiredInputText(event.target.value); change({ required_inputs: [...new Set(event.target.value.split(',').map(item => item.trim()).filter(Boolean))] }); }} placeholder="release_id, environment" /><small id="agent-required-input-help">Comma-separated names. Supply values in the task inputs or workflow JSON.</small></label>
+          <section><h3>Task inputs</h3>
+            {inputFields.map((field, index) => <details key={index}>
+              <summary>{field.label || field.name || 'New input'}{field.required ? ' · Required' : ''}</summary>
+              <label><span>Label</span><input value={field.label} maxLength={120} onChange={event => setInputField(index, { label: event.target.value })} /></label>
+              <label><span>Type</span><select value={field.type} onChange={event => {
+                const type = event.target.value as AgentInputField['type'];
+                setInputField(index, { type, name: type === 'text' ? field.name : AGENT_RECORD_INPUT_KEYS[type], default: undefined });
+              }}><option value="text">Text</option><option value="story">Story</option><option value="test_case">Test Case</option><option value="run">Run</option><option value="release">Release</option><option value="sprint">Sprint</option><option value="environment">Test Environment</option></select></label>
+              <label><span>Workflow input name</span><input value={field.name} readOnly={field.type !== 'text'} maxLength={64} onChange={event => setInputField(index, { name: event.target.value })} /></label>
+              <label><span>Default {field.type === 'text' ? 'value' : 'record ID'}</span><input value={field.default || ''} maxLength={255} onChange={event => setInputField(index, { default: event.target.value || undefined })} /></label>
+              <label><input type="checkbox" checked={field.required} onChange={event => setInputField(index, { required: event.target.checked })} /><span>Required</span></label>
+              <button type="button" className="ghost-button" onClick={() => setInputFields(inputFields.filter((_, position) => position !== index))}>Remove input</button>
+            </details>)}
+            <button type="button" className="ghost-button" disabled={inputFields.length >= 20} onClick={() => setInputFields([...inputFields, { type: 'text', name: '', label: '', required: true }])}>Add input</button>
+          </section>
         </>}
+        {tab === 'trial' && <section>
+          <h3>Run a draft trial</h3>
+          <p>Uses the configured model and your evidence access. Drafts from this run are available for review.</p>
+          <label><span>Sample brief</span><textarea rows={3} maxLength={16000} value={trialPrompt} placeholder={draft.objective} onChange={event => setTrialPrompt(event.target.value)} /></label>
+          <AgentTaskInputs definition={draft} projectId={projectId} appTypeId={appTypeId} values={trialInputs} disabled={locked} includeEvidenceScope onChange={(key, value) => setTrialInputs(current => ({ ...current, [key]: value }))} />
+          {!!missingTrialInputs.length && <p>Required inputs: {missingTrialInputs.map(field => field.label || field.name).join(', ')}.</p>}
+          <button className="primary-button" type="button" disabled={locked || !valid || Boolean(missingTrialInputs.length)} onClick={() => trial.mutate(structuredClone(draft))}>{trial.isPending ? 'Running trial…' : 'Run trial'}</button>
+          {trial.error && <p className="agent-editor-error" role="alert">{trial.error.message}</p>}
+          {trial.data && <div>
+            <h4>{trial.data.result?.verification?.status === 'passed' ? 'Trial passed' : 'Trial needs review'}</h4>
+            <p>{trial.data.result?.executive_summary || trial.data.result?.response}</p>
+            {!!trial.data.result?.verification?.checks.length && <ul>{trial.data.result.verification.checks.map(check => <li key={check.id}>{check.passed ? 'Passed' : 'Check needed'} · {check.label}</li>)}</ul>}
+            <details><summary>Evidence and model instructions</summary><ul>{trial.data.citations.map(item => <li key={item.id}>{item.label}</li>)}</ul><p>Descriptor <code>{trial.data.trial.descriptor_hash}</code></p>{trial.data.trial.system_frame && <pre>{trial.data.trial.system_frame}</pre>}</details>
+          </div>}
+        </section>}
+        {tab === 'history' && agent && <section>
+          <h3>Saved versions</h3>
+          {versions.isLoading && <p role="status">Loading versions…</p>}
+          {versions.error && <p role="alert">{versions.error.message}</p>}
+          {versions.data && <label><span>Compare with current draft</span><select value={compareVersion || ''} onChange={event => setCompareVersion(Number(event.target.value) || undefined)}><option value="">Choose a version</option>{versions.data.versions.map(item => <option key={item.version} value={item.version}>Version {item.version}{item.version === versions.data.active_version ? ' · Active' : item.version === versions.data.current_version ? ' · Latest' : ''}</option>)}</select></label>}
+          {compared && <><button type="button" className="ghost-button" onClick={() => { replaceDraft(compared.definition); setTab('purpose'); }}>Use this version as a new draft</button>
+            {comparedKeys.length ? comparedKeys.map(key => <details key={key}><summary>{key.replace(/_/g, ' ')}</summary><p>Saved version</p><pre>{JSON.stringify(compared.definition[key], null, 2) || 'Empty'}</pre><p>Current draft</p><pre>{JSON.stringify(draft[key], null, 2) || 'Empty'}</pre></details>) : <p>This version matches the current draft.</p>}</>}
+        </section>}
         {tab === 'completion' && <>
           <NodeAiSettings definition agent value={draft.ai_configuration} defaults={nodeAiDefaults({agentId:'agent-definition'})} reviewCriteria={draft.review_criteria || ''}
             onChange={ai_configuration => change({ ai_configuration })} onReviewCriteriaChange={review_criteria => change({ review_criteria })} />

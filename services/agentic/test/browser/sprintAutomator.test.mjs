@@ -87,16 +87,16 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await automationReceipt.waitFor();
     assert.equal(await automationReceipt.getByRole('link',{name:'Open Library',exact:true}).getAttribute('href'),'/automation?case=saved-automation');
     assert.deepEqual(await page.evaluate(()=>window.acceptedDrafts.map(item=>item.input)),[{node_id:'automation-engineer',story_index:1,case_index:0,kind:'manual'},{node_id:'automation-engineer',story_index:1,case_index:0,kind:'automation'}], 'acceptance uses the latest checkpoint row even though its Story order differs from generation');
-    await selectedStory.getByText('Generated automation · Draft · unverified',{exact:true}).click();
-    await selectedStory.getByText('Read the complete saved invoice and verify its recorded amount.',{exact:true}).waitFor();
+    await selectedStory.getByText('Generated draft · Unverified',{exact:true}).click();
+    await selectedStory.getByRole('heading',{name:'GET /invoices/one',exact:true}).waitFor();
     const code=drafts.getByRole('textbox',{name:'Executable Playwright code',exact:true});
     assert.equal(await code.inputValue(),playwrightCode);
     assert.equal(await code.evaluate(element=>element.readOnly),true);
     assert.match(await code.evaluate(element=>getComputedStyle(element).fontFamily),/monospace/);
     await drafts.getByRole('button',{name:'Copy Playwright code',exact:true}).click();
     assert.equal(await page.evaluate(()=>window.copiedCode),playwrightCode,'copy returns executable source without JSON quoting or escaping');
-    await selectedStory.getByText('Native automation plan',{exact:true}).click();
-    assert.match(await drafts.getByRole('textbox',{name:'Automation plan JSON',exact:true}).inputValue(),/"step_type": "api"/);
+    const nativeRequest=drafts.getByRole('textbox',{name:'Native API request and assertions',exact:true});
+    assert.deepEqual(JSON.parse(await nativeRequest.inputValue()),{method:'GET',url:'https://invoice.example/invoices/one',validations:[{kind:'status',expected:'200'}]});
     await page.screenshot({path:'/tmp/hellotest-sprint-automator-desktop.png',fullPage:true});
     await page.evaluate(()=>window.openSprintRun(true));
     await page.getByRole('button',{name:'Results',exact:true}).click();
@@ -127,7 +127,7 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     assert.equal(await drafts.getByRole('button',{name:'Accept Test Case into Library',exact:true}).count(),0);
     assert.equal(await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).count(),0);
     assert.equal(await page.evaluate(()=>window.acceptedDrafts.length),2,'Automatic publication must not call the human acceptance API');
-    await selectedStory.getByText('Generated automation · Draft · unverified',{exact:true}).click();
+    await selectedStory.getByText('Generated draft · Unverified',{exact:true}).click();
     await code.scrollIntoViewIfNeeded();
     assert.equal(await code.inputValue(),playwrightCode);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'whole-case source stays inside the mobile pane');
@@ -147,8 +147,7 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await drafts.getByText('Generated source omitted the invoice amount assertion.',{exact:true}).waitFor();
     assert.equal(await drafts.getByText('Automation needs input',{exact:true}).count(),0,'A build failure must not be mislabeled as missing input');
     assert.equal(await drafts.getByRole('progressbar',{name:'Automation progress for Customer reads a saved invoice'}).getAttribute('value'),'1');
-    await drafts.getByText('Build diagnostics',{exact:true}).click();
-    assert.match(await drafts.getByRole('textbox',{name:'Automation failure JSON',exact:true}).inputValue(),/ASSERTION_MISSING/);
+    assert.equal(await drafts.getByRole('textbox',{name:'Automation failure JSON',exact:true}).count(),0);
     assert.equal(await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).count(),0);
     assert.deepEqual(errors,[]);
   } catch (failure) { if(page) { await writeFile("/tmp/hellotest-sprint-browser-errors.json",JSON.stringify(errors)); await writeFile("/tmp/hellotest-sprint-browser-dom.txt",await page.locator("body").innerText().catch(()=>"")); await page.screenshot({path:"/tmp/hellotest-sprint-browser-failure.png",fullPage:true}).catch(()=>{}); } throw failure; } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}

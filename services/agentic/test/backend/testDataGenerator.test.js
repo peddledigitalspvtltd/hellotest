@@ -69,6 +69,8 @@ test('Automation Engineer takes a unique safe application URL from the pinned St
     'https://hr.example.test/client/');
   assert.equal(automationInputs.storyStartUrl({ description: 'Use https://one.example.test and https://two.example.test.' }), null);
   assert.equal(automationInputs.storyStartUrl({ description: 'Use https://user:password@hr.example.test/' }), null);
+  assert.equal(automationInputs.storyStartUrl({ description: 'Use https://hr.example.test/client/?X-Amz-Signature=sample' }), null);
+  assert.equal(automationInputs.storyStartUrl({ description: 'Use https://hr.example.test/#/signin?token=sample' }), null);
   assert.equal(automationInputs.storyStartUrl({ acceptance_criteria: ['Open https://hr.example.test/client/', 'The client form is visible.'] }),
     'https://hr.example.test/client/');
   assert.equal(automationInputs.storyStartUrl({ acceptance_criteria: [{ text: 'Open https://hr.example.test/client/' }] }),

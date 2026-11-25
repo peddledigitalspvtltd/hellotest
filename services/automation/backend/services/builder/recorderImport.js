@@ -599,6 +599,7 @@ exports.finishRecorderSession = async ({
   engine_base_url,
   target_step_id,
   included_action_indices,
+  excluded_action_indices,
   parameter_bindings,
   created_by
 } = {}) => {
@@ -608,6 +609,15 @@ exports.finishRecorderSession = async ({
   if (!testCaseId || !sessionId) {
     throw new Error("test_case_id and recorder_session_id are required");
   }
+  if (excluded_action_indices != null && (!Array.isArray(excluded_action_indices)
+    || excluded_action_indices.length > ports.MAX_CAPTURED_ACTIONS
+    || excluded_action_indices.some(index => !Number.isSafeInteger(index) || index < 0)
+    || included_action_indices != null)) {
+    throw Object.assign(new Error("Choose either included or excluded recorded actions using their capture indices."), {
+      statusCode: 422, code: "AUTOMATION_RECORDER_ACTION_SELECTION_INVALID"
+    });
+  }
+  const discard = Array.isArray(included_action_indices) && included_action_indices.length === 0;
 
   let testCase = await ports.selectCaseWithScope.get(testCaseId);
 
@@ -628,30 +638,30 @@ exports.finishRecorderSession = async ({
   if (transaction && targetStepId !== ports.normalizeText(metadata.target_step_id)) throw Object.assign(new Error('The selected recorder target differs from the section where recording started.'), { statusCode: 409, code: 'AUTOMATION_RECORDER_TARGET_CHANGED' });
   const recordingImport = { projectId: testCase.project_id, sourceCaseId: testCaseId, userId: created_by, sessionId,
     transactionId, recordingId: paired_recording_id, targetStepId, parameterBindings: parameter_bindings || [],
-    includedActionIndices: included_action_indices, additionalContext: additional_context, capture: captured_session };
+    includedActionIndices: included_action_indices, excludedActionIndices: excluded_action_indices, additionalContext: additional_context, capture: captured_session };
   const savedImport = await require(".././recordingImport.service").load(recordingImport);
   if (savedImport) return savedImport;
   if (!transaction) throw Object.assign(new Error('The recording receipt is unavailable. Retry saving from the tab where this recording started.'), { statusCode: transactionId ? 503 : 400, code: 'AUTOMATION_RECORDER_TRANSACTION_REQUIRED' });
   const engineIntegration = pairedInput ? { base_url: null, config: {} } : await ports.resolveTestEngineIntegration(testCase);
   const targetSteps = await ports.selectStepsForCase.all(testCaseId);
   if (paired && !pairedInput) throw Object.assign(new Error("Read the stopped recording from the paired agent before saving."), { statusCode: 400 });
-  if (metadata.recorder_plan_key && metadata.recorder_plan_key !== require("../../lib/recording/automationRecorderPlan").recorderPlanFingerprint(targetSteps)) {
+  if (!discard && metadata.recorder_plan_key && metadata.recorder_plan_key !== require("../../lib/recording/automationRecorderPlan").recorderPlanFingerprint(targetSteps)) {
     // A concurrent identical save may have committed after the first lookup.
     const committed = await require(".././recordingImport.service").load(recordingImport);
     if (committed) return committed;
     throw Object.assign(new Error('The case plan changed while recording. Refresh the plan before saving. Existing instructions were retained.'), { code: 'AUTOMATION_RECORDER_CASE_CHANGED', statusCode: 409 });
   }
-  const pairedCapture = pairedInput ? require("../../lib/build/automationPairedRecorder").validatePairedRecording({ transaction, metadata, testCase, steps:targetSteps, sessionId, recordingId: paired_recording_id, capture: captured_session, userId: created_by }) : null;
-  const platform = ports.resolveAutomationCaseSteps(testCase, targetSteps, { appTypeKind: testCase.app_type_kind });
-  if (platform.automation_case_type === 'api' || metadata.automation_case_type && metadata.automation_case_type !== platform.automation_case_type) throw Object.assign(new Error('The automation case type no longer matches this recording. Existing steps were retained; review the platform before saving recorded actions.'), { statusCode: 409, code: 'AUTOMATION_CASE_TYPE_CHANGED' });
+  const pairedCapture = pairedInput ? require("../../lib/build/automationPairedRecorder").validatePairedRecording({ transaction, metadata, testCase, steps: targetSteps, sessionId, recordingId: paired_recording_id, capture: captured_session, userId: created_by, discard }) : null;
+  const platform = discard ? null : ports.resolveAutomationCaseSteps(testCase, targetSteps, { appTypeKind: testCase.app_type_kind });
+  if (platform && (platform.automation_case_type === 'api' || metadata.automation_case_type && metadata.automation_case_type !== platform.automation_case_type)) throw Object.assign(new Error('The automation case type no longer matches this recording. Existing steps were retained; review the platform before saving recorded actions.'), { statusCode: 409, code: 'AUTOMATION_CASE_TYPE_CHANGED' });
 
-  if (targetStepId && !targetSteps.some((step) => step.id === targetStepId)) {
+  if (!discard && targetStepId && !targetSteps.some((step) => step.id === targetStepId)) {
     throw new Error("The selected recorder target step does not belong to this test case.");
   }
   const requestedTarget = ports.normalizeText(metadata.recorder_target) || ports.normalizeText(recorder_target);
   const target = requestedTarget ? (ports.isMobileRecorderTarget(requestedTarget) ? "mobile" : "web")
-    : ports.isMobileAppType(platform.automation_case_type) || platform.steps.some((step) => step.id === targetStepId && ports.isMobileAppType(step.step_type)) ? "mobile" : "web";
-  if (!platform.allowed_step_types.some(type => target === 'mobile' ? ['android','ios'].includes(type) : type === 'web')) throw Object.assign(new Error('The recording runtime is incompatible with this automation case type.'), { statusCode: 422, code: 'AUTOMATION_RECORDER_RUNTIME_MISMATCH' });
+    : ports.isMobileAppType(platform?.automation_case_type || testCase.app_type_kind) || platform?.steps.some((step) => step.id === targetStepId && ports.isMobileAppType(step.step_type)) ? "mobile" : "web";
+  if (platform && !platform.allowed_step_types.some(type => target === 'mobile' ? ['android','ios'].includes(type) : type === 'web')) throw Object.assign(new Error('The recording runtime is incompatible with this automation case type.'), { statusCode: 422, code: 'AUTOMATION_RECORDER_RUNTIME_MISMATCH' });
   if (target === "mobile") {
     await ports.mobileFeatureService.assertMobileFeatureEnabled();
     const access = await ports.getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["mobile.manage"]);
@@ -667,19 +677,38 @@ exports.finishRecorderSession = async ({
   // Stop flushes pending input events; compile the returned frozen capture,
   // including the final field value, rather than an earlier polling response.
   if (!paired && session.status === 'running') session = await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, { method: 'POST' });
+  if (discard) {
+    if (!['stopped','failed'].includes(session.status)) throw Object.assign(new Error("The recorder has not confirmed that it stopped. Retry discard from this recording."), {
+      statusCode: 409, code: "AUTOMATION_RECORDER_STOP_UNCONFIRMED"
+    });
+    const receipt = await require(".././recordingImport.service").commit(recordingImport, testCaseId, async () => ({
+      test_case_id: testCaseId, generated_step_count: 0, learned_locator_count: 0, discarded: true, warnings: []
+    }));
+    if (!receipt.idempotent_replay) {
+      const warnings = [];
+      await ports.updateTransaction(transactionId, {
+        status: "cancelled", description: "Recording discarded.", metadata: { ...metadata, current_phase: "recorder.discarded" },
+        completed_at: new Date().toISOString()
+      }).catch(() => warnings.push("The recording stopped, but its activity status could not be updated."));
+      return { ...receipt, warnings };
+    }
+    return receipt;
+  }
   const mobilePlatform = target === "mobile" ? ports.resolveMobileRecorderPlatform({ applicationPlatform: testCase.app_type_kind, steps: targetSteps, targetStepId, recordedPlatform: session.platform || session.platform_name || metadata.platform_name }) : null;
   const allCapturedActions = ports.normalizeCapturedActions(session.actions || []);
   if ((session.action_count || session.actions?.length || 0) > allCapturedActions.length) throw new Error(`This recording exceeds the ${ports.MAX_CAPTURED_ACTIONS}-action build limit. Record a smaller flow or split it into reusable groups; incomplete recordings will not replace the plan.`);
   const selectedActionIndices = Array.isArray(included_action_indices) ? new Set(included_action_indices.map(Number)) : null;
-  if (selectedActionIndices) {
+  const excludedActionIndices = new Set(excluded_action_indices || []);
+  if (selectedActionIndices || excludedActionIndices.size) {
     const recordedIndices = new Set(allCapturedActions.map((action) => action.index));
-    if ([...selectedActionIndices].some((index) => !Number.isSafeInteger(index) || !recordedIndices.has(index))) {
+    if ([...(selectedActionIndices || excludedActionIndices)].some((index) => !Number.isSafeInteger(index) || !recordedIndices.has(index))) {
       throw Object.assign(new Error("The selected recorder actions are no longer available. Refresh the recording before saving."), { code: "AUTOMATION_RECORDER_ACTIONS_CHANGED", statusCode: 409 });
     }
   }
   // Selection is a subset of the recording, not a new action order. Preserve
   // capture chronology and deduplicate before compiling code.
-  const capturedActions = selectedActionIndices ? allCapturedActions.filter((action) => selectedActionIndices.has(action.index)) : allCapturedActions;
+  const capturedActions = allCapturedActions.filter(action =>
+    (!selectedActionIndices || selectedActionIndices.has(action.index)) && !excludedActionIndices.has(action.index));
   // Reject unsupported context or missing element contracts before creating a
   // linked automation target. The frozen capture and saved plan stay intact.
   if (target === 'web') require("../../lib/recording/automationRecorderReplayPlan").prepareRecorderReplayActions(capturedActions);

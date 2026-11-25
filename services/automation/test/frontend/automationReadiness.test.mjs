@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import { parseApiRequestSource } from '../../frontend/lib/apiRequestSource.ts';
 import { isAutomationStepMapped } from '../../frontend/lib/automationStepPersistence.ts';
-import { inferAutomationBuildRuntime } from '../../frontend/lib/automationRuntime.ts';
+import * as automationRuntime from '../../frontend/lib/automationRuntime.ts';
 import { assertAutomationDispatchAccepted, AutomationStartError, retrySavedAutomationRun, startRemoteAutomationRun, verifyCreatedAutomationRun } from '../../frontend/lib/automationRunDispatch.ts';
 
 const lib = {};
 const code = ts.transpileModule(fs.readFileSync(new URL('../../frontend/lib/automationReadiness.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-new Function('require', 'exports', code)(name => name.includes('apiRequestSource') ? { parseApiRequestSource } : name.includes('automationRuntime') ? {inferAutomationBuildRuntime} : { isAutomationStepMapped }, lib);
+new Function('require', 'exports', code)(name => name.includes('apiRequestSource') ? { parseApiRequestSource } : name.includes('automationRuntime') ? automationRuntime : { isAutomationStepMapped }, lib);
 const item = { id: 'one', app_type_id: 'app', title: 'Checkout', automated: 'yes', status: 'active', revision: 3, automation_status: 'ready' };
 const step = { id: 's1', test_case_id: 'one', step_order: 1, step_type: 'web', action: 'Open checkout', expected_result: 'Checkout is visible', automation_code: 'await page.goto("https://app.test");' };
 
@@ -35,6 +35,17 @@ test('request readiness rejects malformed API requests and detects source change
   assert.throws(() => lib.requireReadyAutomation([lib.assessAutomationReadiness(item, [api])]), /Checkout/);
 });
 
+test('partial API requests are editable but do not appear ready', () => {
+  const api = { ...step, step_type: 'api', automation_code: '// @hellotest-options optional',
+    api_request: { url: '/orders', method: 'GET', auth: { type: 'bearer', credential_reference: '' } } };
+  assert.equal(isAutomationStepMapped(api), false);
+  assert.match(lib.assessAutomationReadiness(item, [api]).issues[0].message, /credential reference/);
+  const withCapture = { ...api, api_request: { ...api.api_request, auth: { type: 'bearer', credential_reference: '@r.token' },
+    captures: [{ path: '', parameter: '@r.orderId' }] } };
+  assert.equal(isAutomationStepMapped(withCapture), false);
+  assert.match(lib.assessAutomationReadiness(item, [withCapture]).issues[0].message, /path and parameter/);
+});
+
 test('build preflight detects API requests in unimplemented Web defaults without changing run preflight',()=>{
  const api={...step,automation_code:'',action:'Send a POST request to /orders'};
  const build=lib.assessAutomationReadiness(item,[api],'build');
@@ -55,6 +66,17 @@ test('prompt-only AI planning is allowed without inventing a saved step and exec
   assert.equal(results[0].ready, true);
   assert.equal(results[0].stepCount, 0);
   assert.equal(results[0].issues[0].severity, 'warning');
+});
+
+test('API case readiness keeps its runtime in a Web application, including an empty authored plan', () => {
+  const apiCase = { ...item, automation_case_type: 'api', description: 'Create an order through the REST API.' };
+  assert.deepEqual(lib.assessAutomationReadiness(apiCase, [], 'build').runtimes, ['api']);
+  const legacyDefault = { ...step, action: 'Verify order status', automation_code: '' };
+  assert.deepEqual(lib.assessAutomationReadiness(apiCase, [legacyDefault], 'build').runtimes, ['api']);
+  const request = { ...step, step_type: 'api', automation_code: '', api_request: { method: 'GET', url: 'https://fixture.example.test/health' } };
+  const run = lib.assessAutomationReadiness(apiCase, [request]);
+  assert.equal(run.ready, true);
+  assert.deepEqual(run.runtimes, ['api']);
 });
 
 test('preflight checks exact deduplicated targets and enforces application and step scope with bounded requests', async () => {
@@ -144,6 +166,6 @@ test('creation acknowledgement is verified by reading scope and state without a 
  const receipt = { id:'created',caseIds:['one'],projectId:'p',appTypeId:'app',mode:'remote' };
  const started = await verifyCreatedAutomationRun(receipt, async id => ({id,project_id:'p',app_type_id:'app',status:'running'}));assert.equal(started,receipt);
  await assert.rejects(verifyCreatedAutomationRun(receipt,async id=>({id,project_id:'p',app_type_id:'app',status:'queued'})),error=>error instanceof AutomationStartError&&error.receipt.id==='created');
- await assert.rejects(verifyCreatedAutomationRun(receipt,async()=>{throw new Error('Read receipt unavailable')}),error=>error.receipt.retryAllowed===false);
+ await assert.rejects(verifyCreatedAutomationRun(receipt,async()=>{throw new Error('Read receipt unavailable')}),error=>error.receipt===receipt);
  await assert.rejects(verifyCreatedAutomationRun(receipt,async id=>({id,project_id:'foreign',app_type_id:'app',status:'running'})),error=>error.receipt.retryAllowed===false);
 });

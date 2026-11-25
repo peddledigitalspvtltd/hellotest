@@ -1915,5 +1915,47 @@
     ],
     "runtime_keys": [],
     "runtime_status": "active"
+  },
+  {
+    "key": "metric.automation.catalog_cases",
+    "label": "Automation catalog cases",
+    "population": "selected_application_automation_cases",
+    "unit": "cases",
+    "surface": "Automation case catalog",
+    "aliases": [],
+    "formula": "Count saved automation cases in the selected application.",
+    "criteria": "The count includes drafts and cases without a recorded passing run.",
+    "feature_ids": [],
+    "calculation_sources": ["services/testing/backend/services/testCaseCatalog.service.js"],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.automation.catalog_recent_pass_rate",
+    "label": "Recent automation pass rate",
+    "population": "recent_effective_results_per_automation_case",
+    "unit": "percent",
+    "surface": "Automation case catalog",
+    "aliases": [],
+    "formula": "Passed finalized outcomes divided by passed, failed and blocked outcomes from up to ten recent effective results per selected automation case.",
+    "criteria": "Show the measured denominator. A result history describes prior attempts.",
+    "feature_ids": [],
+    "calculation_sources": ["services/testing/backend/services/testCaseCatalog.service.js"],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.automation.catalog_failed_cases",
+    "label": "Automation cases with latest failure",
+    "population": "selected_application_automation_cases",
+    "unit": "cases",
+    "surface": "Automation case catalog",
+    "aliases": [],
+    "formula": "Count selected automation cases whose latest finalized outcome is failed.",
+    "criteria": "Cases with a latest blocked outcome are tracked separately.",
+    "feature_ids": [],
+    "calculation_sources": ["services/testing/backend/services/testCaseCatalog.service.js"],
+    "runtime_keys": [],
+    "runtime_status": "active"
   }
 ]

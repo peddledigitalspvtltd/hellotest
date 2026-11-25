@@ -20,13 +20,13 @@ test('canonical legacy Sprint becomes an isolated connected foreach and retains 
   assert.equal(next.nodes[2].data.loopAction, 'workflow');
   assert.equal(next.nodes[2].data.loopBatchSize, '1');
   assert.equal(next.nodes[2].data.timeoutMs, '3600000');
-  assert.equal(next.settings.template_version, 4);
+  assert.equal(next.settings.template_version, 5);
   assert.equal(next.settings.library_publication_mode, 'automatic');
   assert.equal(next.settings.customized, 'retain');
   assert.deepEqual(next.settings.sprint_input_defaults, original.settings.sprint_input_defaults);
   for (const originalNode of original.nodes) {
     const expected = originalNode.id === 'each-story'
-      ? { ...originalNode.data, loopAction: 'workflow', loopBatchSize: '1', timeoutMs: String(original.settings.maxDurationMs) }
+      ? { ...originalNode.data, loopAction: 'workflow', loopBatchSize: '1', loopItemFailure:'continue', timeoutMs: String(original.settings.maxDurationMs) }
       : originalNode.data;
     assert.deepEqual(next.nodes.find(node => node.id === originalNode.id).data, expected);
   }
@@ -47,7 +47,11 @@ test('canonical v2 Sprint gets the nested case loop while custom topology stays 
   const v4 = upgradeSprintPerCaseAssurance(v3);
   assert.equal(v4.settings.template_version, 4);
   assert.deepEqual(loopBodies(v4.nodes, v4.edges)['each-test-case'], ['test-case-assurance','test-data-generator','automation-engineer']);
-  assert.equal(upgradeSprintWorkflow(v4), v4, 'Per-case assurance upgrade is idempotent');
+  v4.nodes.find(node=>node.id==='each-story').data.loopItemFailure='stop';
+  const v5=upgradeSprintWorkflow(v4);
+  assert.equal(v5.nodes.find(node=>node.id==='each-story').data.loopItemFailure,'stop');
+  assert.equal(v5.nodes.find(node=>node.id==='each-test-case').data.loopItemFailure,'continue');
+  assert.equal(upgradeSprintWorkflow(v5),v5);
 });
 test('customized graphs and explicit publication settings are preserved', () => {
   const explicit = legacy(); explicit.settings.library_publication_mode = 'manual';

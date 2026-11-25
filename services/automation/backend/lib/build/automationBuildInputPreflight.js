@@ -1,14 +1,35 @@
+const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+const { normalizeApiRequest, apiCaptureNames } = require('@hellotest/platform/backend/src/utils/testStepAutomation');
+
+function protectedEnvironmentParameters(environment) {
+  return new Set((environment?.variables || []).filter(row => row?.is_secret).map(row => normalizeParameterKey(row.key, 'r')).filter(Boolean));
+}
+
 /** Check authored static test/suite inputs, not legacy generated code or run
  * captures that an earlier section may produce. Never generate missing values. */
-function missingBuildInputs(steps,resolver){
+function missingBuildInputs(steps,resolver,{environment,configuration}={}){
+  const protectedRuntime = new Set([...protectedEnvironmentParameters(environment), ...protectedEnvironmentParameters(configuration)]);
+  const empty = new Set(resolver.emptyParameterNames || []);
+  const earlierCaptures = new Set();
   return (Array.isArray(steps)?steps:[]).map(step=>{
-    const data=resolver.buildData({steps:[{id:step.id,action:step.action,expected_result:step.expected_result}]});
-    const missing=(data.missing_parameter_references||[]).filter(key=>/^[ts]\./i.test(key));
+    if (step.step_type === 'api') {
+      for (const key of apiCaptureNames(normalizeApiRequest(step.api_request))) earlierCaptures.add(key);
+      return null;
+    }
+    const source = [{id:step.id,action:step.action,expected_result:step.expected_result}];
+    const data=resolver.buildData({steps:source});
+    const privateNames = new Set(data.private_parameter_references || []);
+    const defaulted = new Set(data.defaulted_parameter_references || []);
+    const referenced = resolver.referencedParameterNames?.(source) || [];
+    const missing=[...new Set([
+      ...(data.missing_parameter_references||[]).filter(key=>/^[ts]\./i.test(key) || protectedRuntime.has(key)),
+      ...referenced.filter(key=>defaulted.has(key)&&privateNames.has(key) || protectedRuntime.has(key)&&empty.has(key))
+    ])].filter(key => !earlierCaptures.has(key));
     return missing.length?{step_id:step.id,dependency_type:'parameter',reason:'Configure the referenced test inputs before starting browser interaction.',required_context:[],required_parameters:missing}:null;
   }).filter(Boolean);
 }
-function assertBuildInputs(steps,resolver){
-  const blocked=missingBuildInputs(steps,resolver);
+function assertBuildInputs(steps,resolver,context){
+  const blocked=missingBuildInputs(steps,resolver,context);
   if(!blocked.length)return;
   throw Object.assign(new Error('Automation needs configured test inputs before opening the browser. Review the named parameters under Test Data or the linked manual case.'),{
     code:'AUTOMATION_DEPENDENCY_MISSING',statusCode:422,nonRetryable:true,blocked_steps:blocked,active_step_id:blocked[0].step_id,
@@ -35,4 +56,4 @@ function assertCurrentBuildInputs({stepId,parameterReferences=[]},resolver){
     failure_stage:'context',automation_stage:'context',current_step_generation_provider_requests:0,current_step_browser_actions:0
   });
 }
-module.exports={missingBuildInputs,assertBuildInputs,assertCurrentBuildInputs};
+module.exports={missingBuildInputs,assertBuildInputs,assertCurrentBuildInputs,protectedEnvironmentParameters};

@@ -533,8 +533,9 @@ export function DesignPage() {
       api.testSteps.reorder(testCaseId, stepIds)
   });
   const deleteStepMutation = useMutation({ mutationFn: api.testSteps.delete });
-  const createExecutionMutation = useMutation({ mutationFn: api.executions.create });
-
+  const suiteRunRequestId = useRef("");
+  const createExecutionMutation = useMutation({ mutationFn: (input: Parameters<typeof api.executions.create>[0]) =>
+    api.executions.create(input, input.execution_mode === "remote" ? { idempotencyKey: suiteRunRequestId.current } : undefined) });
   const projects = asArray(projectsQuery.data);
   const projectMembers = asArray<ProjectMember>(projectMembersQuery.data);
   const appTypes = asArray(appTypesQuery.data);
@@ -1070,6 +1071,7 @@ export function DesignPage() {
     [selectedSuiteActionIds]
   );
   const openSuiteRunBuilder = (mode: ExecutionStartMode) => {
+    suiteRunRequestId.current = crypto.randomUUID();
     setExecutionDeliveryTouched({ release: false, sprint: false });
     setExecutionRelease("");
     setExecutionSprint("");
@@ -1443,8 +1445,6 @@ export function DesignPage() {
           }
         });
       }
-
-
       if (suiteId) {
         syncSuiteSearchParams(suiteId);
       }
@@ -1671,7 +1671,7 @@ export function DesignPage() {
         queryClient.invalidateQueries({ queryKey: ["executions"] }),
         queryClient.invalidateQueries({ queryKey: ["executions", projectId] })
       ]);
-      navigate(`/executions?view=suite-runs&execution=${response.id}`);
+      navigate(`/executions?view=${executionStartMode === "local" && canRunLocalAutomation ? "local-runs" : "suite-runs"}&execution=${encodeURIComponent(response.id)}`);
     } catch (error) {
       showError(error, "Unable to create run");
     }

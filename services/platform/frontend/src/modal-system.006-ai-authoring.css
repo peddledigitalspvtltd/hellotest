@@ -1062,28 +1062,9 @@
   }
 }
 
-/* Project creation reference treatment
-   The project flow intentionally uses a compact, fixed-header composition so
-   the primary decision remains visible while the configuration body scrolls. */
+/* Project catalog and authoring action colors. */
 :root {
   --project-create-action: #0758c9;
   --project-create-action-hover: #0649aa;
   --project-create-action-ring: rgba(7, 88, 201, 0.24);
-  --project-create-canvas: #fbfaff;
-  --project-create-tint: #f1f4ff;
-  --project-create-line: #cbd2e3;
-  --project-create-ink: #071a3d;
-  --project-create-muted: #5f6678;
-}
-
-.modal-backdrop:has(> .project-create-modal) {
-  align-items: flex-start !important;
-  padding: 0 16px 16px !important;
-  background: #dfe6fb !important;
-}
-
-html:has(.project-create-modal),
-body:has(.project-create-modal) {
-  overflow: hidden !important;
-  scrollbar-gutter: auto !important;
 }

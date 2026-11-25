@@ -71,6 +71,29 @@ test('every buffered browser phase inherits the remaining case deadline',async()
   }
 });
 
+test('a failed entry check stops a mixed case before the first model call or business interaction', async () => {
+  const state = fixture({ call: async () => ({ isError: true, content: [] }) });
+  const apiStep = { id: 'prepare', step_order: 1, step_type: 'api', action: 'GET /health', expected_result: 'HTTP 200' };
+  await assert.rejects(state.run({
+    steps: [apiStep, { ...step, step_order: 2 }],
+    normalizeApiBuild: () => assert.fail('API generation must not run before the web preflight succeeds')
+  }), {
+    code: 'AUTOMATION_BROWSER_ENTRY_UNAVAILABLE', active_step_id: 'save',
+    effect_dispatched: false, outcome_unknown: false
+  });
+  assert.deepEqual(state.dispatched.map(item => item.name), ['browser_navigate']);
+  assert.equal(state.requests.length, 0);
+});
+
+test('a confirmed browser action remains distinct from a later source failure', async () => {
+  const state = fixture({ source: async () => { throw Object.assign(new Error('Source rejected'), { code: 'AUTOMATION_UPSTREAM_SOURCE_INVALID' }); } });
+  await assert.rejects(state.run(), {
+    code: 'AUTOMATION_UPSTREAM_SOURCE_INVALID', effect_dispatched: true, outcome_unknown: false,
+    saved_sections: 0, pending_step_ids: ['save']
+  });
+  assert.equal(state.dispatched.filter(item => item.name === 'browser_click').length, 1);
+});
+
 test('cancellation during progress or a late actor result cannot dispatch or save another operation',async()=>{
   const progressAbort=new AbortController(),beforeDispatch=fixture();
   await assert.rejects(beforeDispatch.run({signal:progressAbort.signal,onProgress:async event=>{
@@ -254,7 +277,7 @@ test('uncertain mutating tool responses and transport failures terminate without
       if(outcome==='transport')throw Object.assign(new Error('Transport disconnected after dispatch'),{code:'ECONNRESET'});
       return {isError:true,content:[{type:'text',text:'The action outcome is unknown.'}]};
     }});
-    await assert.rejects(state.run(),error=>error.nonRetryable===true&&error.saved_sections===0&&error.active_step_id==='save'&&(outcome==='transport'?error.code==='ECONNRESET':error.code==='AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'));
+    await assert.rejects(state.run(),error=>error.nonRetryable===true&&error.saved_sections===0&&error.active_step_id==='save'&&error.effect_dispatched===true&&error.outcome_unknown===true&&(outcome==='transport'?error.code==='ECONNRESET':error.code==='AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'));
     assert.equal(state.dispatched.filter(item=>item.name==='browser_click').length,1);
     assert.equal(state.requests.some(item=>item.phase==='upstream_source'),false);assert.equal(state.saved.length,0);assert.equal(state.closes,1);
   }
@@ -418,7 +441,7 @@ test('native observations reach the actual case hook with redacted snapshot text
   let hook;
   const visit=node=>{
     if(!node||typeof node!=='object')return;
-    if(node.type==='CallExpression'&&node.callee?.property?.name==='buildWithUpstreamPlaywright')hook=node.arguments[0].properties.find(property=>property.key?.name==='onObservation')?.value;
+    if(node.type==='CallExpression'&&node.callee?.name==='generateWebProgram')hook=node.arguments[0].properties.find(property=>property.key?.name==='onObservation')?.value||hook;
     for(const value of Object.values(node))if(Array.isArray(value))value.forEach(visit);else if(value&&typeof value==='object')visit(value);
   };visit(parse(serviceSource,{ecmaVersion:'latest'}));assert.ok(hook,'the real native case build must retain observations');
   const observed=[],events=[];let metadata={},savedEvidence;

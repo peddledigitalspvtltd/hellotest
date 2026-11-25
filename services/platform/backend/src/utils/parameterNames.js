@@ -46,13 +46,14 @@ function collectCodeParameterNames(code) {
   return [...names].filter(Boolean);
 }
 
-function collectCaseParameterNames(item, steps = []) {
+function collectCaseParameterNames(item, steps = [], { scopedOnly = false } = {}) {
   const names = new Set(Object.keys(item.parameter_values || {}).map(key => normalizeParameterKey(key)));
   const addText = (text, gherkin = false) => {
     let source = String(text || "");
     if (gherkin) source = source.split("\n").filter(line => !/^\s*[@#]/.test(line)).join("\n")
       .replace(/<([A-Za-z][A-Za-z0-9_.-]*)>/g, (_, name) => `@${name}`);
     for (const match of source.matchAll(PARAMETER)) {
+      if (scopedOnly && !match[1]) continue;
       if (!match[1] && /^[tsr]$/i.test(match[2]) && source[(match.index || 0) + match[0].length] === ".") continue;
       names.add(normalizeParameterKey(match[0]));
     }

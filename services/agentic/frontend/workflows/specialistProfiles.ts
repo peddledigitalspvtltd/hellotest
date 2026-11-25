@@ -9,8 +9,10 @@ export const requiredGuardrails = [
   "Redact credentials and keep artifact changes for human review",
 ];
 export const workflowTools = [
-  { id: "project_evidence", name: "Project evidence", description: "Read permitted stories, cases, runs, defects and automation." },
-  { id: "knowledge_search", name: "Knowledge search", description: "Retrieve selected indexed project sources." },
+  { id: "project_evidence", name: "Project evidence", effect: "Read", description: "Read permitted stories, cases, runs, defects and automation in the selected scopes." },
+  { id: "knowledge_search", name: "Knowledge search", effect: "Read", description: "Retrieve selected indexed project sources." },
+  { id: "record_read", name: "Observed record", effect: "Read", description: "Open an exact record identified by permitted evidence or the task scope." },
+  { id: "graph_read", name: "Evidence relationships", effect: "Read", description: "Read recorded relationships around an observed record when the source selection allows it." },
 ];
 export function specialistDefaults(id: string): AgenticWorkflowNodeData {
   const profile = profiles[id as keyof typeof profiles];

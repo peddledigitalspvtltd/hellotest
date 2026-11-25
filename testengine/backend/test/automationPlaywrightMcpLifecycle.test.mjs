@@ -14,8 +14,9 @@ const invoke = (app, method, params = {}, session, id = 1) => app.inject({ metho
 async function fixture(t, mode = 'fresh') {
   const prior = process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;
   process.env.RECORDER_ALLOWED_PRIVATE_HOSTS = [prior, '127.0.0.1'].filter(Boolean).join(',');
-  const server = http.createServer((_request, response) => {
-    response.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'site_session=created-by-navigation; HttpOnly; SameSite=Lax' });
+  const server = http.createServer((request, response) => {
+    if (request.url === '/redirect') { response.writeHead(302, { location: '/missing' }); response.end(); return; }
+    response.writeHead(request.url === '/missing' ? 404 : 200, { 'content-type': 'text/html', 'set-cookie': 'site_session=created-by-navigation; HttpOnly; SameSite=Lax' });
     response.end('<!doctype html><h1>Guest application</h1><a href="/login">Sign in</a>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -72,6 +73,7 @@ test('actual lazy native context factory proves only its initial storage before 
   assert.equal(f.launches(), 0); assert.equal(list._meta?.hellotest?.browser_context, undefined);
   const opened = (await invoke(f.app, 'tools/call', { name: 'browser_navigate', arguments: { url: f.url } }, f.session, 3)).json();
   assert.notEqual(opened.result.isError, true);
+  assert.equal(opened._meta.hellotest.navigation_http_status, 200);
   assert.deepEqual(opened._meta.hellotest.browser_context, { schema: 'hellotest.browser-context.v1', owned: true, context_mode: 'fresh_isolated',
     initial_storage_empty: true, storage_state_loaded: false, created_before_navigation: true });
   assert.equal(JSON.stringify(opened.result), f.nativeResults.get(3), 'Host lifecycle metadata never rewrites the upstream native result');
@@ -79,10 +81,14 @@ test('actual lazy native context factory proves only its initial storage before 
   assert.ok(f.events.findIndex(event => event.kind === 'page') > 0);
   assert.ok((await f.browser().contexts()[0].cookies()).some(cookie => cookie.name === 'site_session'), 'The application genuinely creates a cookie after the initial measurement');
   const snapshot = (await invoke(f.app, 'tools/call', { name: 'browser_snapshot', arguments: {} }, f.session, 4)).json();
+  assert.equal(snapshot._meta.hellotest.navigation_http_status, undefined, 'Navigation evidence belongs only to its actual browser call');
   assert.equal(snapshot._meta.hellotest.browser_context.initial_storage_empty, true, 'Initial lifecycle evidence remains historical when site cookies exist');
   assert.equal(f.events.filter(event => event.kind === 'initial_storage').length, 1, 'Never infer initial cleanliness by remeasuring post-navigation storage');
   assert.equal(JSON.stringify(snapshot.result), f.nativeResults.get(4));
   assert.doesNotMatch(JSON.stringify(snapshot._meta), /site_session|created-by-navigation|cookies|origins|private-/);
+  const missing = (await invoke(f.app, 'tools/call', { name: 'browser_navigate', arguments: { url: new URL('/redirect', f.url).href } }, f.session, 5)).json();
+  assert.equal(missing._meta.hellotest.navigation_http_status, 404, 'The authenticated metadata identifies the final document status after redirects');
+  assert.equal(JSON.stringify(missing.result), f.nativeResults.get(5));
 });
 
 test('nonempty or unknown initial storage cannot claim emptiness, and imported or preauthenticated options cannot issue the fresh-context receipt', { timeout: 90000 }, async t => {

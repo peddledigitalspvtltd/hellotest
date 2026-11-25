@@ -9,6 +9,7 @@ import { AGENT_CATEGORIES, AGENT_EXPERIENCES } from "./agentExperience";
 import "./AgentWorkspace.css";
 import { QUALITY_AGENT_EXPERIENCES, QUALITY_AGENT_KINDS, type QualityExperienceKind } from "../lib/qualityAgentExperience";
 import { agentResultLabel, type ProjectAgent } from "./agentDefinitions";
+import outcomeContracts from "../../shared/agentOutcomeContracts.json";
 
 const qualityIcons = { web: IconRoute, security: IconShieldCheck, performance: IconBolt, accessibility: IconAccessible, visual: IconPhoto };
 const builtInEntries = [
@@ -17,23 +18,32 @@ const builtInEntries = [
   ...HELLOTEST_AGENT_CATALOG.map(agent => ({ id: agent.id, name: agent.name, icon: agent.icon, builder: false }))
 ];
 const starterTasks = [
+  { id: "automation-engineer", label: "Automate a manual test", detail: "Build a script with browser evidence" },
   { id: "test-designer", label: "Close a coverage gap", detail: "Find scenarios worth adding" },
   { id: "failure-analyst", label: "Understand a failure", detail: "Find evidence and next checks" },
   { id: "repository_knowledge", label: "Understand a repository", detail: "Build searchable source knowledge" }
+];
+const resultTypes = [
+  { id: "all", label: "All results" },
+  { id: "assessment", label: "Assessment" },
+  { id: "draft", label: "Creates drafts" },
+  { id: "build", label: "Automation build" }
 ];
 function readPinnedAgents(key: string): string[] {
   try { const saved = JSON.parse(localStorage.getItem(key) || "[]"); return Array.isArray(saved) ? [...new Set(saved.filter(id => typeof id === "string"))].slice(0, 200) : []; } catch { return []; }
 }
 
-export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onOpenQuality, projectAgents = [], canManage = false, onCreate, onEdit, onCustomize, loading, error, onRetry }: {
-  userId: string;
+export function AgentDirectory({ userId, projectId, appTypeId, onOpenRepository, onOpenSpecialist, onOpenQuality, projectAgents = [], canManage = false, onCreate, onEdit, onCustomize, loading, error, onRetry }: {
+  userId: string; projectId?: string; appTypeId?: string;
   projectAgents?: ProjectAgent[]; canManage?: boolean; loading?: boolean; error?: string; onRetry?: () => void;
-  onCreate?: () => void; onEdit?: (agent: ProjectAgent) => void; onCustomize?: (agent: HelloTestAgent) => void;
+  onCreate?: () => void; onEdit?: (agent: ProjectAgent) => void; onCustomize?: (agent: HelloTestAgent, descriptorHash?: string) => void;
   onOpenQuality: (kind: QualityExperienceKind) => void;
   onOpenRepository: (id: RepositoryAgentType) => void;
   onOpenSpecialist: (agent: HelloTestAgent) => void;
 }) {
   const runtime = useQuery({ queryKey: ['repository-agent-catalog'], queryFn: ({ signal }) => agenticApi.repositoryAgents.catalog({ signal }), staleTime: 60000, retry: 1 });
+  const scorecards = useQuery({ queryKey: ['agent-scorecards', userId, projectId, appTypeId], queryFn: () => agenticApi.agentDefinitions.scorecards(projectId!, appTypeId), enabled: Boolean(projectId), staleTime: 30000, retry: false });
+  const descriptors = useQuery({ queryKey: ['agent-descriptors', projectId], queryFn: () => agenticApi.agentDefinitions.descriptors(projectId!), enabled: Boolean(projectId && canManage), staleTime: 30000, retry: false });
   const repositoryAvailable = runtime.data?.runtime?.available !== false && runtime.data?.capabilities?.repository_analysis !== false;
   const entries = useMemo(() => [...builtInEntries.filter(entry => !entry.builder || repositoryAvailable), ...projectAgents.filter(agent => !agent.archived).map(agent => ({ id: agent.id, name: agent.definition.name, icon: <IconRobot />, builder: false }))], [projectAgents, repositoryAvailable]);
   const experienceFor = (id: string) => {
@@ -44,6 +54,14 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
   };
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [resultType, setResultType] = useState("all");
+  const resultFor = (entry: (typeof entries)[number]) => {
+    if (entry.id === "automation-engineer") return "build";
+    const saved = projectAgents.find(item => item.id === entry.id);
+    const kind = (saved?.active_definition || saved?.definition)?.output_contract?.kind;
+    const contract = outcomeContracts.agents[entry.id as keyof typeof outcomeContracts.agents];
+    return entry.builder || (kind && kind !== "review") || contract?.mode === "author" ? "draft" : "assessment";
+  };
   const preferenceKey = `hellotest.agents.pinned:${userId}`;
   const [pinned, setPinned] = useState<string[]>(() => readPinnedAgents(preferenceKey));
   useEffect(() => {
@@ -66,8 +84,9 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
   const filtered = useMemo(() => entries.filter(agent => {
     const experience = experienceFor(agent.id);
     return (category === "all" || category === "pinned" ? category !== "pinned" || pinned.includes(agent.id) : category === experience.category)
+      && (resultType === "all" || resultFor(agent) === resultType)
       && [agent.name, experience.outcome, experience.inputs, experience.output].join(" ").toLowerCase().includes(search.trim().toLowerCase());
-  }).sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id))), [category, pinned, search, entries]);
+  }).sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id))), [category, pinned, search, entries, resultType]);
   const togglePin = (id: string) => setPinned(current => {
     const next = current.includes(id) ? current.filter(value => value !== id) : [...current, id];
     try { localStorage.setItem(preferenceKey, JSON.stringify(next)); } catch { /* Pins remain available during this session. */ }
@@ -84,6 +103,7 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
       <div className="agent-library-filters" role="group" aria-label="Filter agents by purpose">
         {[{ id: "all", label: "All agents" }, ...AGENT_CATEGORIES, { id: "custom", label: "Project agents" }, { id: "pinned", label: "Pinned" }].map(filter => <button key={filter.id} type="button" aria-pressed={category === filter.id} onClick={() => setCategory(filter.id)}>{filter.id === "pinned" && <IconBookmark size={14} aria-hidden="true" />}{filter.label}<span>{filter.id === "all" ? entries.length : filter.id === "pinned" ? entries.filter(entry => pinned.includes(entry.id)).length : entries.filter(entry => experienceFor(entry.id).category === filter.id).length}</span></button>)}
       </div>
+      <label className="form-field agent-library-result-filter"><span>Result type</span><select value={resultType} onChange={event => setResultType(event.target.value)}>{resultTypes.map(type => <option key={type.id} value={type.id}>{type.label}</option>)}</select></label>
       {!repositoryAvailable && <p role="status">Repository builders are unavailable: {runtime.data?.runtime.detail || "the Python analysis runtime is not installed"}. Existing analyses remain available in their workspaces.</p>}
       {loading && <p role="status">Loading project agents…</p>}
       {error && <div className="agent-editor-error" role="alert">{error} <button type="button" onClick={onRetry}>Retry</button></div>}
@@ -91,15 +111,24 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
       <div className="agent-library-grid">{filtered.map(agent => {
         const experience = experienceFor(agent.id);
         const saved = projectAgents.find(item => item.id === agent.id);
+        const engineer = agent.id === "automation-engineer";
+        const scoreKey = engineer ? "automation:browser" : agent.id.startsWith("browser-") ? `quality:${agent.id.slice(8)}` : `${agent.builder ? "repository" : "workflow"}:${agent.id}`;
+        const score = scorecards.data?.items?.find(item => item.key === scoreKey);
+        const result = resultFor(agent);
+        const template = engineer ? undefined : HELLOTEST_AGENT_CATALOG.find(item => item.id === agent.id);
         return <article className="agent-library-card" data-category={experience.category} data-agent={agent.id} key={agent.id}>
-          <header><span className="agent-library-icon">{agent.icon}</span><span className="agent-library-kind">{agent.builder ? "Source builder" : saved ? "Project AI agent" : experience.category === "quality" ? "Browser mission agent" : "Workspace specialist"}</span><button className="agent-pin" type="button" aria-label={`${pinned.includes(agent.id) ? "Unpin" : "Pin"} ${agent.name}`} aria-pressed={pinned.includes(agent.id)} onClick={() => togglePin(agent.id)}><IconBookmark size={17} fill={pinned.includes(agent.id) ? "currentColor" : "none"} aria-hidden="true" /></button></header>
+          <header><span className="agent-library-icon">{agent.icon}</span><span className="agent-library-kind">{engineer ? "Browser automation" : agent.builder ? "Source builder" : saved ? "Project AI agent" : experience.category === "quality" ? "Browser mission agent" : "Workspace specialist"}</span><button className="agent-pin" type="button" aria-label={`${pinned.includes(agent.id) ? "Unpin" : "Pin"} ${agent.name}`} aria-pressed={pinned.includes(agent.id)} onClick={() => togglePin(agent.id)}><IconBookmark size={17} fill={pinned.includes(agent.id) ? "currentColor" : "none"} aria-hidden="true" /></button></header>
           <div className="agent-library-copy"><h3>{agent.name}</h3><p>{experience.outcome}</p></div>
-          <details className="agent-library-details"><summary>Inputs & output</summary><dl><div><dt>Uses</dt><dd>{experience.inputs}</dd></div><div><dt>Delivers</dt><dd>{experience.output}</dd></div></dl></details>
+          <details className="agent-library-details"><summary>Requirements and result</summary><dl><div><dt>Needs</dt><dd>{experience.inputs}</dd></div><div><dt>Returns</dt><dd>{experience.output}</dd></div><div><dt>Changes</dt><dd>{engineer ? "Saves generated instructions in the chosen automation case" : result === "draft" ? "Saves reviewed drafts after approval" : "Saves the review for inspection"}</dd></div></dl></details>
+          {score && <details className="agent-library-details"><summary>{score.completed}/{score.runs} recent runs completed{score.median_duration_ms != null ? ` · ${Math.round(score.median_duration_ms / 1000)}s median` : ""}{score.median_tokens != null ? ` · ${score.median_tokens.toLocaleString()} tokens median` : ""}</summary>
+            {!!score.drafts && <p>{score.accepted}/{score.drafts} drafts accepted</p>}
+            {Object.entries(score.failure_codes).map(([code, count]) => <p key={code}>{count} {code === "UNRECORDED" ? "without a recorded failure code" : code}</p>)}
+          </details>}
           {saved && <p className="agent-version">{saved.active_version ? `Active v${saved.active_version}${saved.current_version !== saved.active_version ? ` · Draft v${saved.current_version}` : ""}` : "Draft · activate to run"}</p>}
-          <footer><small>{agent.builder ? <IconCheck size={14} aria-hidden="true" /> : <IconSparkles size={14} aria-hidden="true" />}{agent.builder ? "Publish after review" : "Review brief"}</small><div className="agent-card-actions">{canManage && (saved ? <button className="ghost-button" type="button" onClick={() => onEdit?.(saved)}>Edit</button> : !agent.builder && <button className="ghost-button" type="button" aria-label={`Customize ${agent.name}`} onClick={() => onCustomize?.(HELLOTEST_AGENT_CATALOG.find(item => item.id === agent.id)!)}>Customize</button>)}<button className="ghost-button" type="button" disabled={Boolean(saved && !saved.active_version)} aria-label={`Open ${agent.name}`} onClick={() => open(agent.id)}>Open agent <IconArrowRight size={16} aria-hidden="true" /></button></div></footer>
+          <footer><small>{agent.builder ? <IconCheck size={14} aria-hidden="true" /> : <IconSparkles size={14} aria-hidden="true" />}{engineer ? "Build & verify" : agent.builder ? "Publish after review" : result === "draft" ? "Drafts for review" : "Evidence review"}</small><div className="agent-card-actions">{canManage && (saved ? <button className="ghost-button" type="button" onClick={() => onEdit?.(saved)}>Edit</button> : template && <button className="ghost-button" type="button" aria-label={`Customize ${agent.name}`} onClick={() => onCustomize?.(template, descriptors.data?.find(item => item.system === "workflow" && item.id === agent.id)?.descriptor_hash)}>Customize</button>)}<button className="ghost-button" type="button" disabled={Boolean(saved && !saved.active_version)} aria-label={`Open ${agent.name}`} onClick={() => open(agent.id)}>{engineer ? "Open build workspace" : "Open agent"} <IconArrowRight size={16} aria-hidden="true" /></button></div></footer>
         </article>;
       })}</div>
-      {!filtered.length && <div className="agent-library-empty"><IconSearch size={26} aria-hidden="true" /><h3>{category === "pinned" && !search ? "Keep your regular agents close" : "No matching agents"}</h3><p>{category === "pinned" && !search ? "Pin an agent from the library to find it here." : "Try another task or clear the filters to see all agents."}</p><button className="ghost-button" type="button" onClick={() => { setSearch(""); setCategory("all"); }}>Show all agents</button></div>}
+      {!filtered.length && <div className="agent-library-empty"><IconSearch size={26} aria-hidden="true" /><h3>{category === "pinned" && !search ? "Keep your regular agents close" : "No matching agents"}</h3><p>{category === "pinned" && !search ? "Pin an agent from the library to find it here." : "Try another task or clear the filters to see all agents."}</p><button className="ghost-button" type="button" onClick={() => { setSearch(""); setCategory("all"); setResultType("all"); }}>Show all agents</button></div>}
     </section>
   </div>;
 }

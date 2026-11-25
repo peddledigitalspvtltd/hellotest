@@ -55,3 +55,31 @@ test('native task editor preserves defaults, source options, dataset identity an
  const view=f.render({kind:'artifactTask',artifactTask:'automation-engineer',testEnvironmentId:'environment'});assert.match(view.html,/1 variables, including protected values/);assert.equal(f.control('Browser generation').props.value,'read_only');assert.equal(f.control('Readiness handling').props.value,'verify-inputs');change(f,'Test Environment','');assert.deepEqual(f.patches.pop(),{testEnvironmentId:''});
  change(f,'Native task','test-case-generation');assert.equal(f.patches.at(-1).prompt,'');assert.equal(f.patches.at(-1).artifactTask,'test-case-generation');
 });
+
+test('manual automation exposes a scoped case picker and live browser verification settings',async()=>{
+ const f=workflowEditorFixture({manualCases:[{id:'case',display_id:'TC-21',title:'Search Catalog'}]});
+ const view=f.render({kind:'artifactTask',artifactTask:'automation-engineer',automationSource:'manual_case',automationBrowserMode:'perform_steps',automationVerificationMode:'verify'});
+ assert.match(view.html,/TC-21 · Search Catalog/);
+ assert.doesNotMatch(view.html,/Readiness handling/);
+ assert.equal(f.control('After generating').props.value,'verify');
+ change(f,'Manual Test Case','case');assert.deepEqual(f.patches.pop(),{automationManualCaseId:'case'});
+ const query=f.queries.find(query=>query.queryKey[0]==='workflow-manual-test-cases');
+ assert.equal(query.enabled,true);
+ await query.queryFn({signal:new AbortController().signal});
+ assert.deepEqual(f.calls.at(-1)[1],{project_id:'project',app_type_id:'app',search:undefined});
+});
+
+test('switching Automation Agents preserves the source and hides browser controls for API builds', () => {
+ const f = workflowEditorFixture();
+ const data = {kind:'artifactTask', artifactTask:'automation-engineer', automationSource:'sprint', automationBrowserMode:'perform_steps'};
+ const web = f.render(data);
+ assert.match(web.html, /Web Automation Agent/);
+ assert.match(web.html, /API Automation Agent/);
+ change(f, 'Automation Agent', 'api');
+ const patch = f.patches.pop();
+ assert.deepEqual(patch, {automationRuntime:'api'});
+ const api = f.render({...data, ...patch});
+ assert.equal(f.control('Test Case source').props.value, 'sprint');
+ assert.doesNotMatch(api.html, /Browser generation|After generating|Inspect the starting page/);
+ assert.match(api.html, /Base URL for relative API requests/);
+});

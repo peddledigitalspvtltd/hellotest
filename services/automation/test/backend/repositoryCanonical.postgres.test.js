@@ -47,7 +47,25 @@ test('canonical repository writes serialize URL reuse and preserve legacy refere
   await repository.updateLearningCacheEntry('legacy-b',{page_url:'https://app.test/c'});
   assert.equal((await repository.getLearningCacheEntry('legacy-b-field')).page_url,'https://app.test/c');
   assert.equal((await repository.getLearningCacheEntry('legacy-a-field')).page_url,'https://app.test/a');
-  await repository.deleteLearningCacheEntry(fields[0].id,{confirmed:true});
+  const emailReference = email.metadata.reference_aliases.find(value => value.startsWith('Legacy Login.'));
+  for (const [id,app] of [['asset-bound','app'],['asset-native','app'],['inline-code','app'],['different-app','other-app']]) {
+    await db.prepare("INSERT INTO test_cases(id,app_type_id,title,automated,automation_status) VALUES (?,?,?,'yes','ready')").run(id,app,id);
+  }
+  for (const [id,code] of [
+    ['asset-bound',`await web.fill(${JSON.stringify(emailReference)}, "value");`],
+    ['asset-native',`await page.locator(${JSON.stringify(emailReference)}).fill("value");`],
+    ['inline-code',`await page.locator("#email").fill(${JSON.stringify(emailReference)});`],
+    ['different-app',`await web.fill(${JSON.stringify(emailReference)}, "value");`]
+  ]) {
+    await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action,step_type,automation_code) VALUES (?,?,1,'Enter email','web',?)").run('binding-' + id,id,code);
+  }
+  const impact = await repository.deleteLearningCacheEntry(fields[0].id);
+  assert.equal(impact.requires_confirmation,true);
+  assert.deepEqual(impact.usage.map(row=>row.id),['asset-bound','asset-native']);
+  const removal = await repository.deleteLearningCacheEntry(fields[0].id,{confirmed:true});
+  assert.deepEqual(removal.invalidated_cases.map(row=>row.id),['asset-bound','asset-native']);
+  assert.equal((await db.prepare("SELECT automation_status FROM test_cases WHERE id='inline-code'").get()).automation_status,'ready');
+  assert.equal((await db.prepare("SELECT automation_status FROM test_cases WHERE id='different-app'").get()).automation_status,'ready');
   assert.equal((await obs.prepare('SELECT COUNT(*)::int n FROM automation_learning_cache WHERE locator=? AND app_type_id=?').get('#email','app')).n,0,'explicit deletion removes the alias family and cannot resurrect retired fields');
   await repository.deleteLearningCacheScreen({app_type_id:'other-app',screen_name:'Legacy 2',confirmed:true});
   assert.equal((await obs.prepare("SELECT COUNT(*)::int n FROM automation_learning_cache WHERE id IN ('legacy-b','legacy-b-field')").get()).n,0);

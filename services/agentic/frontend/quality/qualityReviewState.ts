@@ -5,7 +5,7 @@ export type QualityReviewState = {
   reviewed: boolean;
   showPolicy: boolean;
   showHistory: boolean;
-  tab: 'overview' | 'model' | 'findings' | 'visual' | 'data';
+  tab: 'result' | 'evidence' | 'receipt';
   notice: string;
   formError: string;
   baselineArtifact: QualityAgentArtifact | null;
@@ -27,7 +27,7 @@ export function QualityReviewInitial(): QualityReviewState {
     reviewed: false,
     showPolicy: false,
     showHistory: false,
-    tab: 'overview',
+    tab: 'result',
     notice: '',
     formError: '',
     baselineArtifact: null,

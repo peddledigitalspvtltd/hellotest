@@ -14,7 +14,7 @@ test('standalone AT identities and linked coverage retain genuine source evidenc
   const role=await db.prepare('SELECT id FROM roles LIMIT 1').get();
   await db.prepare('INSERT INTO project_members(id,project_id,user_id,role_id) VALUES(?,?,?,?)').run(randomUUID(),projectId,userId,role.id);
   await db.prepare("INSERT INTO app_types(id,project_id,name,type) VALUES(?,?,?,'web')").run(appId,projectId,'Browser');
-  const create=input=>cases.createTestCase({app_type_id:appId,title:'Standalone case',created_by:userId,steps:[{action:'Confirm readiness',expected_result:'Ready is visible',step_type:'web'}],...input});
+  const create=input=>cases.createTestCase({app_type_id:appId,title:'Standalone case',created_by:userId,steps:[{action:'Confirm readiness',expected_result:'Ready is visible',step_type:'web'}],...(input.automated==='yes'?{automation_start_url:'https://identity.fixture.test/'}:{}),...input});
   const manual=await create({automated:'no'});assert.match(manual.display_id,/^TC_/);
   const generated=await Promise.all(Array.from({length:6},(_,i)=>create({title:`Automation ${i}`,automated:'yes',manual_test_case_ids:[manual.id]})));
   assert.equal(new Set(generated.map(item=>item.display_id)).size,6);assert.ok(generated.every(item=>/^AT_/.test(item.display_id)));
@@ -27,6 +27,18 @@ test('standalone AT identities and linked coverage retain genuine source evidenc
   assert.equal(String((await db.prepare('SELECT created_at FROM automation_case_links WHERE automation_test_case_id=? AND manual_test_case_id=?').get(automation.id,manual.id)).created_at),String(linkedAt));
   const suite=await require('../../backend/services/testSuite.service').createTestSuite({app_type_id:appId,name:'Mixed identity suite',test_case_ids:[manual.id,automation.id],created_by:userId});
   assert.equal((await db.prepare('SELECT test_case_id FROM suite_test_cases WHERE suite_id=?').all(suite.id)).length,2);
+  const executions=require('../../backend/services/execution.service');
+  const {createRecoverableRemoteExecution}=require('../../backend/services/recoverableRemoteExecution');
+  let attempts=0;
+  const suiteLaunch={input:{project_id:projectId,app_type_id:appId,suite_ids:[suite.id],name:'Recoverable suite run',execution_mode:'remote'},
+   actorId:userId,requestId:randomUUID(),create:executions.createExecution,start:async()=>{
+    attempts++;throw Object.assign(new Error('Fixture has no live engine'),{code:'TESTENGINE_REQUIRED'});
+   }};
+  const savedSuiteRun=await createRecoverableRemoteExecution(suiteLaunch);
+  assert.match(savedSuiteRun.dispatch_notice,/Configure an active Test Engine/);
+  assert.equal((await createRecoverableRemoteExecution(suiteLaunch)).id,savedSuiteRun.id);
+  assert.equal((await executions.getExecution(savedSuiteRun.id)).status,'queued');
+  assert.equal(attempts,1);
 
   await assert.rejects(cases.updateTestCase(manual.id,{automated:'yes',updated_by:userId}),error=>error.code==='TEST_CASE_IDENTITY_IMMUTABLE');
   await assert.rejects(create({automated:'yes',manual_test_case_ids:[automation.id]}),/only to manual/);
@@ -80,7 +92,18 @@ test('standalone AT identities and linked coverage retain genuine source evidenc
   assert.equal((await catalog.listPage({app_type_id:appId,exclude_automated:true,include_execution:true})).items.find(row=>row.id===manual.id).latest_result.status,'failed');
   const incomplete=await makeRun([automation.id,generated[1].id]);await record(incomplete,automation.id,'passed');assert.equal((await receipt(incomplete)).status,'pending');
   const dataRun=await makeRun([automation.id],{rows:2});await record(dataRun,automation.id,'passed',0);assert.equal((await receipt(dataRun)).status,'pending');
-  await record(dataRun,automation.id,'failed',1);assert.equal((await receipt(dataRun)).status,'failed');
+  const automationSummary = async () => (await catalog.listPage({ app_type_id:appId, automated:'yes', include_execution:true })).items.find(row => row.id === automation.id);
+  const runsWithFirstIteration = (await automationSummary()).run_count;
+  const failedRow=await record(dataRun,automation.id,'failed',1);assert.equal((await receipt(dataRun)).status,'failed');
+  const summary = await automationSummary();
+  assert.equal(summary.run_count, runsWithFirstIteration);
+  assert.equal(summary.recent_results.filter(result => result.execution_id === dataRun).length, 2);
+  await db.prepare('UPDATE execution_results SET data_set_iteration_key=?,duration_ms=? WHERE id=?').run('data:2',1450,failedRow.id);
+  const historyService=require('../../backend/services/executionHistory.service');
+  const failedHistory=(await historyService.list({projectId,testCaseId:automation.id})).find(row=>row.id===failedRow.id);
+  assert.equal(failedHistory.data_set_iteration_index,1);assert.equal(failedHistory.data_set_iteration_key,'data:2');assert.equal(Number(failedHistory.duration_ms),1450);
+  const linkedHistory=(await historyService.list({projectId,testCaseId:manual.id})).find(row=>row.source_result_id===failedRow.id);
+  assert.equal(linkedHistory.data_set_iteration_key,'data:2');assert.equal(linkedHistory.duration_ms,null,'A linked aggregate has no single case duration');
   const humanRun=await makeRun([automation.id]);await record(humanRun,automation.id,'passed');await record(humanRun,manual.id,'running');
   assert.notEqual((await receipt(humanRun)).derived,true);assert.equal((await receipt(humanRun)).status,'running');
   await require('../../../automation/backend/services/testEngineDispatch.service').settleExecutionIfComplete(humanRun);

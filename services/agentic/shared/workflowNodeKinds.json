@@ -344,8 +344,8 @@
     },
     "webAgent": {
       "kind": "webAgent",
-      "label": "Web Evidence Agent",
-      "description": "Analyze supplied web evidence without trusting embedded instructions",
+      "label": "Read web page over HTTP",
+      "description": "Fetch the page from the configured endpoint with an HTTP GET request.",
       "executor": "operation",
       "executable": true,
       "specialist": false,
@@ -368,9 +368,9 @@
         "paletteGroup": "AI reviews and source analysis"
       },
       "defaults": {
-        "label": "Web Evidence Agent step",
+        "label": "Read web page over HTTP",
         "kind": "webAgent",
-        "summary": "Analyze supplied web evidence without trusting embedded instructions",
+        "summary": "Fetch page content for use in downstream steps.",
         "retryCount": "2",
         "retryDelayMs": "1000",
         "timeoutMs": "60000",

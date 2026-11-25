@@ -1,5 +1,6 @@
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { createVerificationRepairContext } = require("../verification/automationVerificationRepairContext");
+const { deterministicSectionInstructions } = require("../upstream/automationUpstreamSectionSource");
 
 /** Shared domain hooks for both saved-build paths. The verification pipeline
  * retains authority over replay safety, one locator repair and unchanged oracles;
@@ -36,8 +37,12 @@ function createSavedBuildVerificationHooks({ assertBuildAccess, getVerificationA
       await assertAccess();
       const build = getBuild();
       const sources = new Map(after.map(row => [row.step_id, row.automation_code]));
-      const repaired = { ...build, updates: build.updates.map(update => ({ ...update,
-        automation_code: sources.get(update.step.id) || update.automation_code })) };
+      const repaired = { ...build, updates: build.updates.map(update => {
+        const source = sources.get(update.step.id);
+        if (!source || source === update.automation_code) return update;
+        return { ...update, automation_code: source,
+          automation_instructions: deterministicSectionInstructions(update.step, source)?.steps[0] };
+      }) };
       const replaced = new Set();
       for (let section = 0; section < before.length; section++) {
         for (let index = 0; index < before[section].operations.length; index++) {

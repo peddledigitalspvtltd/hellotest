@@ -3,18 +3,30 @@ import { specialistDefaults, specialistProfiles, type WorkflowSkill } from '../w
 import outcomeContracts from '../../shared/agentOutcomeContracts.json';
 import type { NodeAiConfiguration } from '../workflows/NodeAiConfiguration';
 
+export const AGENT_RECORD_INPUT_KEYS = { story: 'story_id', test_case: 'test_case_id', run: 'execution_id', release: 'release_id', sprint: 'sprint_id', environment: 'environment_id' } as const;
+export type AgentInputField = { name: string; label: string; type: 'text' | keyof typeof AGENT_RECORD_INPUT_KEYS; default?: string; required: boolean };
 export type AgentDefinition = {
   output_contract?: { kind: 'review' | 'story' | 'test_case' | 'defect' | 'run' | 'automation'; minimum_artifacts: number };
   feature_id?: string;
+  derived_from?: { agent_id: string; descriptor_hash: string };
+  guardrail_rules?: Array<{ id: 'exclude_email_addresses' | 'minimum_citations' | 'maximum_drafts'; value?: number }>;
   ai_configuration?: NodeAiConfiguration;
   review_criteria?: string;
   name: string; description: string; objective: string; instructions: string;
   skills: WorkflowSkill[]; allowed_tools: string[]; context_scopes: string[];
   context: string; guardrails: string; integration_id: string; source_ids: string[]; source_kinds: string[];
   required_inputs: string[];
+  input_fields?: AgentInputField[];
   acceptance: { require_evidence: boolean; no_evidence_gaps: boolean; minimum_findings: number };
   limits: { timeout_ms: number; max_model_calls: number; max_output_tokens: number };
 };
+export function agentInputFields(definition: AgentDefinition): AgentInputField[] {
+  return definition.input_fields || definition.required_inputs.map(name => ({
+    name, label: name.replace(/_id$/, '').replace(/_/g, ' '), required: true,
+    type: (Object.entries(AGENT_RECORD_INPUT_KEYS).find(([, field]) => field === name)?.[0] || 'text') as AgentInputField['type']
+  }));
+}
+export type ProjectAgentVersion = { version: number; definition: AgentDefinition; definition_hash: string; created_at: string; activated_at: string | null };
 export type ProjectAgent = {
   id: string; project_id: string; current_version: number; active_version: number | null; archived: boolean;
   definition: AgentDefinition; active_definition: AgentDefinition | null; definition_hash: string; updated_at: string;

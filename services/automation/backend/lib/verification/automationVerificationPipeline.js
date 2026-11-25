@@ -32,7 +32,7 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
         await assertActiveCurrent();
         validateVerificationReceipt(receipt, verificationId, current, executionDriver);
         const failure = receipt.failure;
-        summary = { ...summary, execution_status: receipt.status, replay_safe: receipt.replay_safe, completed_operations: Number(receipt.completed_operations) || 0, assertion_count: Number(receipt.assertion_count) || 0, duration_ms: Number(receipt.duration_ms) || 0, ...(failure ? { failure: { step_id: failure.step_id, operation_index: failure.operation_index, code: failure.code, action_outcome: failure.action_outcome } } : { failure: undefined }) };
+        summary = { ...summary, ...(attempts===1?{first_attempt_status:receipt.status}:{}), execution_status: receipt.status, replay_safe: receipt.replay_safe, completed_operations: Number(receipt.completed_operations) || 0, assertion_count: Number(receipt.assertion_count) || 0, duration_ms: Number(receipt.duration_ms) || 0, ...(failure ? { failure: { step_id: failure.step_id, operation_index: failure.operation_index, code: failure.code, action_outcome: failure.action_outcome } } : { failure: undefined }) };
         return receipt;
     };
     const incompleteResult = receipt => {

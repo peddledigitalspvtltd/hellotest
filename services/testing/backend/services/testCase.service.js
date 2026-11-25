@@ -13,9 +13,9 @@ const { DOMAIN_METADATA, TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } =
 const displayIdService = require("@hellotest/platform/backend/services/displayId.service");
 const {
   normalizeApiRequest,
-  validateAuthoredApiRequest,
+  validateAuthoredApiRequest, authoredApiRequestUnchanged, hasExecutableApiRequest,
   normalizeRichText,
-  normalizeTestStepType
+  authoredStepType
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
 const { groupRows, placeholdersFor, uniqueIds } = require("@hellotest/platform/backend/src/utils/batchHydration");
@@ -24,7 +24,6 @@ const { setGherkinFeatureTitle } = require("@hellotest/platform/backend/src/util
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
 const { storedAutomationCaseType, resolveAutomationCaseType, resolveAutomationCaseSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const {normalizeParameterLayer}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
-
 // Removing an authored own value restores its supplying layer's precedence.
 // A stale precedence marker must never keep shadowing live linked defaults.
 const caseDataOptions = (input, values, previousOptions) => {
@@ -707,7 +706,7 @@ const normalizeAutomated = (value, fallback = DEFAULT_AUTOMATED) => {
 };
 
 const hasCompleteAutomation = steps => Boolean(steps?.length && steps.every(step => step.step_type === 'api'
-  ? String(normalizeApiRequest(step.api_request)?.url || '').trim()
+  ? hasExecutableApiRequest(step.api_request)
   : String(step.automation_code || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*$/gm, '').trim()));
 
 const normalizeAutomationStatus = (value, automated, fallback = null, hasAutomation = false) => {
@@ -817,7 +816,7 @@ const normalizeSteps = (steps = [], { preserveEmptyIds = false, validateApiReque
       step_order: Number.isFinite(Number(step?.step_order)) ? Number(step.step_order) : index + 1,
       action: normalizeText(step?.action),
       expected_result: normalizeText(step?.expected_result || step?.expectedResult),
-      step_type: normalizeTestStepType(step?.step_type || step?.stepType, "web"),
+      step_type: authoredStepType(step || {}),
       automation_code: normalizeRichText(step?.automation_code || step?.automationCode),
       api_request: normalizeApiRequest(validateApiRequests ? validateAuthoredApiRequest(step?.api_request || step?.apiRequest, {stepOrder:index+1}) : step?.api_request || step?.apiRequest),
       group_id: normalizeText(step?.group_id || step?.groupId),
@@ -863,15 +862,16 @@ async function prepareStepSetUpdate(testCaseId, incoming, { lock = false } = {})
       if (!provided(step, field)) merged[field] = provided(step, alias) ? step[alias] : previous?.[field];
       delete merged[alias];
     }
-    if (provided(step, "api_request") || provided(step, "apiRequest")) validateAuthoredApiRequest(merged.api_request, { stepOrder: index + 1 });
+    const apiRequestChanged = (provided(step, "api_request") || provided(step, "apiRequest")) && !authoredApiRequestUnchanged(merged.api_request, previous?.api_request);
+    if (apiRequestChanged) validateAuthoredApiRequest(merged.api_request, { stepOrder: index + 1 });
     // Temporary client IDs cannot claim a database identity. New rows receive
     // a server UUID; only rows already owned by this case retain their ID.
-    if (previous) { merged.id = previous.id; submittedById.set(previous.id, step); } else delete merged.id;
+    if (previous) { merged.id = previous.id; submittedById.set(previous.id, apiRequestChanged ? step : { ...step, api_request: undefined, apiRequest: undefined }); } else delete merged.id;
     return merged;
   }), { preserveEmptyIds: true, validateApiRequests: false });
   for (const step of steps) if (step.id) {
     const previous = owned.get(step.id), submitted = submittedById.get(step.id);
-    for (const field of ["action", ...Object.keys(aliases)]) if (!provided(submitted, field) && !(aliases[field] && provided(submitted, aliases[field]))) {
+    for (const field of ["action", ...Object.keys(aliases)]) if (!provided(submitted, field) && !(aliases[field] && provided(submitted, aliases[field])) && (field !== "step_type" || !(provided(submitted, "api_request") || provided(submitted, "apiRequest")))) {
       step[field] = previous[field] ?? null;
     }
   }
@@ -1075,7 +1075,7 @@ const finalizeImportedSteps = (steps = []) => {
         step_order: Number.isFinite(Number(step?.step_order)) ? Number(step.step_order) : index + 1,
         action: normalizeText(step?.action),
         expected_result: normalizeText(step?.expected_result || step?.expectedResult),
-        step_type: normalizeTestStepType(step?.step_type || step?.stepType, "web"),
+        step_type: authoredStepType(step || {}),
         automation_code: normalizeRichText(step?.automation_code || step?.automationCode),
         api_request: normalizeApiRequest(validateAuthoredApiRequest(step?.api_request || step?.apiRequest, {stepOrder:index+1})),
         group_id: currentGroupId,

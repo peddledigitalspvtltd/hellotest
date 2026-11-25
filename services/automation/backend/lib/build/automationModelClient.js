@@ -130,7 +130,7 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
   const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
-    throw new Error("LLM response did not include generated content");
+    throw Object.assign(new Error("LLM response did not include generated content"),{code:'AI_INVALID_JSON',statusCode:422,generation_received:true});
   }
 
   return messageContent;

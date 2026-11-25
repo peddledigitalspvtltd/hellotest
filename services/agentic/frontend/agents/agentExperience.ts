@@ -27,7 +27,7 @@ export const AGENT_EXPERIENCES: Record<string, AgentExperience> = {
   "quality-orchestrator": { category: "planning", outcome: "Identify release risks and decide which quality work should happen next.", inputs: "Stories, tests, runs & defects", output: "Prioritized quality plan", destination: "/projects", destinationLabel: "Open project workspace", destinationPermission: "project.view", starters: ["Build a release quality plan. Separate confirmed risks from missing evidence and prioritize the next three actions.", "Review current delivery readiness and recommend which specialist should investigate each unresolved risk."] },
   "story-architect": { category: "design", outcome: "Clarify acceptance boundaries and examples before a story reaches testing.", inputs: "Stories & project knowledge", output: "Acceptance criteria review", destination: "/stories", destinationLabel: "Open Stories", destinationPermission: "requirement.view", starters: ["Review current stories for ambiguous acceptance criteria and propose concrete Given/When/Then examples.", "Identify missing negative and edge-case acceptance boundaries in the selected stories."] },
   "test-designer": { category: "design", outcome: "Find missing coverage and propose a focused set of test scenarios.", inputs: "Stories, test cases & execution evidence", output: "Traceable scenario brief", destination: "/test-cases", destinationLabel: "Open Test Cases", destinationPermission: "testcase.view", starters: ["Propose a focused test set for the current story risks, including boundaries and negative scenarios. Explain existing coverage gaps.", "Review test cases for duplication, weak assertions and missing test data variations."] },
-  "automation-engineer": { category: "design", outcome: "Develop every saved section using case intent, scoped data and Playwright MCP evidence.", inputs: "Automation, tests & run evidence", output: "Complete automation case and verification plan", destination: "/automation", destinationLabel: "Open Automation", destinationPermission: "automation.view", starters: ["Review automation readiness and propose a bounded plan for reusable steps, test data and resilient locators.", "Identify automation candidates with the strongest evidence and explain setup blockers for each."] },
+  "automation-engineer": { category: "design", outcome: "Turn a manual test or described flow into a browser automation script. The Engineer observes the application, performs the approved steps and checks the expected results.", inputs: "Manual Test Case or build instructions, application URL and test environment", output: "Saved automation script, browser evidence and verification result when a run completes", destination: "/automation", destinationLabel: "Open Automation", destinationPermission: "automation.view", starters: [] },
   "run-planner": { category: "planning", outcome: "Prioritize the cases that matter for the current release scope.", inputs: "Stories, test cases & run history", output: "Risk-based run recommendation", destination: "/executions", destinationLabel: "Open Runs", destinationPermission: "run.view", starters: ["Recommend a focused run for current delivery risks. Explain why each proposed test matters and what is excluded.", "Identify the smallest regression set that covers failed stories and recently affected areas."] },
   "failure-analyst": { category: "investigation", outcome: "Separate observed failure evidence from possible causes and next checks.", inputs: "Failed runs, cases & defects", output: "Failure investigation brief", destination: "/executions", destinationLabel: "Open Runs", destinationPermission: "run.view", starters: ["Analyze recent failures. Group symptoms, cite observed evidence and separate product, environment and data hypotheses.", "Find repeated failures and list the additional evidence needed to establish a root cause."] },
   "bug-reporter": { category: "investigation", outcome: "Prepare a reproducible defect outline from the strongest available evidence.", inputs: "Failure evidence, cases & stories", output: "Reviewable defect outline", destination: "/issues", destinationLabel: "Open Defects", destinationPermission: "feedback.view", starters: ["Prepare a defect outline from the strongest recent failure evidence, including reproduction steps, expected behavior and evidence gaps.", "Review whether a reported failure has enough evidence for a reproducible defect and list what is missing."] },
@@ -36,12 +36,27 @@ export const AGENT_EXPERIENCES: Record<string, AgentExperience> = {
   "repository-curator": { category: "investigation", outcome: "Review existing locators for duplication, instability and opportunities to reuse.", inputs: "Object Repository & automation evidence", output: "Repository maintenance brief", destination: "/object-repository", destinationLabel: "Open Object Repository", destinationPermission: "automation.view", starters: ["Review existing object locators for duplication and fragility. Prioritize source-backed maintenance proposals.", "Identify reusable screen objects and evidence required before changing any current locator."] }
 };
 
+const specialistOutputs: Record<string, string> = {
+  "story-completion": "Completed Story draft with sources and open questions",
+  "story-grooming": "Refinement findings and decisions for backlog discussion",
+  "story-assurance": "Story obligations and evidence gaps",
+  "test-improvement": "Updated Test Case draft with stronger checks",
+  "release-readiness": "Release gate results and unresolved blockers",
+  "impact-analysis": "Affected records and suggested regression scope",
+  "coverage-assurance": "Coverage matrix and missing obligations",
+  "risk-prediction": "Risk signals with recorded evidence and uncertainty",
+  "flaky-test-intelligence": "Comparable test attempts and instability findings",
+  "release-risk-simulation": "Scenario comparisons based on recorded release gates",
+  "quality-graph": "Linked quality evidence and missing relationships",
+  "automation-repair": "Reviewable locator repair and validation evidence"
+};
+
 for (const [id, profile] of Object.entries(specialistProfiles)) {
   if (AGENT_EXPERIENCES[id]) continue;
   const metadata = profile as typeof profile & { category?: AgentCategory; destination?: string; destinationPermission?: string };
   AGENT_EXPERIENCES[id] = {
     category: metadata.category || "planning", outcome: profile.description,
-    inputs: profile.scopes.map(scope => scope.replace(/-/g, " ")).join(", "), output: "Verified evidence & reviewable proposals",
+    inputs: profile.scopes.map(scope => scope.replace(/-/g, " ")).join(", "), output: specialistOutputs[id] || "Cited findings and reviewable proposals",
     destination: metadata.destination || "/projects", destinationLabel: "Open related workspace", destinationPermission: metadata.destinationPermission || "project.view",
     starters: [profile.prompt]
   };

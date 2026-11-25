@@ -320,7 +320,16 @@ module.exports = async function (fastify) {
 
     let created;
     try {
-      created = await service.createExecution({ ...req.body, created_by: req.user.id });
+      const requestId = req.headers["idempotency-key"];
+      if (requestId !== undefined && !verifiedSmartPlan && normalizeExecutionMode(req.body.execution_mode) === "remote") {
+        created = await require("../services/recoverableRemoteExecution").createRecoverableRemoteExecution({
+          input: req.body, actorId: req.user.id, requestId,
+          create: service.createExecution, start: service.startExecution,
+          onDispatchError: (err, executionId) => req.log.warn({ err, executionId }, "Saved remote Run could not be started")
+        });
+      } else {
+        created = await service.createExecution({ ...req.body, created_by: req.user.id });
+      }
     } catch (error) {
       if (smartRunTransaction) {
         await workspaceTransactionService.updateTransaction(smartRunTransaction.id, {

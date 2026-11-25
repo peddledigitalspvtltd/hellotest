@@ -1,6 +1,4 @@
 import type { ComponentProps, ReactNode } from "react";
-import { CaseEvidenceLineage } from "./CaseEvidenceLineage";
-import { useNavigate } from "react-router-dom";
 import { StoryIcon, TestCaseIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogActionMenu } from "@hellotest/platform/frontend/src/shared/components/CatalogActionMenu";
 import { CatalogCardDescription } from "@hellotest/platform/frontend/src/shared/components/CatalogCardDescription";
@@ -11,17 +9,16 @@ import { buildHistoryStatusBreakdown, buildReadinessScoreBreakdown } from "@hell
 import type { ExecutionResult, TestCase } from "@hellotest/platform/frontend/src/types";
 
 type CaseLibraryCardProps = {
- testCase: TestCase & { latest_manual_result?: ExecutionResult | null; latest_automation_result?: ExecutionResult | null }; history: ExecutionResult[]; tileActions: ComponentProps<typeof CatalogActionMenu>["actions"]; reviewDecision: ReactNode;
+ testCase: TestCase; history: ExecutionResult[]; tileActions: ComponentProps<typeof CatalogActionMenu>["actions"]; reviewDecision: ReactNode;
  isActive: boolean; isSelectedForAction: boolean; isFailedCase: boolean; isUnlinkedCase: boolean; isModuleChild: boolean;
  canUpdateTestCases: boolean; isDeletingSelectedTestCases: boolean; isBulkReviewRunning: boolean; canUseAutomationWorkspace: boolean;
  requirementDisplayId: string; requirementTitle: string; statusLabel: string; stepCount?: number;
  automationReadiness: number | null; stabilityScore: number; passedRuns: number; linkedDefectCount: number; qualityScore: number | null; failedRunCount: number;
  aiInsightTone: string; aiInsight: string;
- onOpen: () => void; onDragEnd: () => void; onDragStart: (transfer: DataTransfer) => void; onToggleSelected: (checked: boolean) => void; openLibraryCase: (id: string) => void;
+ onOpen: () => void; onDragEnd: () => void; onDragStart: (transfer: DataTransfer) => void; onToggleSelected: (checked: boolean) => void;
 };
 
-export function CaseLibraryCard({ testCase, history, tileActions, reviewDecision, isActive, isSelectedForAction, isFailedCase, isUnlinkedCase, isModuleChild, canUpdateTestCases, isDeletingSelectedTestCases, isBulkReviewRunning, canUseAutomationWorkspace, requirementDisplayId, requirementTitle, statusLabel, stepCount, automationReadiness, stabilityScore, passedRuns, linkedDefectCount, qualityScore, failedRunCount, aiInsightTone, aiInsight, onOpen, onDragEnd, onDragStart, onToggleSelected, openLibraryCase }: CaseLibraryCardProps) {
- const navigate = useNavigate();
+export function CaseLibraryCard({ testCase, history, tileActions, reviewDecision, isActive, isSelectedForAction, isFailedCase, isUnlinkedCase, isModuleChild, canUpdateTestCases, isDeletingSelectedTestCases, isBulkReviewRunning, canUseAutomationWorkspace, requirementDisplayId, requirementTitle, statusLabel, stepCount, automationReadiness, stabilityScore, passedRuns, linkedDefectCount, qualityScore, failedRunCount, aiInsightTone, aiInsight, onOpen, onDragEnd, onDragStart, onToggleSelected }: CaseLibraryCardProps) {
  return (<article
                         aria-label={`Open test case ${testCase.display_id || testCase.id}: ${testCase.title}`}
                         aria-current={isActive ? "true" : undefined}
@@ -109,10 +106,6 @@ export function CaseLibraryCard({ testCase, history, tileActions, reviewDecision
                               value={history.length ? stabilityScore : null}
                             />
                           </div>
-                          {testCase.automated === "yes" ? <span>Latest automation outcome: {history[0]?.status || "No runs"}</span> : <CaseEvidenceLineage history={history} channels={"latest_manual_result" in testCase ? {manual: testCase.latest_manual_result, automation: testCase.latest_automation_result} : undefined} onOpen={result => navigate(`/executions?${new URLSearchParams({ execution: result.execution_id, testCase: result.source_test_case_id || result.test_case_id })}`)} />}
-                          {testCase.automated !== "yes" && canUseAutomationWorkspace ? <button className="link-button" type="button" onClick={event => { event.stopPropagation(); navigate(`/automation?create=1&manual=${encodeURIComponent(testCase.id)}&editor=api`); }}>Create automation twin{testCase.automation_coverage?.linked_case_count ? ` · ${testCase.automation_coverage.linked_case_count} linked` : ""}</button> : null}
-                          {testCase.linked_automation_cases?.map(twin => <button className="link-button" key={twin.id} type="button" onClick={event => { event.stopPropagation(); navigate(`/automation?case=${encodeURIComponent(twin.id)}`); }}>Twin {twin.display_id || twin.title}</button>)}
-                          {testCase.manual_test_case_id ? <button className="link-button" type="button" onClick={event => { event.stopPropagation(); openLibraryCase(testCase.manual_test_case_id!); }}>Manual origin</button> : null}
                           <div className="tile-card-facts test-case-tile-metrics" aria-label={`${testCase.title} facts`}>
                             <TileCardMetric
                               className="test-case-tile-metric"

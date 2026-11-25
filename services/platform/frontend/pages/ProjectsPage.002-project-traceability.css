@@ -790,9 +790,7 @@
   color: #7a8597;
 }
 
-/* Project actions use the same confident blue and tactile feedback as the
-   create-project dialog's primary action. This page stylesheet loads with the
-   route, so it remains authoritative over legacy generic button rules. */
+/* Preserve the project catalog action treatment on the page. */
 .projects-page .projects-catalog-create-button:not(:disabled) {
   border-color: #0758c9 !important;
   background: #0758c9 !important;
@@ -808,19 +806,18 @@
   box-shadow: 0 6px 14px rgba(7, 88, 201, 0.26) !important;
 }
 
-.projects-page :is(.projects-catalog-create-button, .project-create-modal button):not(:disabled):is(:focus, :focus-visible) {
+.projects-page .projects-catalog-create-button:not(:disabled):is(:focus, :focus-visible) {
   outline: 0 !important;
   box-shadow: 0 0 0 3px rgba(7, 88, 201, 0.24), 0 4px 12px rgba(20, 38, 75, 0.16) !important;
 }
 
-.projects-page :is(.projects-catalog-create-button, .project-create-modal button):not(:disabled):active {
+.projects-page .projects-catalog-create-button:not(:disabled):active {
   transform: translateY(1px) scale(0.985) !important;
   box-shadow: 0 1px 3px rgba(20, 38, 75, 0.2) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .projects-page .projects-catalog-create-button,
-  .projects-page .project-create-modal button {
+  .projects-page .projects-catalog-create-button {
     transition: none !important;
   }
 }

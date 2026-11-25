@@ -9,13 +9,13 @@ const require=createRequire(new URL('../../../../testengine/backend/package.json
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const {expect}=createRequire(require.resolve(process.env.PLAYWRIGHT_MODULE||'playwright'))('playwright/test');
 const root=new URL('../../../platform/frontend/',import.meta.url);
-test('actual automation workspace presents runtime-specific authoring and recording for all four platforms',{timeout:90000},async()=>{
+test('actual automation workspace presents runtime-specific authoring and recording for all four platforms',{timeout:150000},async()=>{
  const template=await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs',import.meta.url),'utf8');
  let fixture=runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
  fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>','element:<AutomationPage/>');
  fixture=fixture.replace("import '/src/catalog-list.css';", "import '/src/catalog-list.css';import '/src/product-experience.css';");
  fixture=fixture.replace('const client=new QueryClient',`const runtime=new URLSearchParams(location.search).get('runtime')||'web';
- api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:runtime}];item.automated='yes';item.automation_status='ready';item.automation_start_url='https://app.test';item.automation_case_type=runtime;
+ api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:runtime==='api'?'web':runtime}];item.automated='yes';item.automation_status='ready';item.automation_start_url=runtime==='api'?null:'https://app.test';item.automation_case_type=runtime;
  steps.forEach(step=>{step.step_type=runtime;step.automation_code=runtime==='api'?'':runtime==='web'?'await page.goto("https://app.test");':'await '+runtime+'.tap("~login");';step.api_request=runtime==='api'?{method:'GET',url:'https://app.test/status',validations:[{kind:'status',expected:'200'}]}:null;});
  window.stepUpdates=[];api.testSteps.update=async(id,input)=>{window.stepUpdates.push(input);const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
  const client=new QueryClient`);
@@ -25,6 +25,7 @@ test('actual automation workspace presents runtime-specific authoring and record
  try{
   await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE});page=await browser.newPage({viewport:{width:1440,height:1000}});
+  page.setDefaultTimeout(15000);
   const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API: '+route.request().url());return route.abort();});
   for(const runtime of ['web','api','android','ios']){
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?runtime=${runtime}`);
@@ -44,12 +45,44 @@ test('actual automation workspace presents runtime-specific authoring and record
       await editor.getByRole('button',{name:'Save section',exact:true}).click();
       await page.waitForFunction(()=>window.stepUpdates.some(input=>input.api_request?.url==='https://app.test/orders'));
       const saved=await page.evaluate(()=>window.stepUpdates.at(-1));assert.equal(saved.api_request.validations[0].expected,'201');assert.match(saved.automation_code,/@hellotest-options optional/);
-      await page.keyboard.press('Escape');
+      await editor.getByLabel('API request JSON').fill(JSON.stringify({method:'POST',body_mode:'json',body:'{"name":"Draft"}'}));
+      await editor.getByRole('button',{name:'Save section',exact:true}).click();
+      await page.waitForFunction(()=>window.stepUpdates.some(input=>input.api_request?.body==='{"name":"Draft"}'));
+      await expect(editor.getByRole('button',{name:'Save section',exact:true})).toBeEnabled();
+      await editor.getByRole('button',{name:'Edit Step 1 action',exact:true}).focus();
+      await editor.getByLabel('Step 1 action',{exact:true}).fill('Save API setup text');
+      await editor.getByRole('button',{name:'Save section',exact:true}).click();
+      await page.waitForFunction(()=>window.stepUpdates.some(input=>input.action==='Save API setup text'));
+      assert.equal(await page.evaluate(()=>Object.hasOwn(window.stepUpdates.at(-1),'api_request')),false,'A prose edit preserves the saved request draft');
+      await editor.getByLabel('API request JSON').fill(JSON.stringify({method:'POST',url:'https://app.test/draft-request',captures:[{path:'$.id'}]}));
+      await editor.getByRole('button',{name:'Edit request fields',exact:true}).click();
+      const requestStudio=page.getByRole('dialog',{name:'Step 1 automation studio',exact:true});
+      await expect(requestStudio.getByLabel('Request URL',{exact:true})).toHaveValue('https://app.test/draft-request');
+      await requestStudio.getByRole('button',{name:'Save automation',exact:true}).click();
+      await expect(requestStudio).toBeHidden();
+      const savedDraft=await page.evaluate(()=>window.stepUpdates.at(-1).api_request);
+      assert.equal(savedDraft.captures[0].path,'$.id');
+      assert.equal(savedDraft.captures[0].parameter,'');
+      assert.deepEqual(savedDraft.validations,[]);
+      await page.getByRole('tab',{name:/^Details/}).click();
+      await page.getByLabel('Automation case name',{exact:true}).fill('Saved API case metadata');
+      await page.getByRole('button',{name:'Save details',exact:true}).click();
+      await page.waitForFunction(()=>window.updates.some(input=>input.title==='Saved API case metadata'));
+      const metadataWrite=await page.evaluate(()=>window.updates.find(input=>input.title==='Saved API case metadata'));
+      assert.equal(metadataWrite.automation_case_type,'api');
+      assert.equal(Object.hasOwn(metadataWrite,'parameter_values'),false);
     }
     await page.getByRole('tab',{name:/Build tools/}).click();
     await expect(page.getByRole('button',{name:'Build plan',exact:true})).toBeEnabled();
     await expect(page.getByLabel('Build instructions (optional)')).toHaveValue('');
-    if(runtime==='api')assert.equal(await page.getByRole('button',{name:/Record & playback/}).count(),0);
+    if(runtime==='api'){
+      await expect(page.getByRole('button',{name:'Automation Build Agent',exact:true})).toBeVisible();
+      await expect(page.getByText('API · HTTP requests and assertions',{exact:true})).toBeVisible();
+      await expect(page.getByLabel('API base URL',{exact:true})).toHaveValue('');
+      assert.equal(await page.getByLabel('Browser build mode',{exact:true}).count(),0);
+      assert.equal(await page.getByLabel('After generating',{exact:true}).count(),0);
+      assert.equal(await page.getByRole('button',{name:/Record & playback/}).count(),0);
+    }
     else {
       await page.getByRole('button',{name:/Record & playback/}).click();
       if(runtime==='ios'||runtime==='android'){

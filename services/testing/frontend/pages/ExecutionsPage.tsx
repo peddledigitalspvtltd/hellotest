@@ -70,6 +70,7 @@ import { formatReferenceList, parseReferenceList } from "@hellotest/platform/fro
 import { areFeatureFlagsEnabled } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
+import { buildExecutionDefectFallback, buildExecutionDefectReport, selectExecutionDefectResult } from "../lib/executionDefectReport";
 import { buildBugReportPath } from "../lib/bugReportNavigation";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/shared/lib/viewPreferences";
@@ -416,7 +417,7 @@ export function ExecutionsPage() {
     }
   });
 
-  const createExecution = useMutation({ mutationFn: api.executions.create });
+  const createExecution = useMutation({ mutationFn: (input: Parameters<typeof api.executions.create>[0]) => api.executions.create(input) });
   const updateExecutionAssignment = useMutation({
     mutationFn: ({ id, assigned_to_ids }: { id: string; assigned_to_ids: string[] }) => api.executions.update(id, { assigned_to_ids })
   });
@@ -2599,21 +2600,43 @@ export function ExecutionsPage() {
     const selectedAiFailureCases = mode === "ai"
       ? failedCasesForAiContext.slice(0, MAX_AI_BUG_CONTEXT_ITEMS)
       : [];
-    const contextualCaseIds = scopedCase
-      ? [scopedCase.id]
-      : selectedAiFailureCases.map((failedCase) => failedCase.id);
-    const contextualRequirementIds = scopedCase
-      ? scopedCaseRequirementIds.slice(0, MAX_AI_BUG_CONTEXT_ITEMS)
-      : [...new Set(selectedAiFailureCases.flatMap((failedCase) => {
-        const snapshot = selectedExecution.case_snapshots?.find((candidate) => candidate.test_case_id === failedCase.id);
-        return snapshot?.requirement_ids?.length ? snapshot.requirement_ids : failedCase.requirementIds;
-      }))].slice(0, MAX_AI_BUG_CONTEXT_ITEMS);
-    const compactFailureEvidence = (value: string | null | undefined) =>
-      String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
     const selectedCaseResult = scopedCase
       ? scopedCase.id === selectedExecutionCase?.id ? selectedExecutionResult : resultByCaseId[scopedCase.id]
       : null;
+    const candidateCaseIds = new Set(scopedCase ? [scopedCase.id] : failedCasesForAiContext.map(item => item.id));
+    const suiteCaseIds = suiteId && (scope === "suite" || scope === "module")
+      ? new Set((displayCasesBySuiteId[suiteId] || []).map(item => item.id)) : null;
+    const isActiveCase = scopedCase?.id === selectedExecutionCase?.id && Boolean(selectedExecutionCaseInstance);
+    const failureResult = isActiveCase ? selectedCaseResult : selectExecutionDefectResult(latestExecutionResults.filter(result =>
+      result.execution_id === selectedExecution.id && candidateCaseIds.has(result.test_case_id)
+      && (!suiteCaseIds || suiteCaseIds.has(result.test_case_id))
+    ));
+    const failureCase = failureResult ? executionCaseOrder.find(item => item.id === failureResult.test_case_id) : null;
+    const executionDefectReport = failureResult && can("result.view") ? buildExecutionDefectReport({
+      execution: selectedExecution,
+      runStatus: currentExecutionStatus,
+      result: failureResult,
+      caseTitle: scopedCaseTitle || failureCase?.title || failureResult.test_case_title || "",
+      suiteName: suiteName || failureCase?.suite_name || "",
+      moduleName: moduleName || failureCase?.module_name || "",
+      steps: stepsByCaseId[failureResult.test_case_id] || [],
+      includeRunAttachments: scope === "run",
+      toPlainText: richTextToPlainText
+    }) : null;
+    const contextualCaseIds = scopedCase
+      ? [scopedCase.id]
+      : [...new Set([executionDefectReport?.caseId || "", ...selectedAiFailureCases.map(failedCase => failedCase.id)].filter(Boolean))]
+        .slice(0, MAX_AI_BUG_CONTEXT_ITEMS);
+    const contextualRequirementIds = scopedCase
+      ? scopedCaseRequirementIds.slice(0, MAX_AI_BUG_CONTEXT_ITEMS)
+      : [...new Set(contextualCaseIds.flatMap((caseId) => {
+        const snapshot = selectedExecution.case_snapshots?.find(candidate => candidate.test_case_id === caseId);
+        return snapshot?.requirement_ids?.length ? snapshot.requirement_ids : failedCasesForAiContext.find(failedCase => failedCase.id === caseId)?.requirementIds || [];
+      }))].slice(0, MAX_AI_BUG_CONTEXT_ITEMS);
+    const compactFailureEvidence = (value: string | null | undefined) =>
+      String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
     const aiFailureEvidenceLines = selectedAiFailureCases
+      .filter(failedCase => failedCase.id !== executionDefectReport?.caseId)
       .slice(0, MAX_AI_BUG_EVIDENCE_LINES)
       .map((failedCase) => {
         const error = compactFailureEvidence(failedCase.error);
@@ -2629,56 +2652,18 @@ export function ExecutionsPage() {
     if (moduleId) returnParams.set("module", moduleId);
     else returnParams.delete("module");
     const returnTo = `${location.pathname}?${returnParams.toString()}`;
-    const title = scopedCase
-      ? `Case defect: ${scopedCaseTitle || scopedCase.id}`
-      : scope === "module"
-        ? `Module defect: ${moduleName || moduleId}`
-        : scope === "suite"
-          ? `Suite defect: ${suiteName || suiteId}`
-          : `Run defect: ${selectedExecution.name || selectedExecution.id}`;
-    const message = [
-      scopedCase
-        ? "Reported from a test case run."
-        : scope === "module"
-          ? "Reported from a module within a test run."
-          : scope === "suite"
-            ? "Reported from a suite within a test run."
-            : "Reported from run details.",
-      "",
-      `Run ID: ${selectedExecution.id}`,
-      selectedExecution.name ? `Run name: ${selectedExecution.name}` : "",
-      `Run status: ${currentExecutionStatus}`,
-      `Run trigger: ${selectedExecution.trigger || "manual"}`,
-      scopedCase ? `Test case ID: ${scopedCase.id}` : "",
-      scopedCase ? `Test case title: ${scopedCaseTitle || scopedCase.title}` : "",
-      suiteName ? `Suite: ${suiteName}` : "",
-      moduleName ? `Module: ${moduleName}` : "",
-      selectedExecution.test_environment?.name ? `Environment: ${selectedExecution.test_environment.name}` : "",
-      selectedExecution.build ? `Build: ${selectedExecution.build}` : "",
-      `Run totals: ${executionProgress.totalCases} case instances, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked`,
-      mode === "ai" && !scopedCase
-        ? failedCasesForAiContext.length
-          ? `AI context: ${selectedAiFailureCases.length} of ${failedCasesForAiContext.length} failed or blocked cases selected from this ${scope}.`
-          : `AI context: no failed or blocked cases are recorded in this ${scope}; select evidence before generating the draft.`
-        : "",
-      mode === "ai" && failedCasesForAiContext.length > selectedAiFailureCases.length
-        ? `Context limit: the first ${MAX_AI_BUG_CONTEXT_ITEMS} failed or blocked cases are included.`
-        : "",
-      mode === "ai" && scopedCase && selectedCaseResult
-        ? `Selected case result: ${selectedCaseResult.status}${compactFailureEvidence(selectedCaseResult.error) ? ` — ${compactFailureEvidence(selectedCaseResult.error)}` : ""}`
-        : "",
-      aiFailureEvidenceLines.length ? "Selected failure evidence:" : "",
-      ...aiFailureEvidenceLines,
-      aiFailureEvidenceLines.length && selectedAiFailureCases.length > aiFailureEvidenceLines.length
-        ? `- ${selectedAiFailureCases.length - aiFailureEvidenceLines.length} additional failed or blocked case${selectedAiFailureCases.length - aiFailureEvidenceLines.length === 1 ? "" : "s"} retained in the selected context.`
-        : "",
-      "",
-      "Defect details:"
-    ].filter(Boolean).join("\n");
+    const fallback = buildExecutionDefectFallback({ scope, execution: selectedExecution, runStatus: currentExecutionStatus,
+      caseId: scopedCase?.id, caseTitle: scopedCaseTitle, suiteName: suiteName || suiteId, moduleName: moduleName || moduleId,
+      totals: { all: executionProgress.totalCases, failed: executionStatusCounts.failed, blocked: executionStatusCounts.blocked }, result: selectedCaseResult });
 
+    const sourceResultId = can("testcase.view")
+      ? executionDefectReport?.resultId || (!selectedCaseResult?.derived ? selectedCaseResult?.id : undefined)
+      : undefined;
+    // Commit the report route before the case runner can schedule another update.
     navigate(buildBugReportPath({
       runId: selectedExecution.id,
-      executionResultId: selectedCaseResult?.derived ? undefined : selectedCaseResult?.id,
+      executionResultId: sourceResultId,
+      stepId: executionDefectReport?.stepId,
       runName: selectedExecution.name,
       runStatus: currentExecutionStatus,
       testCaseIds: contextualCaseIds,
@@ -2693,11 +2678,15 @@ export function ExecutionsPage() {
       fixVersion: selectedExecution.release,
       environment: selectedExecution.test_environment?.name,
       build: selectedExecution.build,
-      title,
-      message,
+      ...fallback,
       returnTo,
       returnLabel: scopedCase ? "test case run" : scope === "module" ? "run module" : scope === "suite" ? "run suite" : "test run"
-    }, mode));
+    }, mode), { flushSync: true, state: executionDefectReport ? {
+      executionDefectReport: {
+        ...executionDefectReport,
+        aiEvidence: [executionDefectReport.aiEvidence, aiFailureEvidenceLines.length ? `Other failures in this scope:\n${aiFailureEvidenceLines.join("\n")}` : ""].filter(Boolean).join("\n\n")
+      }
+    } : undefined });
   };
 
   const handleShareExecutionReport = async (event: FormEvent<HTMLFormElement>) => {

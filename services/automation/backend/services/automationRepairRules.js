@@ -1,4 +1,6 @@
 const {createHash}=require('node:crypto');
+const { normalizeApiRequest } = require('@hellotest/platform/backend/src/utils/testStepAutomation');
+const apiRepair=require('../lib/verification/automationApiRepair');
 const stable=value=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'&&!(value instanceof Date)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])])):value;
 const hash=value=>createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
 const fail=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode,code:'AI_INVALID_RESPONSE'});
@@ -32,8 +34,9 @@ function protectedAssertionContract(step) {
       operation_lines:statements.map(statement=>({line:statement.line,assertion:statement.method.startsWith('expect')}))};
   } catch { return null; }
 }
-const hasProtectedAssertion=step=>protectedAssertionContract(step)?.assertion_count>0;
-function negativeOracleReached(step,logs) {
+const hasProtectedAssertion=step=>step?.step_type==='api' ? Boolean(apiRepair.executableRequest(step)?.validations.length) : protectedAssertionContract(step)?.assertion_count>0;
+function negativeOracleReached(step,logs,baseUrl) {
+  if (step.step_type==='api') return apiRepair.apiAssertionReceipt(step,logs,{failure:true,requireAuthored:true,baseUrl});
   const contract=protectedAssertionContract(step);
   if(!contract?.assertion_count)return false;
   const lines=contract.operation_lines;
@@ -66,7 +69,7 @@ function completedHookEvidence(payload,statuses) {
 function instructionPatch(base,input) {
   if(Object.keys(input).some(key=>!['kind','step_id','automation_code','rationale'].includes(key)))throw fail('Unsupported instruction repair fields.');
   const step=base.steps.find(row=>row.id===input.step_id);
-  if(!step||step.reusable_group_id||['shared','reusable'].includes(step.group_kind)||!base.failed_step_ids.includes(step.id))throw fail('Target a failed case-owned section; shared definitions require a separate reviewed group change.');
+  if(!step||step.step_type==='api'||step.reusable_group_id||['shared','reusable'].includes(step.group_kind)||!base.failed_step_ids.includes(step.id))throw fail('Target a failed case-owned Web section; shared definitions require a separate reviewed group change.');
   if(typeof input.rationale!=='string'||input.rationale.trim().length<20||input.rationale.length>2000)throw fail('Explain the instruction changes and their observed evidence.');
   if(/\b(?:page|playwrightPage)\s*\.|\bexpect\s*[.(]/.test(step.automation_code||'')) {
     let native;
@@ -98,10 +101,20 @@ function instructionPatch(base,input) {
 }
 function patch(base,input) {
   if(input==null)return null;
+  if(input?.kind==='replace_api_url') {
+    if(Object.keys(input).some(key=>!['kind','step_id','new_url','rationale'].includes(key)))throw fail('Return only the approved endpoint and its evidence-backed rationale.');
+    const step=base.steps.find(row=>row.id===input.step_id);
+    if(!step||!base.failed_step_ids.includes(step.id)||step.reusable_group_id||['shared','reusable'].includes(step.group_kind))throw fail('The endpoint repair must target the failed case-owned API section.');
+    const targets=apiRepair.authoredTargets(step,base.api_base_url);
+    if(targets.length!==1||input.new_url!==targets[0]||input.new_url.length>2000)throw fail('Use the single exact authored endpoint on the saved request origin. Query and runtime data remain fixed.');
+    if(typeof input.rationale!=='string'||input.rationale.trim().length<20||input.rationale.length>2000)throw fail('Explain the corrected endpoint and supporting evidence.');
+    return {kind:input.kind,step_id:step.id,step_order:step.step_order,before:normalizeApiRequest(step.api_request).url.split('?')[0],after:input.new_url,
+      rationale:input.rationale.trim(),hash:hash([base.source_hash,step.id,apiRepair.applyUrl(step,input.new_url)]),assertions_preserved:true};
+  }
   if(input?.kind==='replace_instructions')return instructionPatch(base,input);
   if(typeof input!=='object'||Object.keys(input).some(key=>!['kind','step_id','new_locator','rationale'].includes(key))||input.kind!=='replace_locator')throw fail('Return only a typed replace_locator proposal or null.');
   const step=base.steps.find(row=>row.id===input.step_id),match=step?.automation_code?.match(supported);
-  if(!step||step.reusable_group_id||['shared','reusable'].includes(step.group_kind)||!base.failed_step_ids.includes(step.id))throw fail('The repair must target a failed case-owned section.');
+  if(!step||step.step_type==='api'||step.reusable_group_id||['shared','reusable'].includes(step.group_kind)||!base.failed_step_ids.includes(step.id))throw fail('The locator repair must target a failed case-owned Web section.');
   const target=input.new_locator;
   if(typeof target!=='string'||!target.trim()||target.length>1024||/[\x00-\x1f]|\{\{|\$\{|@[trs]\./.test(target)||match&&target===JSON.parse(match[2]))throw fail('Provide a different literal locator without dynamic interpolation.');
   if(typeof input.rationale!=='string'||input.rationale.trim().length<20||input.rationale.length>2000)throw fail('Explain the proposed locator and supporting evidence.');
@@ -120,7 +133,9 @@ function validateStoredPatch(base,saved) {
   if(!saved||typeof saved!=='object')throw fail('A typed repair proposal is required.');
   const step=base.steps.find(item=>item.id===saved.step_id);
   let checked;
-  if(saved.kind==='replace_instructions'||saved.kind==='replace_locator'&&/\b(?:page|playwrightPage)\s*\.|\bexpect\s*[.(]/.test(step?.automation_code||'')) {
+  if(saved.kind==='replace_api_url') {
+    checked=patch(base,{kind:saved.kind,step_id:saved.step_id,new_url:saved.after,rationale:saved.rationale});
+  } else if(saved.kind==='replace_instructions'||saved.kind==='replace_locator'&&/\b(?:page|playwrightPage)\s*\.|\bexpect\s*[.(]/.test(step?.automation_code||'')) {
     checked=instructionPatch(base,{kind:'replace_instructions',step_id:saved.step_id,automation_code:saved.after,rationale:saved.rationale});
   } else if(saved.kind==='replace_locator') {
     const match=saved.after?.match(supported);
@@ -130,6 +145,12 @@ function validateStoredPatch(base,saved) {
   if(saved.before!==checked.before||saved.after!==checked.after||saved.step_order!==checked.step_order||saved.hash!==checked.hash||saved.assertions_preserved!==true)throw fail('The saved repair differs from its pinned action, data or assertion contract.');
   return true;
 }
+const stepPatch=(step,saved)=>saved.kind==='replace_api_url' ? {api_request:apiRepair.applyUrl(step,saved.after)} : {automation_code:saved.after};
+const runnerLogs=job=>{
+  const logs=job?.runtime_state?.logs;
+  try { return typeof logs==='string' ? JSON.parse(logs) : logs; }
+  catch { return {}; }
+};
 function evaluate(manifest,receipts,patchStep,oracleStep) {
   const checks=[];
   const originalJob=Array.isArray(receipts.original?.jobs)?receipts.original.jobs.find(job=>job.test_case_id===manifest.original?.case_ids[0]):null;
@@ -148,23 +169,34 @@ function evaluate(manifest,receipts,patchStep,oracleStep) {
       if(job.runtime_state?.healing_attempted||job.payload?.max_repair_attempts!==0||job.payload?.session_policy?.web?.mode!=='new'||job.payload?.session_policy?.web?.connect_over_cdp_endpoint){status='unknown';detail='Validation must use a fresh browser session with healing disabled.';break;}
       if(phase!=='original'&&caseId===manifest.original.case_ids[0]&&contextHash(job)!==contextHash(originalJob)){status='unknown';detail='Execution settings or repository evidence changed between validation phases.';break;}
       if(phase!=='original'&&caseId===manifest.original.case_ids[0]&&(!originalSteps||hash(sharedBindings(steps))!==hash(sharedBindings(originalSteps)))){status='unknown';detail='Frozen per-section shared values, templates or private bindings changed between validation phases.';break;}
-      const executed=job.payload?.steps||[],logs=job.runtime_state?.logs;
-      const parsed=typeof logs==='string'?(()=>{try{return JSON.parse(logs);}catch{return {};}})():logs;
+      const executed=job.payload?.steps||[],parsed=runnerLogs(job);
       if(!Array.isArray(executed)||!steps.length||executed.length!==steps.length||steps.some((step,index)=>{
         const item=executed[index];
-        return !item||item.id!==step.snapshot_step_id||item.automation_code!==step.automation_code
+        return !item||item.id!==step.snapshot_step_id||(step.step_type==='api'?(item.automation_code||'')!==(step.automation_code||''):item.automation_code!==step.automation_code)
           ||item.order!==undefined&&item.order!==step.step_order
+          ||step.step_type==='api'&&(item.step_type!=='api'||hash(normalizeApiRequest(item.api_request))!==hash(normalizeApiRequest(step.api_request)))
           ||hash(item.shared_parameter_values||{})!==hash(step.shared_parameter_values||{})
           ||Object.keys(item.source_case_context||{}).length||Object.keys(item.source_case_parameters||{}).length;
       })){status='unknown';detail='Runner payload does not match the exact pinned step order, source or shared parameter bindings.';break;}
       const statuses=parsed?.stepStatuses||{};
+      const baseUrl=job.payload?.environment?.base_url;
       if(!completedHookEvidence(job.payload,statuses)){status='unknown';detail='Every pinned Before / After hook step must have a passed runner receipt. Failed, skipped, missing or unexecuted setup and cleanup cannot verify a repair, including hooks configured to continue.';break;}
       const expectedFailure=phase==='original'?patchStep:phase==='negative'?oracleStep:null;
       if(expectedFailure!=null) {
         const target=steps.find(step=>step.step_order===expectedFailure);
         if(!target||job.status!=='failed'||statuses[target.snapshot_step_id]!=='failed'||steps.filter(step=>step.step_order<expectedFailure).some(step=>statuses[step.snapshot_step_id]!=='passed')){status='failed';detail=phase==='original'?'The original failure was not reproduced at the patched step.':'The known-negative fixture did not fail at the protected assertion.';break;}
-        if(phase==='negative'&&!negativeOracleReached(target,parsed)){status='unknown';detail='The failed section does not prove that its protected assertion was reached. Trusted assertion-line evidence is required after every preceding action; action or setup failures cannot verify a negative fixture.';break;}
+        if(phase==='original'&&target.step_type==='api'&&!apiRepair.apiAssertionReceipt(target,parsed,{failure:true,baseUrl})){status='unknown';detail='The original API failure must have a matching HTTP response and assertion receipt.';break;}
+        if(phase==='negative'&&!negativeOracleReached(target,parsed,baseUrl)){status='unknown';detail=target.step_type==='api'?'The negative fixture must reach and fail an authored API assertion with a completed response.':'The failed section does not prove that its protected assertion was reached. Trusted assertion-line evidence is required after every preceding action; action or setup failures cannot verify a negative fixture.';break;}
+        if(phase==='negative'&&target.step_type==='api'){
+          const positive=receipts.patched;
+          const positiveSteps=Array.isArray(positive?.steps)?positive.steps:[];
+          const positiveJobs=Array.isArray(positive?.jobs)?positive.jobs:[];
+          const positiveTarget=positiveSteps.find(step=>step.test_case_id===caseId&&step.step_order===oracleStep);
+          const positiveBindings=apiRepair.assertionBindings(positiveTarget,runnerLogs(positiveJobs.find(job=>job.test_case_id===caseId)));
+          if(!positiveBindings||hash(positiveBindings)!==hash(apiRepair.assertionBindings(target,parsed))){status='unknown';detail='The negative fixture changed the API assertion’s target or expected value.';break;}
+        }
       } else if(job.status!=='completed'||steps.some(step=>statuses[step.snapshot_step_id]!=='passed')){status='failed';detail='The repaired Test Case or a neighboring Test Case did not pass every step.';break;}
+      if(steps.some(step=>step.step_type==='api'&&statuses[step.snapshot_step_id]==='passed'&&!apiRepair.apiAssertionReceipt(step,parsed,{baseUrl}))){status='unknown';detail='A passed API step is missing its matching response and assertion receipt.';break;}
     }
     const repairedSteps=receipt.steps.filter(step=>step.test_case_id===manifest.original?.case_ids[0]);
     const coverage=phase==='patched'&&status==='passed'?{focused_step_order:patchStep,verified_case_sections:repairedSteps.length,verified_successor_sections:repairedSteps.filter(step=>step.step_order>patchStep).length}:undefined;
@@ -173,4 +205,4 @@ function evaluate(manifest,receipts,patchStep,oracleStep) {
   }
   return {status:checks.every(item=>item.status==='passed')?'verified':checks.some(item=>item.status==='failed')?'failed':'unverified',checks,verifier_version:'automation-repair/1'};
 }
-module.exports={hash,patch,specification,sharedBindings,evaluate,fail,hasProtectedAssertion,validateStoredPatch};
+module.exports={hash,patch,stepPatch,specification,sharedBindings,evaluate,fail,hasProtectedAssertion,validateStoredPatch};

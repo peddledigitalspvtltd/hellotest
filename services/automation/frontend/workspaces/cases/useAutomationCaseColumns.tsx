@@ -7,6 +7,7 @@ import { DisplayIdBadge } from "@hellotest/platform/frontend/src/shared/componen
 import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import type { TestCase } from "@hellotest/platform/frontend/src/types";
+import { automationCatalogEvidence } from "../../lib/automationCatalogEvidence";
 
 export function useAutomationCaseColumns(ports:ActionPorts){
 const {
@@ -15,7 +16,7 @@ const {
     filteredAutomationCases,
     selectedAutomationCaseIds,
     automationDisplayIdByCaseId,
-    historyByCaseId,
+    canViewExecutionMetrics,
 } = ports;
 const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() => [
     {
@@ -26,7 +27,7 @@ const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() =
         canResize: false,
         width: 56,
         headerRender: () => (<label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
-          <input aria-label="Select all filtered automation cases" checked={areAllFilteredAutomationCasesSelected} onChange={(event) => setSelectedAutomationCaseIds((current) => event.target.checked
+          <input aria-label="Select loaded automation cases" checked={areAllFilteredAutomationCasesSelected} onChange={(event) => setSelectedAutomationCaseIds((current) => event.target.checked
                 ? [...new Set([...current, ...filteredAutomationCases.map((testCase) => testCase.id)])]
                 : current.filter((testCaseId) => !filteredAutomationCases.some((testCase) => testCase.id === testCaseId)))} type="checkbox"/>
         </label>),
@@ -53,44 +54,45 @@ const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() =
         sortValue: (testCase) => testCase.title,
         render: (testCase) => (<div className="automation-list-primary-cell">
           <strong>{testCase.title}</strong>
-          <span>{richTextToPlainText(testCase.description) || "Automation is mapped to the original manual case definition."}</span>
+          {testCase.description && <span>{richTextToPlainText(testCase.description)}</span>}
         </div>)
     },
     {
         key: "state",
-        label: "State",
+        label: "Plan",
         width: 160,
         minWidth: 128,
-        sortValue: (testCase) => testCase.automation_status || "ready",
+        sortValue: (testCase) => testCase.automation_status === "ready" ? "Ready" : "Incomplete",
         render: (testCase) => (<div className="automation-list-status-cell">
-          <StatusBadge value="automated"/>
-          <StatusBadge value={testCase.automation_status || "ready"}/>
+          <StatusBadge value={testCase.automation_status === "ready" ? "Plan ready" : "Incomplete plan"}/>
         </div>)
     },
-    {
+    ...(canViewExecutionMetrics ? [{
+        key: "latestOutcome",
+        label: "Latest outcome",
+        width: 142,
+        minWidth: 118,
+        sortValue: (testCase) => automationCatalogEvidence(testCase).outcomeLabel || "",
+        render: (testCase) => automationCatalogEvidence(testCase).outcomeLabel || "—"
+    }, {
         key: "runs",
         label: "Runs",
         width: 92,
         minWidth: 78,
-        sortValue: (testCase) => (historyByCaseId[testCase.id] || []).length,
-        render: (testCase) => (historyByCaseId[testCase.id] || []).length
+        sortValue: (testCase) => automationCatalogEvidence(testCase).runCount,
+        render: (testCase) => automationCatalogEvidence(testCase).runCount
     },
     {
         key: "passRate",
-        label: "Pass rate",
+        label: "Recent pass rate",
         width: 124,
         minWidth: 100,
-        sortValue: (testCase) => {
-            const history = historyByCaseId[testCase.id] || [];
-            const passedRuns = history.filter((result) => result.status === "passed").length;
-            return history.length ? Math.round((passedRuns / history.length) * 100) : 0;
-        },
+        sortValue: (testCase) => automationCatalogEvidence(testCase).passRate ?? -1,
         render: (testCase) => {
-            const history = historyByCaseId[testCase.id] || [];
-            const passedRuns = history.filter((result) => result.status === "passed").length;
-            return history.length ? `${Math.round((passedRuns / history.length) * 100)}%` : "No runs";
+            const {passRate} = automationCatalogEvidence(testCase);
+            return passRate === null ? "—" : `${passRate}%`;
         }
-    },
+    }] satisfies Array<DataTableColumn<TestCase>> : []),
     {
         key: "priority",
         label: "Priority",
@@ -111,7 +113,7 @@ const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() =
     areAllFilteredAutomationCasesSelected,
     automationDisplayIdByCaseId,
     filteredAutomationCases,
-    historyByCaseId,
+    canViewExecutionMetrics,
     selectedAutomationCaseIds
 ]);
 return {automationCaseListColumns};

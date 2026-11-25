@@ -37,7 +37,6 @@
   flex-shrink: 0;
   background: var(--surface, white);
 }
-.case-evidence-lineage { display: grid; gap: 4px; padding-block: 8px; }
 .suite-module-picker { display: grid; gap: 8px; margin-bottom: 16px; }
 @media (max-width: 700px) {
   .modal-card.execution-create-drawer { width: 100vw; border-radius: 0; }

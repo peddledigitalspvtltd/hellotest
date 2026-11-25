@@ -14,7 +14,8 @@ function load(file, resolve = frontendRequire) {
  return exports;
 }
 const pipeline = load('../../frontend/lib/automationBuildPipeline.ts');
-const { AutomationBuildVerificationSettings } = load('../../frontend/components/AutomationBuildVerificationSettings.tsx');
+const { AutomationBuildVerificationSettings } = load('../../frontend/components/AutomationBuildVerificationSettings.tsx', name =>
+ name === '../lib/automationBuildPipeline' ? pipeline : frontendRequire(name));
 const settings = extra => ({ mode: 'generate_only', canVerify: true, interactive: true, onModeChange: () => {}, ...extra });
 
 test('existing verification select offers CLI run and bounded repair with explicit execution disclosure', () => {
@@ -48,38 +49,23 @@ test('selecting CLI bounded repair passes its exact choice through the existing 
  assert.equal(selected, 'verify_repair_cli');
 });
 
-function agentFixture({ choice, canVerify = true, interactive = true }) {
- let mutation;
- const queued = [];
- const dependencies = {
-  react: { useEffect: () => {}, useRef: value => ({ current: value }), useState: value => [value === 'generate_only' ? choice : value, () => {}] },
-  '@tanstack/react-query': { useMutation: options => { mutation = options.mutationFn; return { isPending: false, isError: false, mutate: () => {} }; }, useQueryClient: () => ({ invalidateQueries: async () => {} }) },
-  '@hellotest/testing/frontend/api.client': { testingApi: { testCases: { buildAutomationBatch: async value => { queued.push(value); return { transaction_id: 'queued' }; } } } },
-  '@hellotest/platform/frontend/src/platform/hooks/useCapabilityAccess': { useCapabilityAccess: () => ({ can: permission => !['automation.run.local', 'run.create'].includes(permission) || canVerify }) },
-  '@hellotest/platform/frontend/src/platform/components/AppIcons': { PlayIcon: () => null },
-  './AutomationAgentActivity': { AutomationAgentActivity: () => null },
-  './AutomationBuildVerificationSettings': { AutomationBuildVerificationSettings },
-  '../lib/automationBuildPipeline': pipeline,
-  './AgentAutomationBuildAction.css': {}
- };
- const { AgentAutomationBuildAction } = load('../../frontend/components/AgentAutomationBuildAction.tsx', name => Object.hasOwn(dependencies, name) ? dependencies[name] : frontendRequire(name));
- AgentAutomationBuildAction({ projectId: 'project', appTypeId: 'web', caseId: 'case', prompt: 'Use reviewed inputs', context: { mode: 'minimal' }, allowBrowserActions: interactive });
- return { queued, submit: () => mutation() };
-}
-
-test('Agent Studio build action emits CLI verification with MCP authoring and frozen user input scope', async () => {
- const fixture = agentFixture({ choice: 'verify_repair_cli' });
- await fixture.submit();
- assert.equal(fixture.queued.length, 1);
- assert.equal(fixture.queued[0].verification_mode, 'verify_repair');
- assert.equal(fixture.queued[0].verification_driver, 'playwright_test_cli');
- assert.equal(fixture.queued[0].browser_driver, 'mcp');
- assert.deepEqual(fixture.queued[0].test_case_ids, ['case']);
- assert.equal(fixture.queued[0].additional_context, 'Use reviewed inputs');
+test('Automation Engineer requests CLI verification with MCP authoring and respects execution permissions', () => {
+ const options = { mode: 'verify_repair_cli', driver: 'mcp', canVerify: true, interactive: true };
+ const request = pipeline.automationBuildPipelineRequest(options);
+ assert.equal(request.verification_mode, 'verify_repair');
+ assert.equal(request.verification_driver, 'playwright_test_cli');
+ assert.equal(request.browser_driver, 'mcp');
  for (const overrides of [{ canVerify: false }, { interactive: false }]) {
-  const guarded = agentFixture({ choice: 'verify_cli', ...overrides });
-  await guarded.submit();
-  assert.equal(guarded.queued[0].verification_mode, 'generate_only');
-  assert.equal(guarded.queued[0].verification_driver, 'native');
+  const guarded = pipeline.automationBuildPipelineRequest({ ...options, mode: 'verify_cli', ...overrides });
+  assert.equal(guarded.verification_mode, 'generate_only');
+  assert.equal(guarded.verification_driver, 'native');
  }
+});
+
+test('automatic verification follows the selected environment until the user chooses another mode', () => {
+ const options = { mode: 'auto', driver: 'mcp', canVerify: true, interactive: true };
+ assert.equal(pipeline.automationBuildPipelineRequest(options).verification_mode, 'generate_only');
+ assert.equal(pipeline.automationBuildPipelineRequest({ ...options, hasEnvironment: true }).verification_mode, 'verify');
+ assert.equal(pipeline.automationBuildPipelineRequest({ ...options, hasEnvironment: true, mode: 'generate_only' }).verification_mode, 'generate_only');
+ assert.equal(pipeline.automationBuildPipelineRequest({ ...options, hasEnvironment: true, interactive: false }).verification_mode, 'generate_only');
 });

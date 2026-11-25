@@ -69,6 +69,8 @@ function fixture(){
   if(id.endsWith('/execution.service'))return executions;if(id.endsWith('/executionStepEvidence'))return diagnostics;
   if(id.endsWith('/aiTextPolicy'))return aiText;if(id.endsWith('/knowledgeExecution.service'))return execution;
   if(id==='./automationRepairRules')return rules;if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
+  if(id==='../lib/verification/automationApiRepair')return require('../../../automation/backend/lib/verification/automationApiRepair');
+  if(id.endsWith('/testStepAutomation'))return require(id);
   throw Error('Unexpected module: '+id);
  }});
  const service=module.exports,prepare=()=>service.prepare({projectId:'project',appTypeId:'app',user:{id:'reviewer'},input:{test_case_id:'case',execution_id:'failed'}});

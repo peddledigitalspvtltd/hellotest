@@ -128,3 +128,80 @@ test('a source prompt exceeding the shared transport allowance fails without sli
  assert.equal(modelCalls,0);
  assert.ok(brief.endsWith('Preserve this explicit product fact. '));
 });
+
+test('a large manual flow preserves all ordered IDs and the exact active assertion without flooding the browser actor',async()=>{
+ const startUrl='https://fixture.test/';
+ const lengthy='Exact detail for the authored control and item. '.repeat(85);
+ const steps=Array.from({length:95},(_,i)=>({id:`section-${i+1}`,step_order:i+1,step_type:'web',
+  action:`Inspect item ${i+1}. ${lengthy}`,expected_result:i===0?'The stable catalog result is completely visible.':lengthy}));
+ const calls=[];
+ const browser={tools:[{name:'browser_navigate',inputSchema:{type:'object',properties:{url:{type:'string'}}}}],
+  call:async name=>{calls.push(name);return native(`await page.goto(${JSON.stringify(startUrl)});`,'Catalog Results');},close:async()=>{}};
+ await assert.rejects(buildWithUpstreamPlaywright({startUrl,browser,steps,interactive:true,validate:()=>[],complete:async request=>{
+  const packet=JSON.parse(request.prompt);
+  assert.equal(packet.current_section.action,steps[0].action);
+  assert.equal(packet.current_section.expected_result,steps[0].expected_result);
+  assert.deepEqual(packet.authored_flow.map(item=>[item.id,item.step_order]),steps.map(item=>[item.id,item.step_order]));
+  assert.ok(packet.authored_flow.filter(item=>item.action_excerpt).every(item=>item.action_excerpt.length<=400));
+  assert.doesNotThrow(()=>assertInputBudget({messages:[{role:'user',content:request.prompt}]}));
+  throw Object.assign(new Error('First request captured.'),{code:'ACTOR_REQUEST_CAPTURED'});
+ }}),{code:'ACTOR_REQUEST_CAPTURED'});
+ assert.deepEqual(calls,['browser_navigate']);
+});
+
+test('premature actor completion corrects the missing authored click before source, without repeating the observed click',async()=>{
+ const startUrl='https://fixture.test/',goto=`await page.goto(${JSON.stringify(startUrl)});`;
+ const click='await page.getByRole("button",{name:"Search",exact:true}).click();';
+ const assertion='await expect(page.getByRole("status")).toHaveText("Results shown");';
+ const calls=[];let turns=0, sourceCalls=0;
+ const browser={tools:[{name:'browser_navigate',inputSchema:{type:'object',properties:{url:{type:'string'}}}},
+   {name:'browser_click',inputSchema:{type:'object',properties:{ref:{type:'string'}},required:['ref']}}],
+  call:async name=>{calls.push(name);return native(name==='browser_navigate'?goto:click,'### Snapshot\n- button "Search" [ref=e1]\n- status "Results shown" [ref=e2]');},close:async()=>{}};
+ const built=await buildWithUpstreamPlaywright({startUrl,browser,steps:[{id:'search',step_order:1,action:'When I click Search',expected_result:'Results shown status appears'}],
+  interactive:true,validate:require('../../backend/services/automationReadiness.service').inspectExecutablePlan,complete:async request=>{
+   const packet=JSON.parse(request.prompt);
+   if(request.phase==='upstream_source'){
+    sourceCalls++;assert.match(packet.native_emitted_code,/\.click\(\)/);
+    return {automation_code:[goto,click,assertion].join('\n')};
+   }
+   assert.equal(request.phase,'upstream_browser_actor');
+   if(++turns===1)return {done:true};
+   if(turns===2){assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_AUTHORED_ACTION_REQUIRED');return {tool:{name:'browser_click',arguments:{ref:'e1'}}};}
+   return {done:true};
+  }});
+ assert.deepEqual(calls,['browser_navigate','browser_click']);
+ assert.equal(sourceCalls,1);
+ assert.match(built.updates[0].automation_code,/Results shown/);
+});
+
+test('pressing a control accepts its click receipt while a named keyboard key requires a key receipt',async t=>{
+ const startUrl='https://fixture.test/',goto=`await page.goto(${JSON.stringify(startUrl)});`;
+ const assertion='await expect(page.getByRole("status")).toHaveText("Signed in");';
+ for(const fixture of [
+  {action:'When I press the Sign In button',name:'browser_click',args:{ref:'e1'},source:'await page.getByRole("button",{name:"Sign In",exact:true}).click();'},
+  {action:'Press End call button',name:'browser_click',args:{ref:'e1'},source:'await page.getByRole("button",{name:"End call",exact:true}).click();'},
+  {action:'And I press Enter to submit the form',name:'browser_press_key',args:{key:'Enter'},source:'await page.getByRole("textbox").press("Enter");'}
+ ])await t.test(fixture.action,async()=>{
+  const calls=[];let turns=0;
+  const tools=[{name:'browser_navigate',inputSchema:{type:'object',properties:{url:{type:'string'}}}},
+   {name:'browser_click',inputSchema:{type:'object',properties:{ref:{type:'string'}},required:['ref']}},
+   {name:'browser_press_key',inputSchema:{type:'object',properties:{key:{type:'string'}},required:['key']}}];
+  const browser={tools,call:async name=>{calls.push(name);return native(name==='browser_navigate'?goto:fixture.source,'The current page has the configured target.');},close:async()=>{}};
+  await buildWithUpstreamPlaywright({startUrl,browser,steps:[{id:'action',step_order:1,action:fixture.action,expected_result:'Signed-in status appears'}],
+   interactive:true,validate:require('../../backend/services/automationReadiness.service').inspectExecutablePlan,complete:async request=>{
+    if(request.phase==='upstream_source')return {automation_code:[goto,fixture.source,assertion].join('\n')};
+    assert.equal(request.phase,'upstream_browser_actor');
+    if(++turns===1)return {done:true};
+    if(turns===2){
+     const feedback=JSON.parse(request.prompt).host_feedback;
+     assert.equal(feedback.code,'AUTOMATION_UPSTREAM_AUTHORED_ACTION_REQUIRED');
+     if(fixture.name==='browser_press_key')assert.equal(feedback.required_tool,'browser_press_key');
+     else assert.ok(feedback.allowed_tools.includes('browser_click'));
+     return {tool:{name:fixture.name,arguments:fixture.args}};
+    }
+    assert.equal(turns,3,'The observed action is sufficient and does not trigger another correction.');
+    return {done:true};
+   }});
+  assert.deepEqual(calls,['browser_navigate',fixture.name]);
+ });
+});

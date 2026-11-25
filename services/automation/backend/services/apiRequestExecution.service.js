@@ -917,6 +917,9 @@ exports.executeApiRequestStep = async ({ api_request, parameter_values = {} } = 
   if (!request) {
     throw new Error("A valid API request is required");
   }
+  if (request.captures.some(capture => !normalizeText(capture.path) || !normalizeText(capture.parameter))) {
+    throw Object.assign(new Error("Complete each API capture path and output parameter before execution."), { statusCode: 422, code: "INVALID_API_CAPTURE" });
+  }
 
   const preview = await runResolvedApiRequest(request);
   // A preview may be clipped for display; that prefix cannot establish a

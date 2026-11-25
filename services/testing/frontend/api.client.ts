@@ -205,6 +205,11 @@ issues: {
         method: "POST",
         body: JSON.stringify(input)
       }),
+    applyAiTriage: (id: string, input: { project_id: string; token: string; apply_corrections: boolean }) =>
+      request<{ posted: boolean; comment_id: string; corrections_applied: boolean }>(`/feedback/${encodeURIComponent(id)}/ai-triage-apply`, {
+        method: "POST",
+        body: JSON.stringify(input)
+      }),
     export: (input: { project_id: string; issue_ids: string[] }) =>
       request<{ bugs: Issue[]; exported: number }>("/feedback/export", {
         method: "POST",
@@ -545,8 +550,8 @@ testCases: {
         method: "PUT",
         body: JSON.stringify(input)
       }),
-    learningCacheUsage: (id: string) =>
-      request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/${id}/usage`),
+    learningCacheUsage: (id: string, options?: { signal?: AbortSignal }) =>
+      request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/${encodeURIComponent(id)}/usage`, options),
     learningCacheScreenUsage: (screenName: string, query: { app_type_id?: string; project_id?: string }) =>
       request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}/usage${toQueryString(query)}`),
     deleteLearningCacheEntry: (id: string, confirmed = false) =>
@@ -597,7 +602,7 @@ testCases: {
       input?.recorder_mode === "local" && input?.recorder_target !== "mobile"
         ? startPairedRecording(() => request(`/test-cases/${id}/automation/recorder-session`, { method: "POST", body: JSON.stringify({ ...input, local_transport: "paired-agent" }) }))
         : request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, { method: "POST", body: JSON.stringify(input || {}) }),
-    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string; parameter_bindings?: Array<{ source_action_index: number; parameter_reference: string }> }) =>
+    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string; included_action_indices?: number[]; excluded_action_indices?: number[]; parameter_bindings?: Array<{ source_action_index: number; parameter_reference: string }> }) =>
       isPairedRecording(sessionId)
         ? finishPairedRecording(sessionId, capture => request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, { method: "POST", body: JSON.stringify({ ...input, ...capture }) }))
         : request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, { method: "POST", body: JSON.stringify(input || {}) }),
@@ -734,8 +739,8 @@ executions: {
       }, 70000),
     previewSmartPlan: (input: { images?: AiDesignImageInput[]; project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: async (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }): Promise<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }> =>
-      (input.execution_mode === "local" ? startPairedLocalExecution("/executions/local-run", input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) }), resolveServiceBase("/executions/local-run", API_BASE_URL)) : request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) })),
+    create: async (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }, options?: { idempotencyKey?: string }): Promise<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded"; started?: boolean; dispatch_notice?: string }> =>
+      (input.execution_mode === "local" ? startPairedLocalExecution("/executions/local-run", input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) }), resolveServiceBase("/executions/local-run", API_BASE_URL)) : request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded"; started?: boolean; dispatch_notice?: string }>("/executions", { method: "POST", body: JSON.stringify(input), ...(options?.idempotencyKey ? { headers: { "Idempotency-Key": options.idempotencyKey } } : {}) })),
     createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; created_by: string; engine_base_url?: string }) =>
       startPairedLocalExecution("/executions/local-run", input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) }), resolveServiceBase("/executions/local-run", API_BASE_URL)),
     update: (id: string, input: { name?: string; start_date?: string | null; end_date?: string | null; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string | null; test_configuration_id?: string | null; test_data_options?: TestDataOptions; test_data_set_id?: string | null; execution_mode?: "manual" | "remote" | "local"; parallel_enabled?: boolean; parallel_count?: number; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; expected_revision?: number }) =>
@@ -815,6 +820,7 @@ executionSchedules: {
     delete: (id: string) => request<{ deleted: boolean }>(`/execution-schedules/${id}`, { method: "DELETE" })
   },
 executionResults: {
+    get: (id: string) => request<ExecutionResult>(`/execution-results/${encodeURIComponent(id)}`),
     ensure: (input: ExecutionCaseIdentity) => request<ExecutionResult>("/execution-results/ensure", { method: "POST", body: JSON.stringify(input) }),
     transition: (input: ExecutionCaseIdentity & { action: ExecutionCaseLifecycleAction; expected_revision?: number; expected_result_id?: string }) =>
       request<ExecutionResult>("/execution-results/lifecycle", { method: "POST", body: JSON.stringify(input) }),

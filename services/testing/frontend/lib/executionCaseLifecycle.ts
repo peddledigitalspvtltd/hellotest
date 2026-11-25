@@ -2,6 +2,12 @@ import type { ExecutionResult } from "@hellotest/platform/frontend/src/types";
 
 export type ExecutionCaseLifecycleAction = "start" | "resume" | "pause" | "abort" | "block" | "skip" | "reset" | "pass" | "fail";
 export type ExecutionCaseIdentity = { execution_id: string; test_case_id: string; data_set_iteration_index?: number | null; data_set_iteration_key?: string | null };
+
+export function executionCaseInstanceKey(testCaseId: string, iterationIndex?: number | null, iterationKey?: string | null) {
+  const resolvedIteration = String(iterationKey || "").trim()
+    || (iterationIndex === null || iterationIndex === undefined ? "default" : `row-${iterationIndex + 1}`);
+  return `${testCaseId}:${resolvedIteration}`;
+}
 export const EXECUTION_CASE_FINAL_STATUSES = ["passed", "failed", "blocked", "aborted", "skipped"] as const;
 export const EXECUTION_CASE_STATUS_LABELS: Record<ExecutionResult["status"], string> = {
   pending: "Unexecuted", running: "Running", paused: "Paused", passed: "Passed", failed: "Failed", blocked: "Blocked", aborted: "Aborted", skipped: "N/A"

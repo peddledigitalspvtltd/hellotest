@@ -39,7 +39,8 @@ export function useAutomationCaseRecorderActions(input: AutomationCaseScope & Au
         onError: error => showError(error, 'Unable to start the recorder.')
     });
     const finishRecorder = useMutation({
-        mutationFn: async () => {
+        mutationFn: async (mode: "discard" | void) => {
+            const discarded = mode === "discard";
             if (!canUseRecorder)
                 throw new Error('Permission required: automation.recorder');
             const captured = authoring.activeRecording()?.recording;
@@ -48,23 +49,33 @@ export function useAutomationCaseRecorderActions(input: AutomationCaseScope & Au
             const { origin, session, options } = captured;
             if (origin.projectId !== projectId || origin.appTypeId !== appTypeId || activeCase.id !== origin.caseId)
                 throw new Error('Return to the recording’s original project, application and automation case before saving.');
-            if (selectedParameterSuiteId !== origin.suiteId)
+            if (!discarded && selectedParameterSuiteId !== origin.suiteId)
                 throw new Error('Select the recording’s original suite before saving its parameter bindings.');
-            await flushAutomationBuildParameters([origin.caseId]);
+            if (!discarded) await flushAutomationBuildParameters([origin.caseId]);
             const sessionId = authoring.beginRecordingSave(origin.caseId);
             try {
-                const response = await api.testCases.finishRecorderSession(origin.caseId, sessionId, { transaction_id: session.transaction_id, additional_context: builderContext || undefined, recorder_mode: options.recorder_mode, recorder_target: options.recorder_target, engine_base_url: options.engine_base_url, test_environment_id: origin.environmentId || undefined, test_configuration_id: origin.configurationId || undefined, test_data_set_id: origin.dataSetId || undefined, target_step_id: origin.targetStepId || undefined, parameter_bindings: Object.entries(captured.parameterBindings).filter(([, reference]) => reference).map(([index, reference]) => ({ source_action_index: Number(index), parameter_reference: reference })) });
-                return { response, origin, sessionId };
+                const excludedActions = new Set(captured.excludedActionIndices || []);
+                const context = {
+                    transaction_id: session.transaction_id, target_step_id: origin.targetStepId || undefined,
+                    recorder_mode: options.recorder_mode, recorder_target: options.recorder_target, engine_base_url: options.engine_base_url
+                };
+                const response = await api.testCases.finishRecorderSession(origin.caseId, sessionId, discarded ? { ...context, included_action_indices: [] } : {
+                    ...context, additional_context: builderContext || undefined, test_environment_id: origin.environmentId || undefined,
+                    test_configuration_id: origin.configurationId || undefined, test_data_set_id: origin.dataSetId || undefined,
+                    ...(excludedActions.size ? { excluded_action_indices: [...excludedActions] } : {}),
+                    parameter_bindings: Object.entries(captured.parameterBindings).filter(([index, reference]) => reference && !excludedActions.has(Number(index))).map(([index, reference]) => ({ source_action_index: Number(index), parameter_reference: reference }))
+                });
+                return { response, origin, sessionId, discarded };
             }
             catch (error) {
                 authoring.recordingSaveRejected(origin.caseId, sessionId);
                 throw error;
             }
         },
-        onSuccess: async ({ response, origin, sessionId }) => {
+        onSuccess: async ({ response, origin, sessionId, discarded }) => {
             authoring.recordingSaved(origin.caseId, sessionId);
             setRecordingTargetStepId('');
-            showSuccess((response.idempotent_replay ? 'This recording was already saved. The saved plan is available in Instructions.' : response.generated_step_count ? `Captured ${response.learned_locator_count} repository objects and updated ${response.generated_step_count} automation steps.` : 'Recorder stopped. No supported interactions were captured.') + (response.warnings?.length ? ' ' + response.warnings.join(' ') : ''));
+            showSuccess((discarded ? 'Recording discarded. The saved plan is available in Instructions.' : response.idempotent_replay ? 'This recording was already saved. The saved plan is available in Instructions.' : response.generated_step_count ? `Captured ${response.learned_locator_count} repository objects and updated ${response.generated_step_count} automation steps.` : 'Recorder stopped. No supported interactions were captured.') + (response.warnings?.length ? ' ' + response.warnings.join(' ') : ''));
             invalidateAutomationData();
             if (response.generated_step_count && response.test_case_id) {
                 try {

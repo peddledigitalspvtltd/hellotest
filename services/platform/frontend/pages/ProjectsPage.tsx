@@ -3234,21 +3234,19 @@ export function ProjectsPage() {
             tabIndex={-1}
           >
             <div className="project-create-header">
-              <div className="project-create-heading">
-                <DialogCloseButton
-                  disabled={createProject.isPending}
-                  label="Close create project dialog"
-                  onClick={closeCreateProjectModal}
-                />
-                <h2 className="dialog-title" id="create-project-title">Create Project</h2>
-              </div>
+              <h2 className="dialog-title" id="create-project-title">Create Project</h2>
+              <DialogCloseButton
+                disabled={createProject.isPending}
+                label="Close create project dialog"
+                onClick={closeCreateProjectModal}
+              />
             </div>
 
             <form className="project-create-modal-form" id="create-project-form" onSubmit={handleProjectCreate}>
               <div className="project-create-modal-body">
                 <section aria-labelledby="project-create-details-title" className="project-create-section project-create-general-section">
                   <h3 className="project-create-step-title" id="project-create-details-title">
-                    <span aria-hidden="true" className="project-create-step-number is-primary">1</span>
+                    <span className="project-create-section-icon"><IconFileDescription aria-hidden="true" size={18} /></span>
                     <span>Project Details</span>
                   </h3>
                   <div className="project-create-general-card">
@@ -3261,18 +3259,6 @@ export function ProjectsPage() {
                         onChange={(event) => updateProjectDraft({ name: event.target.value })}
                         placeholder="e.g. Q4 Data Pipeline Refactor"
                         value={projectDraft.name}
-                      />
-                    </FormField>
-                    <FormField label="Description" inputId="project-description-input">
-                      <RichTextEditor
-                        aria-label="Project description"
-                        appearance="canonical"
-                        id="project-description-input"
-                        onAttachmentRequest={() => projectAttachmentInputRef.current?.click()}
-                        onChange={(description) => updateProjectDraft({ description })}
-                        placeholder="Briefly describe the goals and scope of this project..."
-                        rows={3}
-                        value={projectDraft.description}
                       />
                     </FormField>
                     <FormField label="Project type" inputId="project-visibility-input" required>
@@ -3292,6 +3278,18 @@ export function ProjectsPage() {
                           ? "Creator-only access. Choose Public when this project needs collaborators."
                           : "Choose the workspace users who should receive project access."}
                       </span>
+                    </FormField>
+                    <FormField className="project-create-description" label="Description" inputId="project-description-input">
+                      <RichTextEditor
+                        aria-label="Project description"
+                        appearance="canonical"
+                        id="project-description-input"
+                        onAttachmentRequest={() => projectAttachmentInputRef.current?.click()}
+                        onChange={(description) => updateProjectDraft({ description })}
+                        placeholder="Briefly describe the goals and scope of this project..."
+                        rows={3}
+                        value={projectDraft.description}
+                      />
                     </FormField>
                     <section aria-labelledby="project-create-attachments-title" className="project-create-attachments-section">
                       <div className="project-create-attachments-heading">
@@ -3361,16 +3359,12 @@ export function ProjectsPage() {
                     </section>
                   </div>
                 </section>
-                <div className="project-create-left-column">
                 <section aria-labelledby="project-app-configurations-title" className="project-create-section project-create-app-section">
                   <div className="project-create-section-head">
-                    <div>
-                      <h3 className="project-create-step-title" id="project-app-configurations-title">
-                        <span aria-hidden="true" className="project-create-step-number">2</span>
-                        <span>Applications</span>
-                      </h3>
-                      <p>Define the applications involved in this project to set up appropriate test environments.</p>
-                    </div>
+                    <h3 className="project-create-step-title" id="project-app-configurations-title">
+                      <span className="project-create-section-icon"><IconApps aria-hidden="true" size={18} /></span>
+                      <span>Applications</span>
+                    </h3>
                   </div>
 
                   <div className="project-app-type-list">
@@ -3390,7 +3384,6 @@ export function ProjectsPage() {
                             <strong>{appType.name.trim() || `App ${index + 1}`}</strong>
                             <span>{appTypeDropdownOptions.find((option) => option.value === appType.type)?.label || appType.type || "Platform"}</span>
                           </span>
-                          <span className="project-app-type-status">{appType.name.trim() ? "Added" : "New application"}</span>
                           <button
                             aria-label={`Remove app ${index + 1}`}
                             className="project-app-type-remove-button"
@@ -3452,7 +3445,7 @@ export function ProjectsPage() {
                 <section aria-labelledby="project-members-title" className="project-create-section project-create-members-section">
                   <div className="project-create-section-head">
                     <h3 className="project-create-step-title" id="project-members-title">
-                      <span aria-hidden="true" className="project-create-step-number">3</span>
+                      <span className="project-create-section-icon"><IconUsers aria-hidden="true" size={18} /></span>
                       <span>Project Members</span>
                     </h3>
                   </div>
@@ -3533,9 +3526,7 @@ export function ProjectsPage() {
                               <span>
                                 <strong>{user.name || visibleUserEmail(user.email) || "Unnamed user"}</strong>
                                 <span>{visibleUserEmail(user.email)}</span>
-                                <span className="project-member-option-meta">
-                                  {isAutoIncluded ? `Project creator · ${hasJiraAdministration ? "workspace administrator" : "QA lead"}` : isSelected ? "Role required" : "Not added"}
-                                </span>
+                                {isAutoIncluded && <span className="project-member-option-meta">Project creator</span>}
                               </span>
                             </label>
                             {isAutoIncluded ? (
@@ -3564,9 +3555,6 @@ export function ProjectsPage() {
                   </div>
                   </>}
                 </section>
-                </div>
-
-
               </div>
             </form>
 

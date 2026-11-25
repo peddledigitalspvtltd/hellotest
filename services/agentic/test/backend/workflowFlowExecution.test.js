@@ -161,6 +161,36 @@ test('a body failure records a terminal failed iteration and preserves earlier w
   assert.equal(result(saved, 'finish').status, 'skipped');
 });
 
+test('continue policy retains failures and runs later batches, but a missing acknowledgement still stops execution', async t => {
+  setup(t);
+  const transform=require('../../backend/workflows/nodeRegistry').get('transform').implementation;
+  const original=transform.execute;
+  let uncertain=false;
+  t.mock.method(transform,'execute',async input=>{
+    if (input.node.id==='first' && input.run.loop_item?.id==='bad') {
+      throw Object.assign(new Error('This case is missing a required fixture.'),{statusCode:422,code:'AUTOMATION_UPSTREAM_BUILD_INCOMPLETE',outcome_unknown:uncertain});
+    }
+    return original(input);
+  });
+  const definition=loopGraph({loopBatchSize:1,loopItemFailure:'continue'});
+  const items=[{id:'first'},{id:'bad'},{id:'third'}];
+  const saved=await execute(definition,{items});
+  assert.equal(saved.status,'needs_review');
+  assert.deepEqual(result(saved,'first').iterations.map(item=>item.status),['completed','failed','completed']);
+  assert.deepEqual(result(saved,'finish').output.data.map(item=>item.outer_item),[items[0],items[2]]);
+  const [failed]=result(saved,'finish').output.iteration_failures;
+  assert.equal(failed.batch_index,1);
+  assert.equal(failed.category,'validation');
+  assert.equal(failed.code,'AUTOMATION_UPSTREAM_BUILD_INCOMPLETE');
+  assert.equal(failed.reconciliation_required,undefined);
+  uncertain=true;
+  const stopped=await execute(definition,{items});
+  assert.equal(stopped.status,'failed');
+  assert.deepEqual(result(stopped,'first').iterations.map(item=>item.status),['completed','failed']);
+  assert.equal(result(stopped,'finish').status,'skipped');
+  assert.equal(stopped.output_payload.error_details.reconciliation_required,true);
+});
+
 test('unknown operation outcomes stop before an Error handler or downstream action can redispatch', async t => {
   setup(t);
   const operations=require('../../backend/workflows/nodeRegistry').get('transform').implementation,original=operations.execute;

@@ -23,6 +23,8 @@ function fixture(allowed=true){
   if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
   if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
+  if(id==='../lib/verification/automationApiRepair')return require('../../../automation/backend/lib/verification/automationApiRepair');
+  if(id.endsWith('/testStepAutomation'))return require(id);
   throw new Error(`Unexpected module ${id}`);
  }});
  return {...module.exports,reads,step};

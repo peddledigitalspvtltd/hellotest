@@ -31,6 +31,7 @@ function proposalOperation(original, edited, review, appTypeId, userId) {
 }
 
 async function accept(app, req, review) {
+  if (review.transaction.metadata?.trial) throw fail('Draft trial results can be reviewed but cannot be saved as project records.', 409);
   if(review.result?.verification?.status&&review.result.verification.status!=='passed'||review.result?.readiness?.status==='insufficient_evidence'||review.result?.outcome_issues?.length)throw fail('This review has unresolved output or evidence requirements. Complete a fresh review before accepting its proposals.',409);
   const index = req.body?.index;
   if (!Number.isInteger(index) || index < 0 || index >= (review.result?.artifacts?.length || 0)) throw fail('Select a recorded proposal.');

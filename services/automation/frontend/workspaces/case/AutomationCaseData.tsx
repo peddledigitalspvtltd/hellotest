@@ -3,8 +3,21 @@ import { hasPermission } from "@hellotest/platform/frontend/src/platform/lib/per
 
 import type { useAutomationCaseDetailController } from "./useAutomationCaseDetailController";
 type Controller = ReturnType<typeof useAutomationCaseDetailController>;
-export type AutomationCaseDataProps = Pick<Controller, "activeCase" | "appTypeId" | "canUpdateAutomationCase" | "canViewTestData" | "caseDataSetId" | "detectedStepParameters" | "effectiveCaseDataSetId" | "mergedParameterValues" | "overrideSharedSteps" | "projectId" | "session" | "setCaseDataSetId" | "setIsParameterDialogOpen" | "setOverrideSharedSteps" | "setSelectedExecutionDataSetId" | "testDataSets" | "testDataSetsQuery"> & { activeCase: NonNullable<Controller["activeCase"]> } & { expanded?: boolean; valuesOnly?: boolean };
+export type AutomationCaseDataProps = Pick<Controller, "activeCase" | "appTypeId" | "canUpdateAutomationCase" | "canViewTestData" | "caseDataSetId" | "dataSettingsChanged" | "saveAutomationDataSettings" | "detectedStepParameters" | "effectiveCaseDataSetId" | "mergedParameterValues" | "overrideSharedSteps" | "projectId" | "session" | "setCaseDataSetId" | "setIsParameterDialogOpen" | "setOverrideSharedSteps" | "setSelectedExecutionDataSetId" | "testDataSets" | "testDataSetsQuery"> & { activeCase: NonNullable<Controller["activeCase"]> } & { expanded?: boolean; valuesOnly?: boolean };
 
-export function AutomationCaseData({ activeCase, appTypeId, canUpdateAutomationCase, canViewTestData, caseDataSetId, detectedStepParameters, effectiveCaseDataSetId, mergedParameterValues, overrideSharedSteps, projectId, session, setCaseDataSetId, setIsParameterDialogOpen, setOverrideSharedSteps, setSelectedExecutionDataSetId, testDataSets, testDataSetsQuery, expanded = false, valuesOnly = false }: AutomationCaseDataProps) {
-return activeCase ? (<AutomationDataSets expanded={expanded} valuesOnly={valuesOnly} inheritedLink={Boolean(effectiveCaseDataSetId && !caseDataSetId)} key={`${projectId}:${activeCase.id}`} projectId={projectId} appTypeId={appTypeId} dataSets={testDataSets} linkedId={effectiveCaseDataSetId} isLoading={testDataSetsQuery.isLoading} error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined} onRetry={() => void testDataSetsQuery.refetch()} canView={canViewTestData} canLink={canViewTestData && canUpdateAutomationCase} canManage={hasPermission(session, "data.manage", projectId)} overrideSharedSteps={overrideSharedSteps} onOverrideSharedStepsChange={setOverrideSharedSteps} onLink={id => { setCaseDataSetId(id); setSelectedExecutionDataSetId(id); }} parameters={detectedStepParameters} parameterValues={mergedParameterValues} canEditParameters={canUpdateAutomationCase} onManageParameters={() => setIsParameterDialogOpen(true)}/>) : null;
+export function AutomationCaseData({ activeCase, appTypeId, canUpdateAutomationCase, canViewTestData, caseDataSetId, dataSettingsChanged, saveAutomationDataSettings, detectedStepParameters, effectiveCaseDataSetId, mergedParameterValues, overrideSharedSteps, projectId, session, setCaseDataSetId, setIsParameterDialogOpen, setOverrideSharedSteps, setSelectedExecutionDataSetId, testDataSets, testDataSetsQuery, expanded = false, valuesOnly = false }: AutomationCaseDataProps) {
+    const canEdit = canViewTestData && canUpdateAutomationCase;
+    return <AutomationDataSets expanded={expanded} valuesOnly={valuesOnly} inheritedLink={Boolean(effectiveCaseDataSetId && !caseDataSetId)}
+      key={`${projectId}:${activeCase.id}`} projectId={projectId} appTypeId={appTypeId} dataSets={testDataSets} linkedId={effectiveCaseDataSetId}
+      isLoading={testDataSetsQuery.isLoading} error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined}
+      onRetry={() => void testDataSetsQuery.refetch()} canView={canViewTestData} canLink={canEdit && !saveAutomationDataSettings.isPending}
+      canManage={hasPermission(session, "data.manage", projectId)} overrideSharedSteps={overrideSharedSteps}
+      onOverrideSharedStepsChange={setOverrideSharedSteps} onLink={id => { setCaseDataSetId(id); setSelectedExecutionDataSetId(id); }}
+      parameters={detectedStepParameters} parameterValues={mergedParameterValues} canEditParameters={canEdit}
+      onManageParameters={() => setIsParameterDialogOpen(true)}
+      settingsFooter={canEdit && dataSettingsChanged ? <div className="automation-plan-actions">
+        <button className="primary-button compact" type="button" disabled={saveAutomationDataSettings.isPending} onClick={() => saveAutomationDataSettings.mutate()}>
+          {saveAutomationDataSettings.isPending ? "Saving…" : "Save data settings"}
+        </button>
+      </div> : undefined}/>;
 }

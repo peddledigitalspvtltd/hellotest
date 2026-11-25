@@ -111,3 +111,40 @@ test('legacy feature-backed custom authors retain their declared purpose when ou
  assert.deepEqual(definitions.normalize(input).output_contract,{kind:'test_case',minimum_artifacts:1});
  assert.deepEqual(definitions.normalize({...input,output_contract:{kind:'review',minimum_artifacts:0}}).output_contract,{kind:'review',minimum_artifacts:0});
 });
+
+test('typed task inputs use canonical keys, apply defaults and validate required values', () => {
+  const config = contract.normalize({ ...definition(), input_fields: [
+    { type: 'release', label: 'Release', name: 'release_id', required: true, default: 'release-123' },
+    { type: 'text', label: 'Focus', name: 'focus', required: false }
+  ] });
+  assert.deepEqual(contract.validateInputs(config, { focus: 'risk' }), { release_id: 'release-123', focus: 'risk' });
+  assert.throws(() => contract.validateInputs(config, { release_id: '' }), { code: 'AGENT_INPUT_REQUIRED' });
+  assert.throws(() => contract.validateInputs(config, { release_id: 42 }), { code: 'AGENT_INPUT_INVALID' });
+  assert.throws(() => contract.normalize({ ...config, input_fields: [{ ...config.input_fields[0], name: 'other' }] }), { statusCode: 422 });
+});
+
+test('custom guardrails check outcome data and draft trials cannot publish', async () => {
+  const { checks, redactEmails } = require('../../backend/agents/agentGuardrails');
+  const rules = [{ id: 'exclude_email_addresses' }, { id: 'minimum_citations', value: 2 }, { id: 'maximum_drafts', value: 1 }];
+  const config = contract.normalize({ ...definition(), guardrail_rules: rules });
+  const outcome = { findings: [{ title: 'Use fixture@example.test' }], citation_ids: ['source', 'source'], artifacts: [{}, {}] };
+  assert.deepEqual(checks(outcome, config.guardrail_rules).map(check => check.passed), [false, false, false]);
+  assert.equal(redactEmails(outcome).findings[0].title, 'Use [redacted email]');
+  assert.throws(() => contract.normalize({ ...definition(), guardrails: 'x'.repeat(2001) }), { statusCode: 422 });
+  await assert.rejects(require('../../backend/services/agentProposal.service').accept(null, null, { transaction: { metadata: { trial: true } } }), { statusCode: 409 });
+});
+
+test('only a successful trial for the same definition and author qualifies for activation', async t => {
+  storage(t);
+  const draft = await registry.save({ project_id:'p', definition:definition() }, null, 'author');
+  const version = await registry.prepareTrial({ project_id:'p' }, draft.id);
+  assert.equal(version.definition_hash, draft.definition_hash);
+  const assistant = require('../../backend/services/agenticAssistant.service');
+  t.mock.method(assistant, 'getSession', async () => ({ transaction: { project_id:'p', created_by:'author', action:'trial',
+    metadata: { agent_id:draft.id, agent_definition_hash:version.definition_hash } }, result: { verification: { status: 'passed' } }
+  }));
+  const activation = { project_id:'p', definition:draft.definition, expected_version:1, activate:true, trial_id:'trial-1' };
+  await assert.rejects(registry.save({ ...activation, definition:{ ...draft.definition, objective:'Task was changed.' } }, draft.id, 'author'), { code:'AGENT_TRIAL_REQUIRED' });
+  await assert.rejects(registry.save(activation, draft.id, 'other-author'), { code:'AGENT_TRIAL_REQUIRED' });
+  assert.equal((await registry.save(activation, draft.id, 'author')).active_version, 2);
+});

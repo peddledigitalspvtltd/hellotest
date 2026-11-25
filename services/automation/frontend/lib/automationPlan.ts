@@ -3,6 +3,10 @@ import { automationParameterArgument, getAutomationKeywordInputSpec } from "./au
 
 export const isAutomationPrecondition = (step: Pick<TestStep, "group_name">) => (step.group_name || "").trim().toLowerCase() === "preconditions";
 
+export function shouldSeedLinkedAutomationPlan(caseType: TestCase["automation_case_type"] | "", method: string, hasPreparedApiRequests: boolean) {
+  return caseType !== "api" || (method === "ai" && !hasPreparedApiRequests);
+}
+
 export function seedAutomationPlan(sources: Array<{ testCase: Pick<TestCase, "id">; steps: TestStep[] }>, createId: () => string) {
   const groupIds = new Map<string, string>();
   const steps = sources.flatMap((source) => source.steps.map((step) => {

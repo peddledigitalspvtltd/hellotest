@@ -3,6 +3,7 @@ const builderDependency = specifier => require(specifier.startsWith("../") ? spe
 const { LLM_TIMEOUT_MS, extractJsonPayload, resolveLlmIntegration, requestChatCompletion } = require("../lib/build/automationModelClient");
 const {normalizeAgentContext,retrieveAgentContext}=require("../lib/build/automationAgentContext");
 const { buildFeature } = require('./aiAutomationFeaturePolicy');
+const { requireBuildEnvironment } = require("../lib/build/automationBuildEnvironment");
 exports.buildFeature = buildFeature;
 const { resilientHttpRequest } = require('@hellotest/platform/backend/src/utils/resilientHttpClient');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
@@ -185,7 +186,7 @@ const resolveBuildContext = async ({
   test_data_set_id
 } = {}) => {
   const [environment, configuration, dataSet] = await Promise.all([
-    normalizeText(test_environment_id) ? testEnvironmentService.getTestEnvironment(test_environment_id) : Promise.resolve(null),
+    requireBuildEnvironment(normalizeText(test_environment_id), testEnvironmentService.getTestEnvironment),
     normalizeText(test_configuration_id) ? testConfigurationService.getTestConfiguration(test_configuration_id) : Promise.resolve(null),
     normalizeText(test_data_set_id) ? testDataSetService.getTestDataSet(test_data_set_id) : Promise.resolve(null)
   ]);
@@ -434,6 +435,7 @@ exports.buildAutomationForCase = async ({
         started_at: new Date().toISOString()
       })));
 
+  const caseStartedAt = Date.now();
   try {
     const result = await buildCaseCore({
       test_case_id: normalizedCaseId,
@@ -480,7 +482,7 @@ exports.buildAutomationForCase = async ({
         failed: 0,
         output_test_case_ids: [result.test_case_id],
         retry_test_case_ids: [],
-        case_outcomes: [{test_case_id:result.test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification,...engineMetadata}],
+        case_outcomes: [{test_case_id:result.test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification,duration_ms:Date.now()-caseStartedAt,...engineMetadata}],
         progress_percent: 100,
         total_items: 1,
         processed_items: 1,
@@ -509,8 +511,8 @@ exports.buildAutomationForCase = async ({
         current_phase: "failed",
         outcome_status: "incomplete",
         failed: 1,
-        retry_test_case_ids: [normalizedCaseId],
-        case_outcomes: [{test_case_id:error.automation_test_case_id||normalizedCaseId,source_test_case_id:error.source_test_case_id,title:testCase.title,status:["AUTOMATION_BUILD_INCOMPLETE","AUTOMATION_DEPENDENCY_MISSING"].includes(error.code)?"incomplete":"failed",message,error:message,code:error.code,error_code:error.code||null,failure_stage:error.failure_stage||null,...(error.code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'&&Number.isInteger(error.http_status)&&error.http_status>=400&&error.http_status<=599?{http_status:error.http_status}:{}),active_step_id:error.active_step_id,failed_step_id:error.active_step_id,active_manual_step_ids:error.active_manual_step_ids,changes_saved:Boolean(error.saved_sections),saved_sections:error.saved_sections||0,saved_step_ids:error.saved_step_ids||[],completed_sections:error.completed_sections,total_sections:error.total_sections,pending_step_ids:error.pending_step_ids,blocked_steps:error.blocked_steps}],
+        retry_test_case_ids: error.effect_dispatched ? [] : [normalizedCaseId],
+        case_outcomes: [{test_case_id:error.automation_test_case_id||normalizedCaseId,source_test_case_id:error.source_test_case_id,title:testCase.title,status:error.saved_sections||["AUTOMATION_BUILD_INCOMPLETE","AUTOMATION_DEPENDENCY_MISSING"].includes(error.code)?"incomplete":"failed",message,error:message,code:error.code,error_code:error.code||null,failure_stage:error.failure_stage||null,...(error.code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'&&Number.isInteger(error.http_status)&&error.http_status>=400&&error.http_status<=599?{http_status:error.http_status}:{}),active_step_id:error.active_step_id,failed_step_id:error.active_step_id,active_manual_step_ids:error.active_manual_step_ids,changes_saved:Boolean(error.saved_sections),saved_sections:error.saved_sections||0,saved_step_ids:error.saved_step_ids||[],completed_sections:error.completed_sections,total_sections:error.total_sections,pending_step_ids:error.pending_step_ids,blocked_steps:error.blocked_steps,effect_dispatched:error.effect_dispatched===true,outcome_unknown:error.outcome_unknown===true}],
         progress_percent: 100,
         error: message
       },
@@ -587,6 +589,7 @@ exports.buildAutomationBatch = async ({
       metadata: {
         agent_activity: true,
         input_test_case_ids: targetIds,
+        test_environment_id: normalizeText(test_environment_id),
         verification_status: "unverified",
         current_phase: "queued",
         total_items: targetIds.length,
@@ -635,6 +638,7 @@ exports.buildAutomationBatch = async ({
       }
     });
 
+    const caseStartedAt = Date.now();
     try {
       const scopedCase = await selectCaseWithScope.get(testCaseId);
       if (!scopedCase || scopedCase.app_type_id !== appTypeId) throw new Error("Every selected automation case must belong to the batch application.");
@@ -667,7 +671,7 @@ exports.buildAutomationBatch = async ({
       });
       if (!result.generated_step_count) throw new Error("Automation builder did not produce any executable step updates.");
       created.push(result);
-      caseOutcomes.push({test_case_id:result.test_case_id,source_test_case_id:result.source_test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification});
+      caseOutcomes.push({test_case_id:result.test_case_id,source_test_case_id:result.source_test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification,duration_ms:Date.now()-caseStartedAt});
     } catch (error) {
       if(execution_guard?.signal.aborted||error.code==="BATCH_JOB_LEASE_LOST")throw execution_guard?.signal.reason||error;
       if(!error.nonRetryable&&!["AI_INSTRUCTION_MISSING","AI_FEATURE_UNMAPPED","AI_CONFIGURATION_INVALID"].includes(error.code)&&[408,425,429,500,502,503,504].includes(Number(error.statusCode||error.status)))retryableErrors.push(error);
@@ -677,6 +681,7 @@ exports.buildAutomationBatch = async ({
         message: error instanceof Error ? error.message : "Automation build failed",
         code: error.code || null,
         error_code: error.code || null,
+        duration_ms: Date.now()-caseStartedAt,
         failure_stage: error.failure_stage || null,
         ...(error.code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'&&Number.isInteger(error.http_status)&&error.http_status>=400&&error.http_status<=599?{http_status:error.http_status}:{}),
         active_step_id:error.active_step_id,failed_step_id:error.active_step_id,active_manual_step_ids:error.active_manual_step_ids,
@@ -685,9 +690,11 @@ exports.buildAutomationBatch = async ({
         saved_step_ids:error.saved_step_ids||[],
         total_sections: error.total_sections,
         pending_step_ids: error.pending_step_ids,
-        blocked_steps:error.blocked_steps
+        blocked_steps:error.blocked_steps,
+        effect_dispatched:error.effect_dispatched===true,
+        outcome_unknown:error.outcome_unknown===true
       });
-      caseOutcomes.push({...errors[errors.length-1],status:["AUTOMATION_BUILD_INCOMPLETE","AUTOMATION_DEPENDENCY_MISSING"].includes(error.code)?"incomplete":"failed",changes_saved:Boolean(error.saved_sections)});
+      caseOutcomes.push({...errors[errors.length-1],status:error.saved_sections||["AUTOMATION_BUILD_INCOMPLETE","AUTOMATION_DEPENDENCY_MISSING"].includes(error.code)?"incomplete":"failed",changes_saved:Boolean(error.saved_sections)});
       await appendEvent(transactionId, {
         level: "error",
         phase: "automation.case.failed",
@@ -743,7 +750,8 @@ exports.buildAutomationBatch = async ({
       stopped_by_failure_threshold: stoppedByThreshold,
       progress_percent: 100,
       output_test_case_ids: require('./automationBuildTargets.service').mergeTargets(registeredTargets,created.map(result=>result.test_case_id)),
-      retry_test_case_ids: targetIds.filter(id => !created.some(result => result.test_case_id === id)),
+      retry_test_case_ids: targetIds.filter(id => !created.some(result => result.test_case_id === id || result.source_test_case_id === id)
+        && !errors.some(error => error.effect_dispatched && (error.test_case_id === id || error.source_test_case_id === id))),
       sample_errors: errors.slice(0, 10)
     },
     completed_at: new Date().toISOString()
@@ -773,6 +781,58 @@ exports.buildAutomationBatch = async ({
 const { resolveTestEngineIntegration, resolveBuildBrowserIntegration, resolveMobileEngineBaseUrl, hasRemoteMobileProvider, readEngineJson, readMobileEngineJson, buildEngineUrl, isPrivateAddress, normalizeLocalEngineBaseUrl, resolveRecorderPublicBaseUrl, parseTransactionMetadata, isRecorderSessionPastOrphanTtl } = require('./builder/engineResolution').createEngineResolution({exports,require:builderDependency,get ENGINE_TIMEOUT_MS(){return ENGINE_TIMEOUT_MS;},get MOBILE_ENGINE_SECRET_HEADER(){return MOBILE_ENGINE_SECRET_HEADER;},get RECORDER_ORPHAN_TTL_MS(){return RECORDER_ORPHAN_TTL_MS;},get integrationService(){return integrationService;},get normalizeText(){return normalizeText;},get resilientHttpRequest(){return resilientHttpRequest;},get resolveMobileEngineSecret(){return resolveMobileEngineSecret;},get safeJson(){return safeJson;}});
 
 
+/** Open only the reviewed entry page from the selected browser worker. */
+exports.preflightAutomationBrowser = async ({
+  projectId, appTypeId, user, startUrl, environmentId, signal, caseId, configurationId, dataSetId, suiteId, integrationId, checkModel = false, retryStartup = false
+} = {}) => {
+  const { browserEntryError, probeBrowserEntry } = require('../lib/browser/automationBrowserEntry');
+  signal?.throwIfAborted();
+  const testCase = caseId ? await selectCaseWithScope.get(caseId) : null;
+  if (caseId && (!testCase || projectId && projectId !== testCase.project_id || appTypeId && appTypeId !== testCase.app_type_id)) {
+    throw browserEntryError('AUTOMATION_CASE_UNAVAILABLE', 'The automation case is unavailable in this application.', 404);
+  }
+  projectId ??= testCase?.project_id;
+  appTypeId ??= testCase?.app_type_id;
+  if (!projectId || !appTypeId || !user?.id) throw browserEntryError('AUTOMATION_BROWSER_SCOPE_REQUIRED', 'Choose a project and application for the browser build.', 400);
+  const permissions = ['automation.build', 'automation.ai', ...(environmentId ? ['environment.view'] : []), ...(configurationId ? ['configuration.view'] : []), ...(dataSetId ? ['data.view'] : []), ...(suiteId ? ['suite.view'] : [])];
+  const assertAccess = async () => {
+    const access = await getOptionalEvidenceAccess(user, projectId, permissions);
+    if (permissions.some(permission => !access[permission])) throw browserEntryError('AUTOMATION_BUILD_ACCESS_REQUIRED', 'Browser setup requires automation build, AI and selected execution context access.', 403);
+  };
+  await assertAccess();
+  const app = await db.prepare('SELECT id FROM app_types WHERE id=? AND project_id=?').get(appTypeId, projectId);
+  if (!app) throw browserEntryError('AUTOMATION_APPLICATION_UNAVAILABLE', 'The selected application is unavailable in this project.', 404);
+  const environment = await requireBuildEnvironment(environmentId, testEnvironmentService.getTestEnvironment);
+  if (environment && (environment.project_id !== projectId || environment.app_type_id && environment.app_type_id !== appTypeId)) {
+    throw browserEntryError('AUTOMATION_ENVIRONMENT_UNAVAILABLE', 'Choose a Test Environment in this project and application.', 422);
+  }
+  let url;
+  try {
+    url = normalizeAutomationStartUrl(startUrl ?? testCase?.automation_start_url ?? environment?.base_url, { required: true });
+  } catch (error) {
+    throw browserEntryError(error.code, error.message, error.statusCode);
+  }
+  if (testCase) {
+    const { plan } = await require('./automationBuildParameterPlan.service').loadState({
+      testCase, userId: user.id, test_environment_id: environmentId, test_configuration_id: configurationId,
+      test_data_set_id: dataSetId, test_suite_id: suiteId
+    });
+    const privateNames = new Set(plan.private_parameter_references);
+    const deferredNames = new Set(plan.deferred_parameter_references);
+    const environmentNames = require('../lib/build/automationBuildInputPreflight').protectedEnvironmentParameters(environment);
+    const missing = [...new Set([...plan.missing_parameter_references, ...plan.empty_parameter_references])]
+      .filter(name => (environmentNames.has(name) || /^[ts]\./.test(name) && privateNames.has(name)) && !deferredNames.has(name));
+    if (missing.length) throw browserEntryError('AUTOMATION_DEPENDENCY_MISSING', `Set protected test inputs before building: ${missing.map(name => `@${name}`).join(', ')}.`);
+  }
+  if (checkModel) {
+    try { await resolveLlmIntegration(integrationId, { allowFallback: false, userId: user.id, projectId, usageKey: buildFeature('ai.agentic.automation-engineer') }); }
+    catch { throw browserEntryError('AUTOMATION_MODEL_UNAVAILABLE', 'Choose an active model connection for Automation Build Agent.'); }
+  }
+  await probeBrowserEntry({ integration: await resolveTestEngineIntegration({ project_id: projectId }), startUrl: url, signal,
+    ...(retryStartup ? {retryStartup:true,beforeConnect:assertAccess} : {}) });
+  return { status: 'ready', browser: 'reachable', ...(environment ? { environment: { id: environment.id, name: environment.name } } : {}) };
+};
+
 exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environmentId,startUrl,allowBrowserActions=false,browser_driver='playwright_mcp_upstream',signal}) => {
   const testCase=await selectCaseWithScope.get(caseId);
   if(!testCase || testCase.project_id!==projectId || appTypeId && testCase.app_type_id!==appTypeId)throw Object.assign(new Error("The automation case is unavailable in this application."),{statusCode:404});
@@ -782,7 +842,7 @@ exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environment
   const steps=resolveAutomationCaseSteps(testCase,await selectStepsForCase.all(caseId),{appTypeKind:testCase.app_type_kind}).steps;
   if(!steps.some(step=>normalizeTestStepType(step.step_type,"web")==="web"))throw Object.assign(new Error("Playwright MCP supports web sections; API-only or native mobile cases use their own runtime."),{statusCode:422});
   const buildContext=await resolveBuildContext({testCase,test_environment_id:environmentId});
-  const url=resolveAutomationStartUrl({startUrl,caseUrl:testCase.automation_start_url,steps,required:true}).url;
+  const url=resolveAutomationStartUrl({startUrl,caseUrl:testCase.automation_start_url ?? buildContext.environment?.base_url,steps,required:true}).url;
   if(!url)throw Object.assign(new Error("Select an environment with a start URL for live Playwright MCP inspection."),{statusCode:422});
   const engine=await resolveTestEngineIntegration(testCase);
   const parameterContext=await loadAutomationParameterContext({testCase,projectId,userId:user.id});

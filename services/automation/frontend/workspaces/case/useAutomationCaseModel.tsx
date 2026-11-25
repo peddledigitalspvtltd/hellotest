@@ -34,8 +34,6 @@ import type { AutomationCaseScope } from './useAutomationCaseScope';
 import type { AutomationCaseState } from './useAutomationCaseState';
 export function useAutomationCaseModel(input: AutomationCaseScope & AutomationCaseState) {
     const {canRunLocalAutomation, session, projectId, buildVerificationMode, allowBrowserActions, appTypeId, selectedCaseId, selectedParameterSuiteId, selectedExecutionEnvironmentId, selectedExecutionConfigurationId, selectedExecutionDataSetId, canInspectRepository, canUseRecorder, canUseAutomationBuilder, isBatchAgentOpen, canViewExecutionMetrics, activeAutomationWorkspaceTab, canViewTestData, canUseAutomationAi, isSharedGroupLibraryOpen, canDeleteAutomationCases, canViewAutomationCode, automationDraftStore, agentMission, builderContext, batchBuildTargetIds, testCaseParameterValues, caseDataSetId, suiteParameterValues, privateCaseParameterDraft, caseParameterOverrideDraftRef, parameterPreviewRevision, parameterPreviewCache, lastAutomationCaseDraftSeedRef, caseDraft, recorderParameterBindings, isAutomationCodePreviewOpen, automationStepView, executionHookDraft, overrideSharedSteps, startUrl, batchStartUrl, recordingTargetStepId, canUseMobileAppium} = input;
-    const canVerifyBuild = canRunLocalAutomation && hasPermission(session, "run.create", projectId);
-    const buildPipelineOptions = automationBuildPipelineRequest({ mode: buildVerificationMode, driver: "mcp", canVerify: canVerifyBuild, interactive: allowBrowserActions });
     const { reviewBuildParameters, parameterReviewDialog } = useAutomationBuildParameters(JSON.stringify([
         projectId, appTypeId, selectedCaseId, selectedParameterSuiteId,
         selectedExecutionEnvironmentId, selectedExecutionConfigurationId, selectedExecutionDataSetId
@@ -117,6 +115,7 @@ export function useAutomationCaseModel(input: AutomationCaseScope & AutomationCa
         enabled: Boolean(appTypeId && session && (isSharedGroupLibraryOpen || asArray<TestStep>(automatedStepsQuery.data).some(step => step.reusable_group_id)))
     });
     const appTypes = asArray(appTypesQuery.data);
+    const selectedRuntimeType = appTypes.find((item) => item.id === appTypeId)?.type || "web";
     const testCases = asArray(testCasesQuery.data);
     const testDataSets = asArray<TestDataSet>(testDataSetsQuery.data);
     const automationRequirements = asArray(requirementsQuery.data);
@@ -180,7 +179,7 @@ export function useAutomationCaseModel(input: AutomationCaseScope & AutomationCa
     const inspectSavedPlans = (ids: string[], intent: "build" | "run" = "run") => inspectAutomationTargets(ids, appTypeId, {
         getCase: id => api.testCases.get(id, { project_id: projectId }),
         getSteps: id => api.testSteps.list({ test_case_id: id })
-    }, intent, unsavedAutomationStepIds, undefined, canViewAutomationCode, intent === "build" ? [agentMission, builderContext].filter(Boolean).join("\n\n") : "");
+    }, intent, unsavedAutomationStepIds, undefined, canViewAutomationCode, intent === "build" ? [agentMission, builderContext].filter(Boolean).join("\n\n") : "", selectedRuntimeType);
     const batchBuildReadinessQuery = useQuery({
         queryKey: ["automation-build-preflight", projectId, appTypeId, batchBuildTargetIds, unsavedAutomationStepIds, Boolean(agentMission.trim() || builderContext.trim())],
         queryFn: () => inspectSavedPlans(batchBuildTargetIds, "build"),
@@ -372,18 +371,16 @@ export function useAutomationCaseModel(input: AutomationCaseScope & AutomationCa
     }), [automatedSteps, automationDraftStore.read("code"), automationDraftStore.read("steps")]);
     const repositoryMemberCount = useMemo(() => learningCache.filter(entry => !isNonElementRepositoryEntry(entry)).length, [learningCache]);
     const caseObjectBindingCount = useMemo(() => collectCaseRepositoryPages({ entries: learningCache, steps: caseRepositorySteps, values: resolvedParameterValues, caseId: activeCase?.id || '' }).members.length, [learningCache, caseRepositorySteps, resolvedParameterValues, activeCase?.id]);
-    const selectedRuntimeType = appTypes.find((item) => item.id === appTypeId)?.type || "web";
     const activeAutomationCaseType = resolveAutomationCaseType(activeCase, automatedSteps, selectedRuntimeType);
     const automationRuntimeTypes = getAutomationBuildRuntimeTypes(automatedSteps, activeAutomationCaseType);
+    const canVerifyBuild = automationRuntimeTypes.every(type => type === "web") && canRunLocalAutomation && hasPermission(session, "run.create", projectId);
+    const buildPipelineOptions = automationBuildPipelineRequest({ mode: buildVerificationMode, driver: "mcp", canVerify: canVerifyBuild, interactive: allowBrowserActions, hasEnvironment: Boolean(selectedExecutionEnvironmentId) });
     const detailIncompatibleRuntimes = incompatibleAutomationRuntimes(caseDraft.automationCaseType, automatedSteps);
     const automationStartUrlRequired = automationRuntimeTypes.includes("web");
     const automationStartUrlValidation = automationStartUrlError(startUrl, automationStartUrlRequired);
-    const batchStartUrlRequired = batchBuildReadinessQuery.data
-        ? batchBuildReadinessQuery.data.some(result => result.runtimes.includes("web") || !result.stepCount && ["web", "unified"].includes(selectedRuntimeType))
-        : selectedRuntimeType === "web" || selectedRuntimeType === "unified";
-    const batchHasUrlRuntime = batchBuildReadinessQuery.data
-        ? batchBuildReadinessQuery.data.some(result => result.runtimes.some(type => type === "web" || type === "api") || !result.stepCount && !["android", "ios"].includes(selectedRuntimeType))
-        : !["android", "ios"].includes(selectedRuntimeType);
+    const batchBuildRuntimes = batchBuildReadinessQuery.data?.flatMap(result => result.runtimes) || [];
+    const batchStartUrlRequired = batchBuildRuntimes.includes("web");
+    const batchHasUrlRuntime = batchStartUrlRequired || batchBuildRuntimes.includes("api");
     const batchStartUrlValidation = automationStartUrlError(batchStartUrl, batchStartUrlRequired);
     const inferredRecorderPlatform = getRecorderPlatform(automatedSteps, recordingTargetStepId, activeAutomationCaseType);
     const recorderPlatform: ReturnType<typeof getRecorderPlatform> = !recordingTargetStepId && (!automatedSteps.length || inferredRecorderPlatform === "api") && activeAutomationCaseType !== "api"

@@ -1,6 +1,27 @@
-export type AutomationSelectionState = { scope: string; caseId: string; routeCaseId: string; caseIds: string[]; stepIds: string[]; expandedStepIds: string[]; visibleInstructionIds: string[] };
+import type { AutomationCaseType } from "@hellotest/platform/frontend/src/types";
+
+export type AutomationCatalogFilters = {
+  search: string;
+  plan: "" | "ready" | "incomplete";
+  platform: "" | AutomationCaseType;
+  outcome: "" | "passed" | "failed" | "blocked" | "not_verified";
+};
+
+export const EMPTY_AUTOMATION_CATALOG_FILTERS: AutomationCatalogFilters = { search: "", plan: "", platform: "", outcome: "" };
+
+export type AutomationSelectionState = {
+  scope: string;
+  caseId: string;
+  routeCaseId: string;
+  caseIds: string[];
+  catalogFilters: AutomationCatalogFilters;
+  stepIds: string[];
+  expandedStepIds: string[];
+  visibleInstructionIds: string[];
+};
 export type AutomationSelectionAction =
   | { type: "scope.changed"; scope: string }
+  | { type: "catalog.filtered"; filters: Partial<AutomationCatalogFilters> }
   | { type: "case.changed"; caseId: string; routeCaseId?: string }
   | { type: "cases.selected"; ids: string[] }
   | { type: "case.toggled"; id: string; selected: boolean }
@@ -12,10 +33,16 @@ export type AutomationSelectionAction =
   | { type: "instruction.shown"; id: string }
   | { type: "instruction.toggled"; id: string }
   | { type: "steps.reconciled"; availableIds: string[] };
-export const automationSelectionInitial = (scope: string): AutomationSelectionState => ({ scope, caseId: "", routeCaseId: "", caseIds: [], stepIds: [], expandedStepIds: [], visibleInstructionIds: [] });
+export const automationSelectionInitial = (scope: string): AutomationSelectionState => ({
+  scope, caseId: "", routeCaseId: "", caseIds: [], catalogFilters: EMPTY_AUTOMATION_CATALOG_FILTERS,
+  stepIds: [], expandedStepIds: [], visibleInstructionIds: []
+});
 const unique = (ids: string[]) => [...new Set(ids.filter(Boolean))];
 export function automationSelectionReducer(state: AutomationSelectionState, action: AutomationSelectionAction): AutomationSelectionState {
   if (action.type === "scope.changed") return action.scope === state.scope ? state : automationSelectionInitial(action.scope);
+  if (action.type === "catalog.filtered") {
+    return { ...state, catalogFilters: { ...state.catalogFilters, ...action.filters }, caseIds: [] };
+  }
   if (action.type === "case.changed") {
     const routeCaseId = action.routeCaseId ?? action.caseId;
     if (action.caseId === state.caseId) return routeCaseId === state.routeCaseId ? state : { ...state, routeCaseId };

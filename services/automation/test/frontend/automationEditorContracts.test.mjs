@@ -8,7 +8,7 @@ import { automationNumericArgument, automationParameterArgument, automationStrin
 import { markExpressionParameterBindings, usesExpressionParameterBindings } from "../../shared/automationParameterMode.mjs";
 
 const require = createRequire(import.meta.url);
-const { validateAuthoredApiRequest } = require("../../../platform/backend/src/utils/testStepAutomation.js");
+const { validateAuthoredApiRequest, normalizeApiRequest, hasExecutableApiRequest } = require("../../../platform/backend/src/utils/testStepAutomation.js");
 const dependencies = { automationNumericArgument, automationParameterArgument, automationStringArgument, getAutomationKeywordInputSpec, parseAutomationKeywordCall, markExpressionParameterBindings, usesExpressionParameterBindings, Ajv };
 function loadDeclarations(path, names, context) {
   const source = readFileSync(new URL(path, import.meta.url), "utf8");
@@ -36,12 +36,21 @@ test("API editor preserves scoped and invalid authored status assertions for aut
   assert.equal(invalid.validations[0].expected, "201garbage");
   assert.throws(() => validateAuthoredApiRequest(invalid), /HTTP status/);
   const existing = { method: "GET", url: "/before", headers: [], body_mode: "none", validations: [], captures: [{ path: "$.id", parameter: "@r.id" }], auth: { type: "bearer", credential_reference: "configured-token" }, timeout_ms: 12345, follow_redirects: false };
-  const edited = draftLib.buildAutomationApiRequest(draft({ objectRef: "/after" }), existing);
+  const edited = draftLib.buildAutomationApiRequest(draft({ objectRef: "/after", apiExpectedStatus: "" }), existing);
   assert.deepEqual(edited.validations, []);
   assert.deepEqual(edited.captures, existing.captures);
   assert.deepEqual(edited.auth, existing.auth);
   assert.equal(edited.timeout_ms, 12345);
   assert.equal(edited.follow_redirects, false);
+  assert.deepEqual(draftLib.buildAutomationApiRequest(draft({apiExpectedStatus:""})).validations,[]);
+});
+
+test("an API request can save method, timeout or request behavior before an endpoint is chosen", () => {
+  const pending = { method:"POST", url:"", timeout_ms:7000, follow_redirects:false, body_mode:"json" };
+  assert.doesNotThrow(() => validateAuthoredApiRequest(pending));
+  assert.deepEqual(normalizeApiRequest(pending),{...pending,url:null,body:null,headers:[],validations:[],captures:[]});
+  assert.equal(hasExecutableApiRequest(pending),false);
+  assert.doesNotThrow(() => validateAuthoredApiRequest({ method:"GET", url:"", timeout_ms:30000 }));
 });
 
 test("every selectable action is available in the full editor and API actions are canonical requests", () => {

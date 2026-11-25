@@ -1,12 +1,12 @@
-const {implementationSource,implementationFunctionSource}=require('../helpers/implementationSource');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const { readFileSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const { parse } = require('acorn');
 const { createSavedBuildVerificationHooks } = require("../../backend/lib/build/automationSavedBuildVerificationHooks");
 const { verifySavedBuild } = require('../../backend/services/automationSavedBuildVerification.service');
 const { compileRecordedProgram } = require("../../backend/lib/browser/automationRecordedProgram");
+const { deterministicSectionInstructions } = require("../../backend/lib/upstream/automationUpstreamSectionSource");
 
 function fixture(mode = 'verify_repair') {
   const source = compileRecordedProgram([
@@ -19,7 +19,8 @@ function fixture(mode = 'verify_repair') {
     manualLinkIds: ['manual-case'], manualContext: [{id: 'manual-case', steps: [{id: 'manual-step', action: step.action, expected_result: step.expected_result}]}]};
   const permissions = {'automation.run.local': true, 'run.create': true};
   const calls = {buildAccess: 0, access: [], models: [], runs: [], commits: []};
-  let build = {updates: [{step, step_type: 'web', automation_code: source}], summary: 'Native source', browser_evidence: {transport: 'upstream_playwright_mcp'},
+  let build = {updates: [{step, step_type: 'web', automation_code: source,
+    automation_instructions: deterministicSectionInstructions(step, source)?.steps[0]}], summary: 'Native source', browser_evidence: {transport: 'upstream_playwright_mcp'},
     learned_locators: [{locator: '#old'}, {locator: '#retained'}]};
   let savedSteps = input.state.steps;
   const resolver = {resolve: (_name, args) => ({...args, value: 'PRIVATE_VALUE'}),
@@ -76,6 +77,10 @@ test('shared saved-build hooks commit one supported locator repair after the exa
   assert.deepEqual(f.calls.runs[0].parameters, {'r.name': 'PRIVATE_VALUE'});
   assert.deepEqual(f.calls.runs[1].parameters, f.calls.runs[0].parameters);
   assert.equal(f.build().updates[0].automation_code, after.automation_code);
+  const mapping = f.build().updates[0].automation_instructions;
+  assert.ok(mapping);
+  assert.match(mapping.instructions[0].detail, /#new/);
+  assert.match(mapping.instructions[1].detail, /#old/);
   assert.equal(f.build().browser_evidence.transport, 'upstream_playwright_mcp');
   assert.deepEqual(f.build().learned_locators, [{locator: '#retained'}]);
   assert.ok(f.calls.access.length > 6);
@@ -135,22 +140,24 @@ test('generate-only native builds do not evaluate verification permissions or re
 });
 
 test('both actual builder branches wire shared hooks and the upstream repair adapter bounds and traces its provider call', async () => {
-  const file = require.resolve('../../backend/services/aiAutomationBuilder.service'), source = implementationSource('builder/programGeneration');
+  const file = require.resolve('../../backend/services/builder/programGeneration'), source = readFileSync(file, 'utf8');
   const factories = [], completions = [];
   const walk = node => {
     if (!node || typeof node !== 'object') return;
     if (node.type === 'CallExpression' && node.callee?.property?.name === 'createSavedBuildVerificationHooks') factories.push(node);
-    if (node.type === 'VariableDeclarator' && node.id?.name === 'complete' && source.slice(node.start, node.end).includes('generation_scope:phase')) completions.push(node.init);
+    if (node.type === 'FunctionDeclaration' && node.id?.name === 'browserModelCompletion') completions.push(node);
     for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(walk); else if (value && typeof value === 'object') walk(value);
   };
   walk(parse(source, {ecmaVersion: 'latest'}));
   assert.equal(factories.length, 2); assert.equal(completions.length, 1);
   const trace = [], requests = [], access = [];
-  const context = {assertAccess: async () => access.push('build'), knowledgeRows: {knowledge: [], context_transport: 'not_required'}, browserParameters: {redactUpstream: value => value.replaceAll('PRIVATE_VALUE', '[redacted]')},
-    require: name => name.endsWith('llmTraceContext') ? {run: async (metadata, run) => {trace.push(metadata); return run();}} : createRequire(file)(name),
-    testCase: {project_id: 'project'}, created_by: 'actor', transaction_id: null, test_case_id: 'case', automationCaseType: 'web',
-    requestChatCompletion: async request => {requests.push(request); await request.beforeDispatch(); return '{}';}, integration: {}, buildFeature: () => 'feature', ai_feature: 'feature', execution_guard: undefined};
-  const complete = new Function(...Object.keys(context), `return (${source.slice(completions[0].start, completions[0].end)});`)(...Object.values(context));
+  const adapterPorts = {requestChatCompletion: async request => {requests.push(request); await request.beforeDispatch(); return '{}';}};
+  const adapterRequire = name => name.endsWith('llmTraceContext')
+    ? {run: async (metadata, run) => {trace.push(metadata); return run();}}
+    : createRequire(file)(name);
+  const makeComplete = new Function('ports', 'require', `return (${source.slice(completions[0].start, completions[0].end)});`)(adapterPorts, adapterRequire);
+  const complete = makeComplete({assertAccess: async () => access.push('build'),
+    resolver: {redactUpstream: value => value.replaceAll('PRIVATE_VALUE', '[redacted]')}, integration: {}, featureKey: 'feature'});
   await complete({prompt: 'PRIVATE_VALUE', phase: 'verification_repair', step: {id: 'upstream-step'}, timeoutMs: 90_000, beforeDispatch: async () => access.push('verification')});
   assert.equal(trace[0].generation_scope, 'verification_repair'); assert.deepEqual(trace[0].generation_section_ids, ['upstream-step']);
   assert.equal(requests[0].timeoutMs, 30_000); assert.equal(requests[0].maxAttempts, 1);
@@ -164,19 +171,22 @@ test('both actual builder branches wire shared hooks and the upstream repair ada
     parameter_context_key: 'parameters', input_context: state.input_context, data_snapshot: {id: 'frozen-data'}};
   const guard = {signal: new AbortController().signal};
   const factoryContext = {require: createRequire(file), assertAccess: f.hookOptions.assertBuildAccess,
-    getOptionalEvidenceAccess: async (principal, projectId, keys) => {
-      assert.deepEqual(principal, {id: 'actor'}); assert.equal(projectId, 'project');
-      return f.hookOptions.getVerificationAccess(keys);
-    }, created_by: 'actor', testCase: f.input.testCase, browserParameters: f.input.parameterResolver,
-    buildFeature: () => 'ai.agentic.automation-engineer', ai_feature: 'feature', execution_guard: guard,
-    extractJsonPayload: JSON.parse,
+    created_by: 'actor', testCase: f.input.testCase, browserParameters: f.input.parameterResolver,
+    ai_feature: 'feature', execution_guard: guard,
     complete: ({prompt, phase, step, ...request}) => f.hookOptions.completeRepair({...request, prompt, generationScope: phase, sectionId: step.id}),
     result: f.build(), buildIdentity: identity, progressiveState: state,
-    applyBuild: async value => {
-      applied.push(value);
-      const committed = await f.hookOptions.commitBuild(value.build);
-      Object.assign(state, committed);
-      return committed.steps;
+    ports: {
+      getOptionalEvidenceAccess: async (principal, projectId, keys) => {
+        assert.deepEqual(principal, {id: 'actor'}); assert.equal(projectId, 'project');
+        return f.hookOptions.getVerificationAccess(keys);
+      },
+      buildFeature: () => 'ai.agentic.automation-engineer', extractJsonPayload: JSON.parse,
+      applyBuild: async value => {
+        applied.push(value);
+        const committed = await f.hookOptions.commitBuild(value.build);
+        Object.assign(state, committed);
+        return committed.steps;
+      }
     }};
   const actual = new Function(...Object.keys(factoryContext), `let stepUpdates; const hooks = ${source.slice(factories[0].start, factories[0].end)}; return {hooks, result:()=>result, updates:()=>stepUpdates};`)(...Object.values(factoryContext));
   const verification = await verifySavedBuild(f.input, {...f.ports, ...actual.hooks});

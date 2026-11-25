@@ -4,6 +4,48 @@ const { createToken } = require('@hellotest/platform/backend/src/utils/token');
 const tasks = require('./artifactTasks');
 const { fail } = require('./connections');
 const { normalizeDataOptions } = require('@hellotest/platform/backend/src/utils/scopedTestData');
+const { manualCaseSource } = require('./automationNodeInputs');
+
+const manualAcceptanceSlot = (nodeId, path, sourceId) => `manual-case:${tasks.fingerprint([nodeId,path || [],sourceId])}`;
+const manualAcceptanceDigest = (source, automation, appTypeId) => tasks.fingerprint({source,automation,app_type_id:appTypeId});
+
+async function projectManualAutomationSaves(run, nodes, user) {
+  if (!['completed', 'needs_review'].includes(run.status) || run.execution_mode !== 'review' || !run.app_type_id) return;
+  const manualNodeIds = new Set((run.workflow_snapshot?.nodes || []).filter(node => manualCaseSource(node.data)).map(node => node.id));
+  const candidates = new Map();
+  for (const [index, node] of nodes.entries()) {
+    if (!manualNodeIds.has(node.node_id)) continue;
+    const raw = run.node_results[index];
+    const iterations = Array.isArray(node.iterations) ? node.iterations : [];
+    const snapshots = [[node, raw], ...iterations.map((item, position) => [item, raw.iterations[position]])];
+    for (const [snapshot, original] of snapshots) {
+      const {manual_case:source,automation} = (original?.execution_context || original?.output)?.data || {};
+      if (snapshot?.status !== 'completed' || !snapshot.output?.data?.manual_case || !source?.id || !source.source_fingerprint
+          || automation?.validation?.status !== 'passed') continue;
+      const path = snapshot.iteration_path || (snapshot === node ? iterations.at(-1)?.iteration_path : undefined);
+      const slot = manualAcceptanceSlot(node.node_id, path, source.id);
+      if (!candidates.has(slot)) candidates.set(slot, []);
+      candidates.get(slot).push({nodeId:node.node_id, source, automation, data:snapshot.output.data});
+    }
+  }
+  if (!candidates.size) return;
+  const access = await require('@hellotest/platform/backend/services/optionalEvidenceAccess.service')
+    .getOptionalEvidenceAccess(user, run.project_id, ['testcase.view']);
+  if (access['testcase.view'] !== true) return;
+  const rows = await db.prepare(`SELECT accepted.node_id, accepted.story_id, accepted.request_hash, accepted.receipt
+    FROM workflow_draft_acceptances accepted JOIN test_cases saved
+      ON saved.id = accepted.receipt->>'id' AND saved.app_type_id = ? AND saved.automated = 'yes'
+    JOIN app_types app ON app.id = saved.app_type_id AND app.project_id = accepted.project_id
+    WHERE accepted.run_id = ? AND accepted.project_id = ? AND accepted.kind = 'automation' AND accepted.case_index = 0
+      AND accepted.story_id IN (SELECT jsonb_array_elements_text(?::jsonb))`)
+    .all(run.app_type_id, run.id, run.project_id, [...candidates.keys()]);
+  for (const row of rows) for (const candidate of candidates.get(row.story_id) || []) {
+    if (row.node_id === candidate.nodeId && row.receipt?.saved === true && row.receipt.manual_test_case_id === candidate.source.id
+        && row.request_hash === manualAcceptanceDigest(candidate.source, candidate.automation, run.app_type_id)) {
+      candidate.data.saved_automation_case_id = row.receipt.id;
+    }
+  }
+}
 
 async function dataOptionsForDraft({ run, user, draft, automated }) {
   const options = { ...(draft.test_data_options || {}), ...(automated?.test_data_options || {}) };
@@ -16,6 +58,56 @@ async function dataOptionsForDraft({ run, user, draft, automated }) {
   const normalized = normalizeDataOptions(options);
   if (normalized.test_environment_id) await require('./automationNodeInputs').selectedEnvironment({ run, node: { data: { testEnvironmentId: normalized.test_environment_id } }, user, access: tasks.access });
   return normalized;
+}
+
+async function acceptManualCaseAutomation({run,nodeId,node,path,definition,user}) {
+  const {manual_case:source,automation} = (node.execution_context || node.output)?.data || {};
+  if (node.output?.artifact_task !== 'automation-engineer' || node.output.generation_mode !== 'native'
+    || !source?.id || !source.source_fingerprint || automation?.validation?.status !== 'passed'
+    || !Array.isArray(automation.steps) || !automation.steps.length) {
+    throw fail('Choose a completed script that passed the native automation checks.', 409);
+  }
+  await tasks.access(user,run.project_id,['agentic_workflow.view','testcase.view','testcase.create','automation.view','automation.build','automation.code.view']);
+  const mobile = require('@hellotest/platform/backend/src/utils/mobileFeature');
+  if (mobile.containsMobileStepPayload(automation.steps)) await tasks.access(user,run.project_id,['mobile.manage']);
+  // The receipt slot is namespaced independently from Sprint Story IDs.
+  const slot = manualAcceptanceSlot(nodeId,path,source.id);
+  const key = `workflow-draft:${run.id}:${slot}:automation`;
+  const digest = manualAcceptanceDigest(source,automation,run.app_type_id);
+  return db.transaction(async () => {
+    await db.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?,0))').get(key);
+    const previous = await db.prepare("SELECT request_hash,receipt FROM workflow_draft_acceptances WHERE run_id=? AND story_id=? AND case_index=0 AND kind='automation' AND project_id=?")
+      .get(run.id,slot,run.project_id);
+    if (previous) {
+      if (previous.request_hash !== digest) throw fail('This workflow draft changed after its Library save.',409);
+      return {...previous.receipt,reused:true};
+    }
+    const locked=await db.prepare('SELECT id FROM test_cases WHERE id=? AND app_type_id=? FOR UPDATE').get(source.id,run.app_type_id);
+    if (!locked) throw fail('The source manual Test Case is no longer in this application.',409);
+    await db.prepare('SELECT id FROM test_steps WHERE test_case_id=? ORDER BY id FOR SHARE').all(source.id);
+    const current=await require('./manualAutomationTask').loadSource({run,node:definition,user,access:tasks.access,automationSteps:tasks.automationSteps});
+    if (current.source.id !== source.id || current.source.revision !== source.revision || tasks.fingerprint(current.draft) !== source.source_fingerprint) {
+      throw fail('The manual Test Case changed after generation. Build from its current revision before saving the script.',409);
+    }
+    const draft=automation.draft || {};
+    const dataOptions=await dataOptionsForDraft({run,user,draft,automated:automation});
+    const saved=await require('@hellotest/testing/backend/services/testCase.service').createTestCase({
+      app_type_id:run.app_type_id,title:current.draft.title,description:current.draft.description,
+      status:'draft',authoring_mode:current.draft.authoring_mode,gherkin_document:current.draft.gherkin_document,
+      automated:'yes',automation_status:'incomplete',automation_case_type:resolveAutomationCaseType(automation,{steps:automation.steps}),
+      automation_start_url:automation.automation_start_url || undefined,manual_test_case_ids:[source.id],steps:automation.steps,
+      parameter_values:automation.parameter_values || {},test_data_set_ids:draft.test_data_set_ids || [],
+      ...(dataOptions ? {test_data_options:dataOptions} : {}),source_idempotency_key:key,
+      ai_generation_source:'interactive',ai_generation_review_status:'pending',review_status:'pending',
+      reviewer_id:user.id,author_id:user.id,created_by:user.id,updated_by:user.id
+    });
+    if (!saved?.id) throw fail('The Test Case service did not return its saved identity.',502);
+    const receipt={id:saved.id,manual_test_case_id:source.id,title:current.draft.title,kind:'automation',saved:true,
+      requires_review:true,review_status:'pending',verification_status:'unverified',requires_test_run:true};
+    await db.prepare("INSERT INTO workflow_draft_acceptances(run_id,node_id,story_id,case_index,kind,project_id,actor_id,request_hash,receipt) VALUES(?,?,?,0,'automation',?,?,?,?)")
+      .run(run.id,nodeId,slot,run.project_id,user.id,digest,receipt);
+    return receipt;
+  })();
 }
 
 async function accept(app, req, run) {
@@ -31,6 +123,11 @@ async function accept(app, req, run) {
     node = node?.iterations?.find(item => JSON.stringify(item.iteration_path) === JSON.stringify(path));
   }
   if (node?.status !== 'completed') throw fail('Choose a completed native task or loop iteration.', 409);
+  const definition=run.workflow_snapshot?.nodes?.find(item=>item.id===nodeId);
+  if (manualCaseSource(definition?.data)) {
+    if (kind !== 'automation' || storyIndex !== 0 || caseIndex !== 0) throw fail('Choose the recorded manual-case automation draft.',422);
+    return acceptManualCaseAutomation({run,nodeId,node,path:path || node.iteration_path || node.iterations?.at(-1)?.iteration_path,definition,user:req.user});
+  }
   const packet = (node?.execution_context || node?.output)?.data?.[storyIndex];
   const draft = packet?.cases?.[caseIndex];
   if (!draft || !packet.case_assurance?.[caseIndex] || packet.case_assurance[caseIndex].verification?.status !== 'passed' || packet.case_assurance[caseIndex].case_fingerprint !== tasks.fingerprint(draft)) throw fail('Choose a recorded, assessed Test Case draft.', 409);
@@ -158,7 +255,8 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
   const definition = stored.workflow_snapshot.nodes.find(item => item.id === nodeId);
   const result = stored.node_results.find(item => item.node_id === nodeId && item.node_type === 'artifactTask' && item.status === 'completed');
   const task = definition?.data?.artifactTask;
-  if (definition?.data?.kind !== 'artifactTask' || !['test-case-generation', 'automation-engineer'].includes(task)) return null;
+  if (definition?.data?.kind !== 'artifactTask' || !['test-case-generation', 'automation-engineer'].includes(task)
+    || require('./automationNodeInputs').manualCaseSource(definition.data)) return null;
   if (!result || result.output?.artifact_task !== task || result.output.generation_mode !== 'native'
     || !['passed', 'needs_input', 'not_required'].includes(result.output.verification?.status)) throw fail('Publish only completed native artifact task output.', 409);
   const packets = (result.execution_context || result.output).data;
@@ -185,8 +283,8 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
         if (assessed?.verification?.status !== 'passed' || assessed.case_fingerprint !== tasks.fingerprint(draft)
           || (definition.data.readinessPolicy === 'require-ready' && assessed.assurance_review?.automation_readiness?.status !== 'ready')
           || automated.case_fingerprint !== tasks.fingerprint(draft) || automated.validation?.status !== 'passed'
-          || automated.verification_status !== 'unverified' || !Array.isArray(automated.steps) || !automated.steps.length) {
-          throw fail('Automatic automation publication requires an assessed, validated and unverified native draft.', 409);
+          || !['unverified','verified'].includes(automated.verification_status) || !Array.isArray(automated.steps) || !automated.steps.length) {
+          throw fail('Automatic automation publication requires an assessed and validated native draft.', 409);
         }
       }
       receipts.push(await publishCase({ run: stored, nodeId, packet, draft, caseIndex,
@@ -208,4 +306,4 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
   }
   return summary('saved');
 }
-module.exports = { accept, publishNodeArtifacts, isAutomaticPublication: automaticPublication };
+module.exports = { accept, projectManualAutomationSaves, publishNodeArtifacts, isAutomaticPublication: automaticPublication };

@@ -57,9 +57,11 @@ for (const path of ['case-loop', 'legacy-story-packet']) {
           const result = await tasks.execute({ run, node, sources: [], user: { id: 'actor' }, signal: new AbortController().signal,
             onProgress: async () => {}, context: { input: [packet], ...(path === 'case-loop' ? { item: draft } : {}) } });
           assert.equal(calls.length, 1, 'The complete case is generated exactly once.');
+          assert.equal(calls[0].presentation, 'artifact');
           const interactive = mode === 'perform_steps' && variant.browser;
           assert.equal(calls[0].allow_browser_actions, interactive);
           assert.equal(calls[0].inspect_browser, variant.browser && mode !== 'offline', 'Only web-containing cases request browser inspection.');
+          assert.equal(calls[0].retry_browser_startup, variant.browser && mode !== 'offline');
           assert.equal(effects.length, Number(interactive), 'Every permitted browser mutation is covered by the operation journal.');
           if (interactive) {
             assert.equal(effects[0].input.story_id, story.id);
@@ -72,6 +74,44 @@ for (const path of ['case-loop', 'legacy-story-packet']) {
     }
   });
 }
+
+test('the API Automation Agent builds native requests with no browser target or effect journal', async t => {
+  const fixture = progressFixture(t, [step('GET https://catalog.example/products/one', 'api')]);
+  Object.assign(fixture.node.data, { automationRuntime: 'api', automationBrowserMode: 'perform_steps', automationVerificationMode: 'verify' });
+  delete fixture.node.data.automationStartUrl;
+  const build = t.mock.method(builder, 'previewAutomationDraft', async input => ({
+    steps: resolveAutomationDraftSteps(input.draft, input.draft.steps).steps,
+    validation: { status: 'passed' }
+  }));
+  const effects = t.mock.method(journal, 'invoke', async (_input, dispatch) => dispatch());
+  const result = await tasks.execute({ run: fixture.run, node: fixture.node, sources: [], user: { id: 'actor' },
+    onProgress: async () => {}, context: { input: [fixture.packet], item: fixture.draft } });
+  assert.equal(build.mock.callCount(), 1);
+  const input = build.mock.calls[0].arguments[0];
+  assert.equal(input.draft.automation_start_url, undefined);
+  assert.equal(input.inspect_browser, false);
+  assert.equal(input.allow_browser_actions, false);
+  assert.equal(input.verification_mode, 'generate_only');
+  assert.equal(effects.mock.callCount(), 0);
+  assert.equal(result.__workflow_result.output.data[0].automation[0].steps[0].step_type, 'api');
+});
+
+test('explicit Automation Agents report incompatible authored steps as a case input gap before dispatch', async t => {
+  for (const [runtime, steps] of [['api', [step('Click Search', 'web')]], ['web', [step('GET https://catalog.example/products/one', 'api')]]]) {
+    await t.test(runtime, async t => {
+      const fixture = progressFixture(t, steps);
+      fixture.node.data.automationRuntime = runtime;
+      fixture.node.data.automationBrowserMode = 'perform_steps';
+      const build = t.mock.method(builder, 'previewAutomationDraft', async () => assert.fail('Incompatible case dispatched'));
+      const result = await tasks.execute({ run: fixture.run, node: fixture.node, sources: [], user: { id: 'actor' },
+        onProgress: async () => {}, context: { input: [fixture.packet], item: fixture.draft } });
+      const [row] = result.__workflow_result.output.data;
+      assert.equal(row.automation_input_required[0].code, 'AUTOMATION_NODE_RUNTIME_MISMATCH');
+      assert.equal(row.automation[0], null);
+      assert.equal(build.mock.callCount(), 0);
+    });
+  }
+});
 
 test('case-scoped native source failure retains exact Story/case attribution and its uncertain operation receipt', async t => {
   const fixture = progressFixture(t, [step('Click the search field and verify focus.', 'web')]);
@@ -99,6 +139,185 @@ test('case-scoped native source failure retains exact Story/case attribution and
       return true;
     });
   assert.equal(dispatch.mock.callCount(),1);assert.equal(receipt.mock.callCount(),1);
+});
+
+test('known source failures after acknowledged browser actions return a journaled case result without an uncertain outcome',async t=>{
+  const fixture=progressFixture(t,[step('Click Search','web')]);
+  fixture.node.data.automationBrowserMode='perform_steps';
+  t.mock.method(builder,'previewAutomationDraft',async()=>{
+    throw Object.assign(new Error('PRIVATE_SOURCE'),{code:'AUTOMATION_UPSTREAM_SOURCE_INVALID',statusCode:422,section_order:1,effect_dispatched:true,outcome_unknown:false});
+  });
+  const journaled=t.mock.method(journal,'invoke',async(_input,dispatch)=>dispatch());
+  const result=await tasks.execute({run:fixture.run,node:fixture.node,sources:[],user:{id:'actor'},signal:new AbortController().signal,
+    onProgress:async()=>{},context:{input:[fixture.packet],item:fixture.draft}});
+  const [failure]=result.__workflow_result.output.data[0].automation_failures;
+  assert.equal(journaled.mock.callCount(),1);
+  assert.equal(failure.code,'AUTOMATION_UPSTREAM_SOURCE_INVALID');
+  assert.equal(failure.retryable,false);
+  assert.equal(failure.reconciliation_required,undefined);
+  assert.equal(failure.section_order,1);
+  assert.match(failure.resolution.retry,/checking prior actions/);
+  assert.doesNotMatch(JSON.stringify(failure),/PRIVATE_SOURCE/);
+});
+
+test('a provider outage after an acknowledged browser action stops the Sprint and keeps the original operation receipt',async t=>{
+  const fixture=progressFixture(t,[step('Click Search','web')]);
+  fixture.node.data.automationBrowserMode='perform_steps';
+  const build=t.mock.method(builder,'previewAutomationDraft',async()=>{
+    throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'),{code:'LLM_PROVIDER_UNAVAILABLE',statusCode:503,effect_dispatched:true,outcome_unknown:false});
+  });
+  const receipt=t.mock.method(journal,'invoke',async(_input,dispatch)=>{
+    const terminal=await dispatch();
+    assert.equal(terminal.systemic_failure,true);
+    assert.equal(terminal.case_failure.retryable,false);
+    return {...terminal,operation_receipt:{id:'known-case-effect',state:'response_received'}};
+  });
+  await assert.rejects(tasks.execute({run:fixture.run,node:fixture.node,sources:[],user:{id:'actor'},signal:new AbortController().signal,
+    onProgress:async()=>{},context:{input:[fixture.packet],item:fixture.draft}}),error=>{
+    assert.equal(error.systemic_failure,true);
+    const diagnostic=failureInfo(error);
+    assert.equal(diagnostic.code,'LLM_PROVIDER_UNAVAILABLE');
+    assert.equal(diagnostic.operation_id,'known-case-effect');
+    assert.equal(diagnostic.reconciliation_required,undefined);
+    assert.equal(diagnostic.retryable,false);
+    assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE_PROVIDER_BODY/);
+    return true;
+  });
+  assert.equal(receipt.mock.callCount(),1);
+  assert.equal(build.mock.callCount(),1);
+});
+
+test('provider request-size and response-contract errors stay isolated to the current Sprint case',async t=>{
+  const {createLlmProviderError}=require('@hellotest/platform/backend/src/utils/upstreamLlmError');
+  for(const [code,createError] of [
+    ['LLM_RATE_LIMIT_REQUEST_TOO_LARGE',()=>createLlmProviderError({status:429,detail:'This request is too large for the provider token limit'})],
+    ['LLM_CONTEXT_LIMIT',()=>Object.assign(new Error('PRIVATE_PROVIDER_REQUEST'),{code:'AI_REQUEST_REJECTED',provider_failure_code:'LLM_CONTEXT_LIMIT',statusCode:502})],
+    ['AI_MANAGED_SCHEMA_INVALID',()=>Object.assign(new Error('PRIVATE_MODEL_RESPONSE'),{code:'AI_MANAGED_SCHEMA_INVALID',statusCode:502})]
+  ])for(const dispatched of [false,true])await t.test(`${code} after browser dispatch ${dispatched}`,async t=>{
+    const fixture=progressFixture(t,[step('Click Search','web')]);
+    fixture.node.data.automationBrowserMode='perform_steps';
+    const build=t.mock.method(builder,'previewAutomationDraft',async()=>{throw Object.assign(createError(),{effect_dispatched:dispatched,outcome_unknown:false});});
+    t.mock.method(journal,'invoke',async(_input,dispatch)=>{
+      const terminal=await dispatch();
+      assert.equal(terminal.systemic_failure,undefined);
+      return {...terminal,operation_receipt:{id:'confirmed-case-effect',state:'response_received'}};
+    });
+    const result=await tasks.execute({run:fixture.run,node:fixture.node,sources:[],user:{id:'actor'},signal:new AbortController().signal,
+      onProgress:async()=>{},context:{input:[fixture.packet],item:fixture.draft}});
+    const [failure]=result.__workflow_result.output.data[0].automation_failures;
+    assert.equal(failure.code,code);
+    assert.equal(failure.retryable,false);
+    assert.equal(failure.operation_id,dispatched?'confirmed-case-effect':undefined);
+    assert.doesNotMatch(JSON.stringify(failure),/PRIVATE_/);
+    assert.equal(build.mock.callCount(),1);
+  });
+});
+
+test('the Sprint node puts saved intent and guardrails in the managed LLM request and keeps pinned case goals in task data',async t=>{
+  const fixture=progressFixture(t,[{...step('Click Search','web'),expected_result:'The named title appears under Results'}]);
+  fixture.node.data={...fixture.node.data,automationBrowserMode:'perform_steps',task:'Find the exact catalog title',
+    instructions:'Use the existing Results section.',guardrails:'Stay in the configured catalog.',reviewCriteria:'Compare the exact title.'};
+  t.mock.method(journal,'invoke',async(_input,dispatch)=>dispatch());
+  const trace=require('@hellotest/platform/backend/src/utils/llmTraceContext');
+  const llm=require('@hellotest/platform/backend/src/utils/aiFeatureRuntime');
+  const expected=fixture.draft.steps[0].expected_result;
+  t.mock.method(builder,'previewAutomationDraft',async input=>{
+    const task=JSON.parse(input.additional_context);
+    assert.equal(task.selected_story.ref,'requirement:story');
+    assert.equal(task.selected_story.story_revision,tasks.revision(story));
+    assert.equal(input.draft.steps[0].expected_result,expected);
+    const data=JSON.stringify({current_section:input.draft.steps[0],workflow:task});
+    const managed=await trace.run({generation_scope:'upstream_browser_actor',automation_browser_loop:true,automation_case_generation:true},
+      ()=>llm.apply({body:JSON.stringify({model:'fixture',messages:[{role:'user',content:data}]})},{featureKey:tasks.taskUsageKey('automation-engineer')}));
+    const [system,actorInput]=JSON.parse(managed.init.body).messages;
+    for(const intent of ['Find the exact catalog title','Use the existing Results section.','Stay in the configured catalog.','Compare the exact title.']) assert.ok(system.content.includes(intent));
+    assert.equal(JSON.parse(actorInput.content).current_section.expected_result,expected);
+    return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};
+  });
+  const configuration=require('../../backend/workflows/nodeAiConfiguration');
+  const result=await configuration.runNode(fixture.node,{revision:'saved-workflow-revision'},()=>tasks.execute({run:fixture.run,node:fixture.node,
+    sources:[],user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:[fixture.packet],item:fixture.draft}}));
+  assert.equal(result.__workflow_result.output.data[0].automation[0].verification_status,'unverified');
+});
+
+test('a saved manual Test Case drives the native workflow builder directly, with exact lineage and an optional isolated verification receipt',async t=>{
+  t.mock.method(permissions,'hasPermission',async()=>true);
+  t.mock.method(flags,'areEnabled',async()=>true);
+  const saved={id:'manual-case',display_id:'TC-10',title:'Search catalog',description:'Find the named fixture',revision:3,
+    automated:'no',app_type_id:'app',app_type_kind:'web',authoring_mode:'structured',parameter_values:{'t.term':'book'}};
+  t.mock.method(require('@hellotest/testing/backend/services/testCase.service'),'getTestCase',async()=>saved);
+  t.mock.method(require('@hellotest/testing/backend/services/testCaseScope.service'),'resolveTestCaseProjectIds',async()=>['project']);
+  t.mock.method(require('@hellotest/testing/backend/services/testEnvironment.service'),'getTestEnvironment',async()=>({id:'test',project_id:'project',app_type_id:'app',base_url:'https://catalog.example/'}));
+  const authored=[{id:'saved-step',step_order:1,step_type:'manual',action:'Search for @t.term',expected_result:'The matching title is visible'}];
+  t.mock.method(require('@hellotest/testing/backend/services/testStep.service'),'getTestSteps',async()=>authored);
+  t.mock.method(journal,'invoke',async(_input,dispatch)=>dispatch());
+  const build=t.mock.method(builder,'previewAutomationDraft',async ({draft})=>({steps:draft.steps,validation:{status:'passed'},
+    verification_status:'verified',verification:{status:'passed',verification_id:'verify-1'},executable:{filename:'automation.spec.ts',language:'typescript',framework:'playwright',code:'fixture source'}}));
+  const options={run:{id:'run',project_id:'project',app_type_id:'app',input_payload:{manual_test_case_id:'manual-case'}},
+    node:{id:'build',data:{kind:'artifactTask',artifactTask:'automation-engineer',automationRuntime:'web',automationSource:'manual_case',automationBrowserMode:'perform_steps',
+      automationVerificationMode:'verify',testEnvironmentId:'test'}},user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:{}}};
+  const result=await tasks.execute(options);
+  const row=result.__workflow_result.output.data;
+  assert.equal(row.manual_case.id,'manual-case');
+  assert.equal(row.manual_case.revision,3);
+  assert.equal(row.automation.verification.verification_id,'verify-1');
+  assert.equal(build.mock.callCount(),1);
+  const input=build.mock.calls[0].arguments[0];
+  assert.deepEqual(input.draft.manual_test_case_ids,['manual-case']);
+  assert.equal(input.draft.steps[0].expected_result,authored[0].expected_result);
+  assert.equal(input.presentation,'artifact');
+  assert.equal(input.verification_mode,'verify');
+  assert.equal(input.allow_browser_actions,true);
+  t.mock.method(journal,'invoke',async(_input,dispatch)=>({...await dispatch(),operation_receipt:{id:'op-known'}}));
+  t.mock.method(builder,'previewAutomationDraft',async()=>{
+    throw Object.assign(new Error('This step needs fixture state.'),{code:'AUTOMATION_DEPENDENCY_MISSING',statusCode:422,
+      effect_dispatched:true,outcome_unknown:false,blocked_steps:[{step_id:'saved-step',required_context:['A test product']}]});
+  });
+  const blocked=(await tasks.execute(options)).__workflow_result.output;
+  assert.equal(blocked.verification.status,'needs_input');
+  assert.equal(blocked.data.automation_input_required.operation_id,'op-known');
+  assert.equal(blocked.data.automation_input_required.review_prior_actions,true);
+  assert.deepEqual(blocked.data.automation_input_required.required_context,['A test product']);
+  t.mock.method(builder,'previewAutomationDraft',async({draft})=>({steps:draft.steps,validation:{status:'passed'},verification:{outcome_unknown:true,verification_id:'verify-uncertain'}}));
+  await assert.rejects(tasks.execute(options), error=>error.code==='AUTOMATION_VERIFICATION_OUTCOME_UNKNOWN'
+    && failureInfo(error).reconciliation_required===true && failureInfo(error).verification_id==='verify-uncertain');
+});
+
+test('offline API and mixed builds of saved manual cases retain requested inputs and keep provider outages systemic',async t=>{
+  t.mock.method(permissions,'hasPermission',async()=>true);
+  t.mock.method(flags,'areEnabled',async()=>true);
+  t.mock.method(require('@hellotest/testing/backend/services/testCase.service'),'getTestCase',async()=>({
+    id:'manual-case',title:'Check catalog',revision:3,automated:'no',app_type_id:'app',app_type_kind:'web',
+    authoring_mode:'structured',test_data_set_ids:['catalog-data']
+  }));
+  t.mock.method(require('@hellotest/testing/backend/services/testCaseScope.service'),'resolveTestCaseProjectIds',async()=>['project']);
+  const apiStep={...step('Read the catalog item','api'),id:'api-step',step_order:1,
+    api_request:{method:'GET',url:'https://catalog.example/products/@t.itemId'}};
+  for (const runtime of ['api','auto']) await t.test(runtime,async t=>{
+    const authored=runtime==='api' ? [apiStep] : [apiStep,{...step('Open the matching catalog product','web'),id:'web-step',step_order:2}];
+    t.mock.method(require('@hellotest/testing/backend/services/testStep.service'),'getTestSteps',async()=>authored);
+    const options={run:{id:'run',project_id:'project',app_type_id:'app',input_payload:{manual_test_case_id:'manual-case'}},
+      node:{id:'build',data:{kind:'artifactTask',artifactTask:'automation-engineer',automationRuntime:runtime,automationSource:'manual_case',automationBrowserMode:'offline'}},
+      user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:{}}};
+    const build=t.mock.method(builder,'previewAutomationDraft',async input=>{
+      assert.deepEqual(input.draft.test_data_set_ids,['catalog-data']);
+      assert.equal(input.inspect_browser,false);
+      assert.equal(input.allow_browser_actions,false);
+      assert.equal(input.verification_mode,'generate_only');
+      throw Object.assign(new Error('Missing dataset value.'),{statusCode:422,code:'AUTOMATION_DEPENDENCY_MISSING',
+        blocked_steps:[{step_id:'api-step',reason:'The request needs an item ID.',required_parameters:['@t.itemId']}]});
+    });
+    const blocked=(await tasks.execute(options)).__workflow_result.output;
+    assert.equal(blocked.data.manual_case.id,'manual-case');
+    assert.equal(blocked.verification.status,'needs_input');
+    assert.deepEqual(blocked.data.automation_input_required.required_parameters,['@t.itemId']);
+    assert.equal(blocked.data.automation_input_required.blocked_steps[0].reason,'The request needs an item ID.');
+    assert.equal(build.mock.callCount(),1);
+    t.mock.method(builder,'previewAutomationDraft',async()=>{
+      throw Object.assign(new Error('Provider unavailable.'),{statusCode:503,code:'LLM_PROVIDER_UNAVAILABLE'});
+    });
+    await assert.rejects(tasks.execute(options),{code:'LLM_PROVIDER_UNAVAILABLE'});
+  });
 });
 
 function progressFixture(t, steps) {

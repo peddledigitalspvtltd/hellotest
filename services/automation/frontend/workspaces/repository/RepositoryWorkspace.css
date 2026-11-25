@@ -20,6 +20,33 @@
   overflow-wrap: anywhere;
 }
 
+.repository-search.form-field {
+  min-width: 0;
+  margin: 0 0 .5rem;
+}
+
+.repository-search input,
+.repository-search-result {
+  min-width: 0;
+}
+
+.repository-search-result {
+  display: grid;
+  justify-items: start;
+  gap: .25rem;
+}
+
+.repository-search-result button {
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.repository-case-heading {
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .automation-workspace-grid--repository .pom-workspace {
     grid-template-columns: minmax(0, 1fr);

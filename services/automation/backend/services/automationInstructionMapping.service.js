@@ -1,9 +1,10 @@
 const {createHash}=require('node:crypto');
 const {validSavedInstructionMapping}=require("../lib/build/automationInstructionMapping");
 const {PREVIEW_MIME,MAX_ARTIFACT_BYTES}=require("../lib/build/automationWorkspacePreview");
+const {deterministicSectionInstructions}=require("../lib/upstream/automationUpstreamSectionSource");
 
-/** Optional projection of the already-authorized current source. The mapping
- * stays in protected, retained build artifacts, never in test-data options. */
+/** Use the retained mapping for the exact current source. A repair can also
+ * be displayed directly when the new source fits the deterministic grammar. */
 function createInstructionMappingService({obsDb:providedDb}={}) {
 async function attachInstructionMappings({steps,projectId,appTypeId,testCaseId}) {
   if (!projectId || !testCaseId || !Array.isArray(steps) || !steps.length) return steps;
@@ -29,7 +30,12 @@ async function attachInstructionMappings({steps,projectId,appTypeId,testCaseId})
     const mapping=validSavedInstructionMapping(preview.automation_instructions,{source:step.automation_code,stepId:step.id});
     if (mapping) mappings.set(step.id,mapping);
   }
-  return steps.map(step=>mappings.has(step.id)?{...step,automation_instructions:mappings.get(step.id)}:step);
+  return steps.map(step => {
+    const current = mappings.get(step.id) || (step.step_type === 'web' && step.automation_code
+      ? deterministicSectionInstructions(step, step.automation_code)?.steps[0]
+      : null);
+    return current ? { ...step, automation_instructions: current } : step;
+  });
 }
 return {attachInstructionMappings};
 }

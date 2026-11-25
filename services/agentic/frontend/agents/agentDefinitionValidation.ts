@@ -13,8 +13,18 @@ export function validateAgentDefinition(definition: AgentDefinition): AgentDefin
   if (model?.temperature != null && (!Number.isFinite(model.temperature) || model.temperature < 0 || model.temperature > 2)) issues.push({tab:'completion',message:'Choose a temperature from 0 to 2.'});
   if (model?.top_p != null && (!Number.isFinite(model.top_p) || model.top_p < 0.01 || model.top_p > 1)) issues.push({tab:'completion',message:'Choose Top P from 0.01 to 1.'});
   if (typeof model?.output_schema === 'string') issues.push({tab:'completion',message:'Complete valid JSON for the additional output schema.'});
+  if (definition.guardrails.trim().length > 2000) issues.push({ tab: 'skills', message: 'Keep additional guardrails within 2,000 characters.' });
+  for (const rule of definition.guardrail_rules || []) {
+    if (rule.id === 'minimum_citations' && (!Number.isInteger(rule.value) || rule.value! < 1 || rule.value! > 36)) issues.push({ tab: 'skills', message: 'Choose 1–36 minimum citations.' });
+    if (rule.id === 'maximum_drafts' && (!Number.isInteger(rule.value) || rule.value! < output.minimum_artifacts || rule.value! > 8)) issues.push({ tab: 'skills', message: 'Maximum drafts must allow the required drafts and stay within 8.' });
+  }
   if (definition.required_inputs.length > 20 || definition.required_inputs.some(key => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || ['constructor', 'prototype', '__proto__'].includes(key))) {
     issues.push({ tab: 'skills', message: 'Use up to 20 input names: letters, numbers and underscores, starting with a letter.' });
+  }
+  const inputFields = definition.input_fields || [];
+  if (inputFields.length > 20 || new Set(inputFields.map(field => field.name)).size !== inputFields.length
+    || inputFields.some(field => !field.label.trim() || !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(field.name) || ['constructor', 'prototype', '__proto__'].includes(field.name))) {
+    issues.push({ tab: 'skills', message: 'Give each task input a label and a unique input name.' });
   }
   const activeSkills = definition.skills.filter(skill => skill.enabled !== false);
   const guidance = [definition.objective, definition.instructions, ...activeSkills.map(skill => `${skill.name}: ${skill.instructions}`), definition.guardrails].join('\n');

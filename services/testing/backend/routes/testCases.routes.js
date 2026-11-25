@@ -1347,7 +1347,7 @@ module.exports = async function (fastify) {
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
       target_step_id: { required: false, type: "string" },
-      included_action_indices: { required: false, type: "array", items: "number" },
+      included_action_indices: { required: false, type: "array", items: "number" }, excluded_action_indices: { required: false, type: "array", items: "number" },
       parameter_bindings: { required: false, type: "array", items: "object" }
     }, req.body || {});
 
@@ -1377,7 +1377,7 @@ module.exports = async function (fastify) {
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
       target_step_id: req.body?.target_step_id,
-      included_action_indices: req.body?.included_action_indices,
+      included_action_indices: req.body?.included_action_indices, excluded_action_indices: req.body?.excluded_action_indices,
       parameter_bindings: req.body?.parameter_bindings,
       created_by: req.user.id
     });

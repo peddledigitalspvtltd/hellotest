@@ -1,6 +1,7 @@
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const workspaceTransactionService = require("../services/workspaceTransaction.service");
+const permissionService = require("../services/permission.service");
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -12,6 +13,9 @@ const requireTransactionPermission = async (fastify, req, transaction, permissio
   if (transaction.project_id) {
     await projectService.getProject(transaction.project_id, req.user.id);
     await fastify.requirePermission(permissionCode, { projectId: transaction.project_id })(req);
+    if (transaction.action === 'trial' && transaction.related_kind === 'agentic_assistant_session' && transaction.created_by !== req.user.id) {
+      await fastify.requirePermission('agentic_workflow.manage', { projectId: transaction.project_id })(req);
+    }
   } else if (req.user?.role !== "admin") {
     throw createError("Project scope is required.", 403);
   }
@@ -47,19 +51,29 @@ module.exports = async function (fastify) {
       await fastify.requirePermission("transaction.view", { projectId: scopedProjectId })(req);
     }
 
-    return workspaceTransactionService.listTransactions({
+    const transactions = await workspaceTransactionService.listTransactions({
       project_id: scopedProjectId || undefined,
       app_type_id: app_type_id || undefined,
       category: category || undefined,
       include_global: includeGlobal,
       limit: limit !== undefined ? Number(limit) : undefined
     });
+    return transactions.filter(transaction => transaction.action !== 'trial' || transaction.related_kind !== 'agentic_assistant_session' || transaction.created_by === req.user.id)
+      .map(transaction => {
+        if (!transaction.metadata?.rejected_draft) return transaction;
+        const { rejected_draft: _rejected, ...metadata } = transaction.metadata;
+        return { ...transaction, metadata };
+      });
   });
 
   fastify.get("/workspace-transactions/:id", async (req) => {
     await fastify.authenticate(req);
     const transaction = await workspaceTransactionService.getTransaction(req.params.id);
     await requireTransactionPermission(fastify, req, transaction, "transaction.view");
+    if (transaction.metadata?.rejected_draft && !await permissionService.hasPermission(req.user, "ops.view", transaction.project_id)) {
+      const { rejected_draft: _rejected, ...metadata } = transaction.metadata;
+      return { ...transaction, metadata };
+    }
     return transaction;
   });
 

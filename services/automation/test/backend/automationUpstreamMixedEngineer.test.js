@@ -10,19 +10,23 @@ const click='await page.getByRole("button",{name:"Save",exact:true}).click();';
 const assertion='await expect(page.getByRole("status")).toHaveText("Saved");';
 const api=id=>({id,step_order:1,step_type:'api',action:'GET https://api.test/invoice',expected_result:'HTTP 200'});
 const web=id=>({id,step_order:2,step_type:'web',action:id==='save'?'Click Save':'Verify the current status',expected_result:'Saved is visible'});
-function fixture({failApi=false}={}){
+function fixture({failApi=false,captureInvoice=false}={}){
  const calls=[],models=[],saved=[],normalized=[];let closes=0;
  const browser={tools:[{name:'browser_click',inputSchema:{type:'object',properties:{ref:{type:'string'}},required:['ref']}}],call:async(name,args)=>{calls.push({name,args});return {content:[{type:'text',text:'### Ran Playwright code\n```js\n'+(name==='browser_navigate'?goto:click)+'\n```'}]};},close:async()=>{closes++;}};
  const complete=async request=>{
   models.push(request);
-  if(request.phase==='upstream_api_source')return {steps:[{step_id:request.step.id,step_type:'api',api_request:{method:'GET',url:'https://api.test/invoice',validations:[{kind:'status',expected:'200'}]}}]};
+  if(request.phase==='upstream_api_source')return {steps:[{step_id:request.step.id,step_type:'api',api_request:{method:'GET',url:'https://api.test/invoice',validations:[{kind:'status',expected:'200'}],
+   ...(captureInvoice?{captures:[{path:'$.id',parameter:'r.invoice'}]}:{})}}]};
   if(request.phase==='upstream_browser_actor'){
    const payload=JSON.parse(request.prompt);
    for(const previous of payload.completed_sections.filter(step=>step.step_type==='api'))assert.equal(previous.execution_status,'not_executed');
    if(request.step.id==='save'&&!calls.some(call=>call.name==='browser_click'))return {tool:{name:'browser_click',arguments:{ref:'save-native'}}};
    return {done:true};
   }
-  if(request.phase==='upstream_source')return {automation_code:request.step.id==='save'?[goto,click,assertion].join('\n'):assertion};
+  if(request.phase==='upstream_source'){
+   if(request.step.id==='input')return {automation_code:[goto,'await page.getByLabel("Invoice").fill(params["r.invoice"]);','await expect(page.getByLabel("Invoice")).toHaveValue(params["r.invoice"]);'].join('\n')};
+   return {automation_code:request.step.id==='save'?[goto,click,assertion].join('\n'):assertion};
+  }
   const payload=JSON.parse(request.prompt.slice(request.prompt.indexOf('{"task":')));
   return {schema:'hellotest.playwrightInstructionMapping.v1',steps:payload.steps.map(step=>({step_id:step.step_id,source_sha256:step.source_sha256,instructions:step.operations.map(op=>({operation_id:op.operation_id,kind:op.kind,depth:op.depth,label:'Native instruction',args:[]}))}))};
  };
@@ -55,4 +59,16 @@ test('an invalid API after a saved browser section retries only API synthesis an
  assert.deepEqual(f.saved.map(item=>item.update.step.id),['save']);
  assert.deepEqual(f.normalized,['invalid','invalid','invalid']);
  assert.equal(f.models.some(model=>model.step.id==='later'),false);assert.equal(f.closes,1);
+});
+
+test('web sections depending on earlier API captures retain the executable binding without pretending to perform the live step',async()=>{
+ const f=fixture({captureInvoice:true});
+ const result=await f.run([api('invoice'),{
+  id:'input',step_order:2,step_type:'web',action:'Enter @r.invoice in Invoice',expected_result:'Invoice contains @r.invoice',parameter_references:['r.invoice']
+ }]);
+ assert.deepEqual(f.calls.map(call=>call.name),['browser_navigate']);
+ assert.equal(f.models.some(model=>model.phase==='upstream_browser_actor'),false);
+ assert.match(result.updates[1].automation_code,/\.fill\(params\["r\.invoice"\]\)/);
+ assert.equal(result.browser_evidence.live_validation.status,'blocked');
+ assert.deepEqual(result.browser_evidence.live_validation.required_parameters,['r.invoice']);
 });

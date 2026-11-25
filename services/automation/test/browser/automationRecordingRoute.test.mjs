@@ -1,3 +1,4 @@
+import { fulfillAutomationFixtureRequest } from './helpers/automationFixtureTransport.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile,writeFile,rm} from 'node:fs/promises';
@@ -20,7 +21,7 @@ api.testCases.list=async()=>[item,other];api.testCases.get=async id=>id==='case2
 api.testSteps.list=async({test_case_id})=>steps.map(step=>({...step,test_case_id}));
 api.testSuites.list=async()=>[{id:'suite-a',app_type_id:'a',name:'Suite A',parameter_values:{'s.region':'A'}},{id:'suite-b',app_type_id:'a',name:'Suite B',parameter_values:{'s.region':'B'}}];
 api.testCases.list=async()=>[item,other];api.testCases.get=async id=>id==='case2'?other:item;api.testCases.update=async(id,input)=>{Object.assign(item,input);return{...item,revision:++item.revision};};
-api.testCases.startRecorderSession=async(id,input)=>{window.recorderCalls.starts.push({id,input});window.recording=true;return{id:'capture',test_case_id:id,status:'running',recorder_mode:'remote',actions:[],network:[],transaction_id:'capture-activity'};};
+api.testCases.startRecorderSession=async(id,input)=>{window.recorderCalls.starts.push({id,input});window.recording=true;return{id:'capture',test_case_id:id,status:'running',recorder_mode:'remote',actions:[{index:1,type:'click',locator:'#open'},{index:2,type:'click',locator:'#extra'}],action_count:2,network:[{index:1,method:'GET',status:200,url:'https://app.example.test/items'}],network_count:1,transaction_id:'capture-activity'};};
 api.testCases.finishRecorderSession=async(id,sessionId,input)=>{window.recorderCalls.finishes.push({id,sessionId,input});window.recording=false;return{test_case_id:id,generated_step_count:0,learned_locator_count:0,warnings:[]};};
 const client=new QueryClient`);
 fixture=fixture.replace("path:'/test-cases',element:<TestCasesPage/>","path:'/automation',element:<AutomationPage/>").replace("initialEntries:['/test-cases?case=case1']","initialEntries:['/automation?case=case1']");
@@ -31,12 +32,15 @@ test('the actual lazy route host preserves recording suite and dirty parameters 
  try{
   await writeFile(new URL(name+'.tsx',root),fixture);await writeFile(new URL(name+'.html',root),`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});const page=await browser.newPage({viewport:{width:1440,height:1000}});page.on('pageerror',error=>errors.push(error.message));
-  await page.route('**/api/**',async route=>{errors.push('Unexpected API request '+route.request().url());return route.abort();});
+  await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API request '+route.request().url());return route.abort();});
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`,{timeout:60000});
   await page.getByRole('button',{name:'Parameters',exact:true}).click();let dialog=page.getByRole('dialog',{name:'Automation case parameter values'});await dialog.getByRole('button',{name:'Suite B',exact:true}).click();await dialog.getByRole('button',{name:'Close Automation case parameter values',exact:true}).click();
   await page.getByRole('tab',{name:/^Build/}).click();await page.getByRole('button',{name:/^Record & playback/}).click();await page.getByRole('button',{name:'Remote browser',exact:true}).click();
   await expect(page.getByRole('button',{name:'Save recording to plan',exact:true})).toBeVisible();
   assert.equal((await page.evaluate(()=>window.recorderCalls.starts))[0].input.test_suite_id,'suite-b');
+  await page.getByRole('checkbox',{name:'Include recorded action 2'}).uncheck();
+  await expect(page.getByText('1 of 2 included',{exact:true})).toBeVisible();
+  await expect(page.getByText('Network evidence · 1 call',{exact:true})).toBeVisible();
   await page.evaluate(()=>window.navigateFixture('/automation?case=TC-1&tab=build&build_method=record'));
   await expect(page.getByRole('button',{name:'Save recording to plan',exact:true})).toBeVisible();
   await expect(page.getByRole('link',{name:'Return to recording',exact:true})).toHaveCount(0);
@@ -57,7 +61,19 @@ test('the actual lazy route host preserves recording suite and dirty parameters 
   await page.evaluate(()=>window.navigateFixture('/automation?case=case2&tab=build&build_method=record'));await expect(page.getByRole('button',{name:'Remote browser',exact:true})).toBeDisabled();assert.equal(await page.getByRole('button',{name:'Save recording to plan',exact:true}).count(),0);
   await page.getByRole('link',{name:'Return to recording',exact:true}).click();await expect(page.getByRole('button',{name:'Save recording to plan',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Manage recording parameters',exact:true}).click();dialog=page.getByRole('dialog',{name:'Automation case parameter values'});await expect(dialog.getByRole('button',{name:'Suite B',exact:true})).toHaveClass(/is-selected/);await expect(dialog.getByPlaceholder('Value for @t.user',{exact:true})).toHaveValue('unsaved-recording-user');await dialog.getByRole('button',{name:'Close Automation case parameter values',exact:true}).click();
-  await page.getByRole('button',{name:'Save recording to plan',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.recorderCalls.finishes.length)).toBe(1);assert.equal((await page.evaluate(()=>window.recorderCalls.finishes))[0].id,'case1');assert.deepEqual(errors,[]);
+  await expect(page.getByRole('checkbox',{name:'Include recorded action 2'})).not.toBeChecked();
+  await page.getByRole('button',{name:'Save recording to plan',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.recorderCalls.finishes.length)).toBe(1);const [saved]=await page.evaluate(()=>window.recorderCalls.finishes);assert.equal(saved.id,'case1');assert.deepEqual(saved.input.excluded_action_indices,[2]);
+  await page.getByRole('tab',{name:/^Build/}).click();
+  await page.getByRole('button',{name:'Remote browser',exact:true}).click();
+  await page.getByRole('button',{name:'Discard recording',exact:true}).click();
+  const discard=page.getByRole('dialog',{name:'Discard recording?'});
+  await expect(discard.getByText('Discard the captured actions and keep the saved automation plan.',{exact:true})).toBeVisible();
+  await discard.getByRole('button',{name:'Discard recording',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.recorderCalls.finishes.length)).toBe(2);
+  const discarded=(await page.evaluate(()=>window.recorderCalls.finishes))[1];
+  assert.deepEqual(discarded.input.included_action_indices,[]);
+  assert.equal(Object.hasOwn(discarded.input,'parameter_bindings'),false);
+  assert.deepEqual(errors,[]);
  }catch(error){error.message+='\nBrowser errors: '+JSON.stringify(errors);throw error;}
  finally{await browser?.close();await Promise.all([rm(new URL(name+'.tsx',root),{force:true}),rm(new URL(name+'.html',root),{force:true})]);}
 });

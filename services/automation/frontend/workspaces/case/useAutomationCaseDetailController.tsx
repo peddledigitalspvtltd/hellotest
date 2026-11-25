@@ -17,9 +17,9 @@ import { useAutomationCasePlanActions } from './useAutomationCasePlanActions';
 import { useAutomationCaseDataActions } from './useAutomationCaseDataActions';
 import { useAutomationCaseRunActions } from './useAutomationCaseRunActions';
 import { useAutomationCaseRecorderActions } from './useAutomationCaseRecorderActions';
-export function useAutomationCaseDetailController() {
+export function useAutomationCaseDetailController(defaultTab?: Parameters<typeof useAutomationCaseState>[1]) {
     const scope = useAutomationCaseScope();
-    const state = useAutomationCaseState(scope);
+    const state = useAutomationCaseState(scope, defaultTab);
     const model = useAutomationCaseModel({ ...scope, ...state });
     const services = useAutomationCaseServices({ ...scope, ...state, ...model });
     const base = { ...scope, ...state, ...model, ...services };
@@ -211,7 +211,7 @@ export function useAutomationCaseDetailController() {
         }
         setPendingRemoteRun(null);
         setRunReviewError("");
-        setRunReviewRequest({ mode, caseIds: targets, projectId, appTypeId });
+        setRunReviewRequest({ mode, caseIds: targets, projectId, appTypeId, requestId: crypto.randomUUID() });
     };
     useEffect(()=>{
         if(selectedCaseId){const controller=new AbortController();void authoring.syncAuthoringState(selectedCaseId,controller.signal).catch(()=>{});return()=>controller.abort();}

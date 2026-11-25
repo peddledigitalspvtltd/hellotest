@@ -185,8 +185,31 @@ test("Story create/edit preserves planning, criteria layout, multiple scenarios 
       assert.equal(updated.fix_version, "v3");
       assert.ok(calls.filter(call => ["sprints", "releases"].includes(call.kind)).every(call => call.input.project_id === "project"));
       assert.deepEqual(errors, []);
+      await page.getByRole('button', { name: 'Back to Story tiles', exact: true }).click();
+      const toolbar = page.locator('.requirement-catalog-toolbar');
+      const actions = toolbar.getByRole('group', { name: 'Story actions', exact: true });
+      const aiComplete = actions.getByRole('button', { name: 'AI Complete Story', exact: true });
+      const aiCases = actions.getByRole('button', { name: 'AI Test Cases Generation', exact: true });
+      await aiComplete.waitFor();
+      assert.equal(await aiComplete.isDisabled(), true);
+      if (mode === 'backlog') assert.equal(await aiCases.count(), 0);
+      else assert.equal(await aiCases.isDisabled(), true);
+      assert.equal(await toolbar.getByText('Select one Story to enable AI completion and case generation.', { exact: true }).count(), 0);
+      assert.equal(await actions.getByRole('button', { name: 'Create sprint', exact: true }).count(), mode === 'sprints' ? 1 : 0);
+      for (const width of [1500, 390, 320]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const controlsFit = await actions.evaluate(group => {
+          const bounds = group.getBoundingClientRect();
+          return Array.from(group.children).every(control => {
+            const rect = control.getBoundingClientRect();
+            return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
+          });
+        });
+        assert.ok(controlsFit, `${mode}: actions fit the toolbar at ${width}px`);
+        if (process.env.STORY_SCREENSHOT_DIR && width !== 320) await toolbar.screenshot({ path: `${process.env.STORY_SCREENSHOT_DIR}/${mode}-toolbar-${width}.png` });
+      }
+      await page.setViewportSize({ width: 1500, height: 1000 });
       if(mode==='sprints') {
-        await page.getByRole('button',{name:'Back to Story tiles',exact:true}).click();
         const storyTile=page.locator('.requirement-catalog-card').filter({hasText:'Mapped Story sprints'});
         await storyTile.waitFor();
         assert.equal(await storyTile.locator('[title="Passed: 2"]').innerText(),'2');
@@ -209,6 +232,8 @@ test("Story create/edit preserves planning, criteria layout, multiple scenarios 
         assert.equal(await movedRow.count(),1,'A moved Story appears only once across expanded Sprints');
         assert.equal(await assignedSprint(),'Sprint Beta','A stale origin header cannot reclaim a saved Sprint assignment');
         await movedRow.locator('input[type=checkbox]').check();
+        assert.equal(await aiComplete.isEnabled(), true);
+        assert.equal(await aiCases.isEnabled(), true);
         await page.getByRole('combobox',{name:'Move 1 selected Story to Sprint',exact:true}).selectOption('native-sprint');
         await page.waitForFunction(()=>window.calls.some(call=>call.kind==='move'));
         await page.waitForFunction(()=>{
@@ -222,7 +247,6 @@ test("Story create/edit preserves planning, criteria layout, multiple scenarios 
         assert.deepEqual(errors,[]);
       }
       if(mode==='stories') {
-        await page.getByRole('button',{name:'Back to Story tiles',exact:true}).click();
         await page.getByRole('button',{name:'Open create Story options',exact:true}).click();
         await page.getByRole('menuitem',{name:/Bulk Import Stories/}).click();
         const importer=page.getByRole('dialog',{name:'Bulk import Stories',exact:true});

@@ -4,6 +4,7 @@ import type { AutomationCasesActionPorts as ActionPorts } from './automationCase
 import { automationAgentRequest } from "@hellotest/ai/frontend/components/AutomationAgentSetup";
 import { requireReadyAutomation } from "../../lib/automationReadiness";
 import { reviewedAutomationStartUrl } from "../../lib/automationStartUrl";
+import { automationBuildRuntimeRequest } from "../../lib/automationBuildPipeline";
 
 import { useMutation } from "@tanstack/react-query";
 
@@ -20,7 +21,6 @@ const {
     projectId,
     inspectSavedPlans,
     batchStartUrl,
-    selectedRuntimeType,
     reviewBuildParameters,
     selectedExecutionEnvironmentId,
     selectedExecutionConfigurationId,
@@ -56,7 +56,8 @@ const scheduleAiAutomation = useMutation({
         const caseIds = [...batchBuildTargetIds];
         const buildProjectId = projectId;
         const savedPlans = await inspectSavedPlans(caseIds, "build");
-        const requestedStartUrl = reviewedAutomationStartUrl(batchStartUrl, savedPlans.some(result => result.runtimes.includes("web") || !result.stepCount && ["web", "unified"].includes(selectedRuntimeType)));
+        const runtimes = savedPlans.flatMap(result => result.runtimes);
+        const requestedStartUrl = reviewedAutomationStartUrl(batchStartUrl, runtimes.includes("web"));
         requireReadyAutomation(savedPlans);
         const reviewedParameters = await reviewBuildParameters(caseIds, {
             test_suite_ids_by_case: undefined,
@@ -72,9 +73,7 @@ const scheduleAiAutomation = useMutation({
         const response = await admitAutomationBuild(authoring,caseIds,getAutomationSchedule(agentScheduledAt),()=>api.testCases.buildAutomationBatch({
             ...reviewedParameters,
             ai_feature: "ai.agentic.automation-engineer",
-            allow_browser_actions: allowBrowserActions,
-            browser_location: buildBrowserLocation,
-            ...buildPipelineOptions,
+            ...automationBuildRuntimeRequest(runtimes, buildBrowserLocation, allowBrowserActions, buildPipelineOptions),
             scheduled_at: getAutomationSchedule(agentScheduledAt),
             app_type_id: appTypeId,
             test_case_ids: caseIds,

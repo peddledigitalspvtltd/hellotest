@@ -19,6 +19,7 @@ export type WorkflowTemplate = {
 };
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read Sprint Stories, generate and assess Test Cases, prepare case-specific data, and build automation for each case." },
+  { id: "manual-test-automation", name: "Build automation from a manual Test Case", category: "Data flow", description: "Build Playwright source or native API requests with assertions from a saved manual Test Case." },
   {
     id: "foreach",
     name: "Process a list of items",
@@ -104,13 +105,13 @@ export function draftFromTemplate(template: WorkflowTemplate): {
     const definitions: Array<[string, string, Record<string, unknown>]> = [
       ["request", "trigger", { label: "Manual Sprint trigger" }],
       ["sprint-stories", "apiTool", { label: "Read all Sprint Stories", apiResource: "sprintStories", apiPagination: "cursor", apiMethod: "GET", connectionId: "", apiUrl: "", timeoutMs: "70000", retryCount: "0", outputKey: "sprint_stories" }],
-      ["each-story", "loop", { label: "For each Story", loopSourceKey: "input.items", loopMaxIterations: "100", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "story_packets" }],
+      ["each-story", "loop", { label: "For each Story", loopItemFailure: "continue", loopSourceKey: "input.items", loopMaxIterations: "100", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "story_packets" }],
       ["story-assurance", "artifactTask", { label: "AI Story Assurance", artifactTask: "story-assurance" }],
       ["test-case-generation", "artifactTask", { label: "AI Test Case Generator", artifactTask: "test-case-generation" }],
       ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
-      ["each-test-case", "loop", { label: "For each Test Case", loopSourceKey: "input.0.cases", loopMaxIterations: "10", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "case_automation" }],
+      ["each-test-case", "loop", { label: "For each Test Case", loopItemFailure: "continue", loopSourceKey: "input.0.cases", loopMaxIterations: "10", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "case_automation" }],
       ["test-data-generator", "artifactTask", { label: "AI Test Data Generator", artifactTask: "test-data-generator", testDataSource: "synthetic", testDataSetId: "" }],
-      ["automation-engineer", "artifactTask", { label: "AI Automation Engineer", artifactTask: "automation-engineer" }],
+      ["automation-engineer", "artifactTask", { label: "AI Automation Engineer", artifactTask: "automation-engineer", automationSource: "sprint" }],
       ["sprint-output", "output", { label: "Sprint results and Library cases" }],
     ];
     draft.nodes = definitions.map(([id, kind, data], index) => ({ id, type: "agenticStep", position: { x: 80 + index * 310, y: 140 }, data: { ...buildNodeDefaults(kind as Parameters<typeof buildNodeDefaults>[0], index), ...(kind === "artifactTask" ? nativeTaskDefaults(String(data.artifactTask)) : {}), ...data } }));
@@ -128,8 +129,18 @@ export function draftFromTemplate(template: WorkflowTemplate): {
       { ...createFlowEdge("each-story", "sprint-output"), sourceHandle: "done" },
     ];
     draft.nodes = layoutWorkflow(draft.nodes, draft.edges);
-    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", template_version: 4, library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
+    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", template_version: 5, library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
     return { draft, input: JSON.stringify({ sprint_id: "" }, null, 2) };
+  }
+  if (template.id === 'manual-test-automation') {
+    draft.nodes = [
+      {id:'request',type:'agenticStep',position:{x:80,y:140},data:buildNodeDefaults('trigger',0)},
+      {id:'build-script',type:'agenticStep',position:{x:400,y:140},data:{...buildNodeDefaults('artifactTask',1),...nativeTaskDefaults('automation-engineer'),automationSource:'manual_case',outputKey:'automation_script'}},
+      {id:'output',type:'agenticStep',position:{x:720,y:140},data:{...buildNodeDefaults('output',2),label:'Automation results'}}
+    ];
+    draft.edges = [createFlowEdge('request','build-script'),createFlowEdge('build-script','output')];
+    draft.settings = {execution_mode:'review',template_id:template.id,processing_mode:'sequential'};
+    return {draft,input:JSON.stringify({manual_test_case_id:''},null,2)};
   }
   if (["foreach", "custom"].includes(template.id)) {
     const task = {

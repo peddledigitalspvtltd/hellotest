@@ -12,18 +12,23 @@ const text=value=>sanitizeAiText(String(value||'')).text.slice(0,500);
 const id=(...parts)=>createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 const permissionFor=system=>system==='automation'?'automation.view':'agentic_workflow.view';
 const systemFor=row=>row.related_kind==='quality_agent_run'?'quality':row.category==='automation_build'||row.action==='automation_agent'?'automation':row.related_kind==='agentic_assistant_session'?'workflow':null;
+const metricNumber = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 function adapted(system,row){
-  const metadata=parse(row.metadata),snapshot=parse(row.workflow_snapshot),native=metadata.run_status||row.status||'unknown';
+  const metadata=parse(row.metadata),snapshot=parse(row.workflow_snapshot),native=metadata.cancelled===true?'cancelled':metadata.run_status||row.status||'unknown';
   const agentId=system==='repository'?row.agent_type:system==='quality'?metadata.request?.kind||metadata.kind||'web':system==='automation'?'browser':metadata.agent_id||'quality-orchestrator';
   const savedDescriptor=metadata.agent_descriptor||parse(row.input).agent_descriptor;
   const descriptor=savedDescriptor?.schema_version===contract.VERSION&&savedDescriptor.system===system?savedDescriptor:system==='repository'?descriptors.repository(agentId):system==='quality'?descriptors.quality(agentId):system==='automation'?descriptors.automation():descriptors.workflow(agentId in require('@hellotest/contracts/agents/workflowSpecialists.json')?agentId:'quality-orchestrator');
   const stages=Array.isArray(row.stages)?row.stages:Array.isArray(row.node_results)?row.node_results:metadata.stages||[];
+  const failureCode = metadata.error_code || metadata.error_details?.code || row.error_code;
   return {id:system+':'+row.id,system,source_run_id:row.id,project_id:row.project_id,app_type_id:row.app_type_id||null,actor_id:row.created_by||null,agent_id:agentId,descriptor,
     descriptor_hash:metadata.agent_descriptor_hash||descriptor.descriptor_hash||descriptors.hash(descriptor),status:contract.status(native),native_status:native,
     progress:Math.max(0,Math.min(100,Number(row.progress??metadata.progress??(native==='completed'?100:0))||0)),
     title:system==='workflow'&&snapshot.name?text(snapshot.name):descriptor.name,
     payload:{source_kind:row.related_kind||system,requires_human_review:true,
       ...(metadata.system_message_hash?{system_message_hash:metadata.system_message_hash}:{}),...(metadata.prompt_hash?{prompt_hash:metadata.prompt_hash}:{}),...(metadata.prompt_template_version?{prompt_template_version:metadata.prompt_template_version}:{}),
+      metrics: { tokens: metricNumber(metadata.result?.model_execution?.usage?.total_tokens ?? metadata.model_usage?.total_tokens),
+        drafts: Array.isArray(metadata.result?.artifacts) ? metadata.result.artifacts.length : null,
+        failure_code: typeof failureCode === 'string' && /^[A-Z][A-Z0-9_]{0,100}$/.test(failureCode) ? failureCode : null },
       ...(metadata.agent_version?{agent_version:metadata.agent_version}:{}),stage_count:stages.length,
       native_run_id:metadata.id||row.id,transaction_id:row.metadata?row.id:null},
     created_at:row.created_at,updated_at:row.synchronization_updated_at||row.updated_at||row.completed_at||row.created_at,started_at:row.started_at||metadata.started_at||null,completed_at:row.completed_at||metadata.completed_at||null,
@@ -48,7 +53,7 @@ function createStore(database=obs){
 }
 const store=createStore();
 async function synchronize(system,row,events=[]){
-  if(!row?.id||!row.project_id)return null;
+  if(!row?.id||!row.project_id||row.action==='trial')return null;
   const run=adapted(system,row);await store.upsert(run);
   await store.event(run,{id:`state:${run.native_status}:${new Date(run.updated_at).toISOString()}`,phase:'run.'+run.status,status:run.status,message:`${run.descriptor.name} · ${contract.STATUS_LABELS[run.status]}`,created_at:run.updated_at});
   for(const[index,event]of [...run.stages,...events].slice(-500).entries())await store.event(run,{...event,index,id:event.id||`stage:${index}:${event.status||event.phase||'observed'}`,phase:event.phase||event.node_id||event.id||'stage',message:event.message||event.label||event.name||'Runtime stage observed',status:event.status});
@@ -82,7 +87,7 @@ async function reconcile({project_id,app_type_id,systems}){
       rows=await db.prepare(`SELECT *,updated_at::text AS synchronization_updated_at FROM agentic_workflow_runs WHERE ${filter} ORDER BY updated_at DESC LIMIT 201`).all(...args);
       workflowCount=Math.min(rows.length,200);workflowMore=rows.length>200;
       for(const row of rows.slice(0,200))await synchronize(system,row);
-      const sessions=await obs.prepare(`SELECT * FROM workspace_transactions WHERE ${filter} AND related_kind='agentic_assistant_session' ORDER BY updated_at DESC LIMIT 201`).all(...args);
+      const sessions=await obs.prepare(`SELECT * FROM workspace_transactions WHERE ${filter} AND related_kind='agentic_assistant_session' AND action<>'trial' ORDER BY updated_at DESC LIMIT 201`).all(...args);
       rows=sessions;
     }else rows=await obs.prepare(`SELECT * FROM workspace_transactions WHERE ${filter} AND ${system==='quality'?"related_kind='quality_agent_run'":"category='automation_build'"} ORDER BY updated_at DESC LIMIT 201`).all(...args);
     for(const row of rows.slice(0,200)){
@@ -141,4 +146,63 @@ async function detail(runId,user){
   const events=await obs.prepare('SELECT * FROM agent_run_events WHERE run_id=? ORDER BY occurred_at,id LIMIT 500').all(run.id);
   return {run:await obs.prepare('SELECT * FROM agent_runs WHERE id=?').get(run.id),events,events_limited:events.length===500};
 }
-module.exports={list,detail,synchronize,reconcile,adapted,createStore,systemFor,authorize,processPending,availableSources};
+
+function scorecardRows(rows, acceptances = new Map()) {
+  const groups = new Map();
+  const median = samples => {
+    const ordered = [...samples].sort((a, b) => a - b);
+    if (!ordered.length) return null;
+    const middle = Math.floor(ordered.length / 2);
+    return ordered.length % 2 ? ordered[middle] : Math.round((ordered[middle - 1] + ordered[middle]) / 2);
+  };
+  for (const row of rows) {
+    const payload = parse(row.payload);
+    if (row.system === 'workflow' && payload.source_kind !== 'agentic_assistant_session') continue;
+    const key = `${row.system}:${row.agent_id}`;
+    const item = groups.get(key) || { key, runs: 0, completed: 0, drafts: 0, accepted: 0, durations: [], tokens: [], failure_codes: {} };
+    const metrics = payload.metrics || {};
+    const duration = Date.parse(row.completed_at) - Date.parse(row.started_at);
+    item.runs += 1;
+    if (row.status === 'succeeded') item.completed += 1;
+    if (Number.isFinite(duration) && duration >= 0) item.durations.push(duration);
+    if (metricNumber(metrics.tokens) !== null) item.tokens.push(metrics.tokens);
+    if (row.status === 'failed') {
+      const code = /^[A-Z][A-Z0-9_]{0,100}$/.test(metrics.failure_code || '') ? metrics.failure_code : 'UNRECORDED';
+      item.failure_codes[code] = (item.failure_codes[code] || 0) + 1;
+    }
+    if (metricNumber(metrics.drafts) !== null && payload.source_kind === 'agentic_assistant_session') {
+      item.drafts += metrics.drafts;
+      item.accepted += Math.min(metrics.drafts, acceptances.get(row.source_run_id) || 0);
+    }
+    groups.set(key, item);
+  }
+  return [...groups.values()].map(({ durations, tokens, ...item }) => ({
+    ...item, median_duration_ms: median(durations), duration_samples: durations.length,
+    median_tokens: median(tokens), token_samples: tokens.length
+  }));
+}
+
+async function scorecards(input, user) {
+  const systems = await authorize(input.project_id, input.app_type_id, user);
+  if (!systems.length) throw Object.assign(new Error('Agent activity is unavailable under current permissions.'), { statusCode: 403 });
+  const args = [input.project_id, ...systems];
+  const scope = input.app_type_id ? ' AND app_type_id=?' : '';
+  if (scope) args.push(input.app_type_id);
+  const sampled = await obs.prepare(`SELECT * FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY system ORDER BY updated_at DESC,id) AS sample_rank FROM agent_runs
+    WHERE project_id=? AND system IN (${systems.map(() => '?').join(',')})${scope}
+      AND (system<>'workflow' OR payload->>'source_kind'='agentic_assistant_session')
+      AND status IN ('succeeded','partial','failed','cancelled','unknown')
+  ) AS recent WHERE sample_rank<=200`).all(...args);
+  const permittedRows = await availableSources(sampled);
+  const legacy = systems.includes('workflow') ? await obs.prepare(`SELECT * FROM workspace_transactions
+    WHERE project_id=?${scope} AND related_kind='agentic_assistant_session' AND action<>'trial'
+      AND status IN ('completed','failed','cancelled') ORDER BY updated_at DESC,id LIMIT 200`)
+    .all(input.project_id, ...(input.app_type_id ? [input.app_type_id] : [])) : [];
+  const rows = [...permittedRows.filter(row => row.system !== 'workflow'), ...legacy.map(row => adapted('workflow', row))];
+  const sessions = rows.filter(row => parse(row.payload).source_kind === 'agentic_assistant_session' && parse(row.payload).metrics?.drafts > 0).map(row => row.source_run_id);
+  const receipts = sessions.length ? await db.prepare(`SELECT session_id, COUNT(*)::int AS accepted FROM agent_proposal_acceptances
+    WHERE project_id=? AND session_id IN (${sessions.map(() => '?').join(',')}) GROUP BY session_id`).all(input.project_id, ...sessions) : [];
+  return { items: scorecardRows(rows, new Map(receipts.map(row => [row.session_id, row.accepted]))), limit_per_system: 200 };
+}
+module.exports={list,detail,scorecards,scorecardRows,synchronize,reconcile,adapted,createStore,systemFor,authorize,processPending,availableSources};

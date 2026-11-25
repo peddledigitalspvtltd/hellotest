@@ -8,17 +8,22 @@ const require = createRequire(new URL('../../../../../testengine/backend/package
 const { chromium } = require('playwright');
 const root = new URL('../../', import.meta.url);
 
-test('Defect triage reviews explicit inputs, evidence, retry and stale settings without mutating records', { timeout: 90000 }, async () => {
+test('Defect triage previews evidence, handles retries and posts only after approval', { timeout: 90000 }, async () => {
   const source = await readFile(new URL('../../../../testing/test/browser/catalogPages.test.mjs', import.meta.url), 'utf8');
   let fixture = runInNewContext(source.match(/const fixture = (`[\s\S]*?`);/)[1]);
   fixture = fixture.replace('const client=new QueryClient', `
 window.triageCalls=[];
+window.triageDecisions=[];
+api.issues.applyAiTriage=async(id,input)=>{window.triageDecisions.push({id,input});return{posted:true,comment_id:'comment-1',corrections_applied:input.apply_corrections};};
 api.integrations.list=async()=>[{id:'llm-a',name:'Default model',type:'llm',is_active:true},{id:'llm-b',name:'Review model',type:'llm',is_active:true}];
 api.issues.previewAiTriage=async(input)=>{
   window.triageCalls.push(structuredClone(input));
   if(window.delayNext){window.delayNext=false;await new Promise(resolve=>window.finishDelayed=resolve);}
   if(window.failNext){window.failNext=false;throw new Error('Model unavailable for this request');}
-  return {scope:{project_id:'catalog-project',issue_count:input.issue_ids.length},summary:'Review recorded priority signals and complete missing reproduction evidence.',triage:input.issue_ids.map((id,index)=>({issue_id:id,display_id:'BUG-'+id.slice(4),title:'Checkout bug '+id.slice(4).padStart(2,'0'),category:'Functional defect',current_priority:'Medium',recommended_priority:index===0?'High':'Medium',explanation:'The reported checkout symptom needs a verified reproduction.',readiness:{status:index===0?'needs-evidence':'ready-for-review',completed_field_count:index===0?5:6,total_field_count:6,missing_fields:index===0?['environment']:[],review_actions:['Record the environment.']},review_actions:['Verify the recorded symptom before editing priority.'],signals:[],evidence_refs:['field-'+id]})),evidence_sources:input.issue_ids.map(id=>({ref:'field-'+id,title:'Recorded actual result',excerpt:'Checkout displays a service error.'})),boundaries:{omissions:[],partial_sources:false},processing:{stages:[]},limitations:['No unrecorded production impact was inferred.'],review_sequence:[],integration:{name:'Review model',model:'fixture-model'},fallback_used:window.fallbackMode||false,fallback_reason:window.fallbackMode?'Provider unavailable; recorded-field rules retained.':null,generated_at:'2026-09-22T00:00:00Z'};
+  const recommendations=input.issue_ids.map((id,index)=>({issue_id:id,display_id:'BUG-'+id.slice(4),title:'Checkout bug '+id.slice(4).padStart(2,'0'),category:'Functional defect',current_priority:'Medium',recommended_priority:index===0?'High':'Medium',explanation:'The reported checkout symptom needs a verified reproduction.',readiness:{status:index===0?'needs-evidence':'ready-for-review',completed_field_count:index===0?5:6,total_field_count:6,missing_fields:index===0?['environment']:[],review_actions:['Record the environment.']},review_actions:['Verify the recorded symptom before editing priority.'],signals:[],evidence_refs:['field-'+id],
+    approval:{token:'review-'+id,comment:'Defect triage · '+id+'\\n\\nAssessment\\nCheckout test failed.'},
+    ...(id==='bug-1'?{failure_context:{state:'identified',detail:'Matched the exact linked failed attempt.',attempt:{test_case_title:'Checkout payment',status:'failed',step_order:3,step_action:'Submit payment'}},corrections:[{field:'expected_result',before:'Error',after:'Payment confirmed',rationale:'The observed and expected values are reversed.'},{field:'actual_result',before:'Payment confirmed',after:'Error',rationale:'The observed and expected values are reversed.'}]}:{})}));
+  return {scope:{project_id:'catalog-project',issue_count:input.issue_ids.length},summary:'Review recorded priority signals and complete missing reproduction evidence.',triage:recommendations,evidence_sources:input.issue_ids.map(id=>({ref:'field-'+id,title:'Recorded actual result',excerpt:'Checkout displays a service error.'})),boundaries:{omissions:[],partial_sources:false},processing:{stages:[]},limitations:['No unrecorded production impact was inferred.'],review_sequence:[],integration:{name:'Review model',model:'fixture-model'},fallback_used:window.fallbackMode||false,fallback_reason:window.fallbackMode?'Provider unavailable; recorded-field rules retained.':null,generated_at:'2026-09-22T00:00:00Z'};
 };
 const client=new QueryClient`);
   const name = `defect-triage-${randomUUID()}`;
@@ -35,8 +40,9 @@ const client=new QueryClient`);
     await page.route('**/api/**', route=>{errors.push('Unexpected API '+route.request().url());return route.abort();});
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5189'}/${name}.html`);
     for(const n of [1,2])await page.getByRole('checkbox',{name:`Select Defect BUG-${n}: Checkout bug 0${n}`,exact:true}).check();
-    await page.getByRole('button',{name:'AI triage',exact:true}).click();
-    const dialog=page.getByRole('dialog',{name:'AI triage',exact:true});
+    const openTriage=page.getByRole('button',{name:'AI Defect Triage',exact:true});
+    await openTriage.click();
+    const dialog=page.getByRole('dialog',{name:'AI Defect Triage',exact:true});
     await dialog.getByRole('heading',{name:'2 selected Defects'}).waitFor();
     assert.equal(await page.evaluate(()=>window.triageCalls.length),0,'Opening setup never invokes the provider');
     await dialog.getByLabel('LLM',{exact:true}).selectOption('llm-b');
@@ -49,9 +55,19 @@ const client=new QueryClient`);
     const finding=dialog.getByRole('region',{name:'Selected recommendation'});
     await finding.getByRole('heading',{name:'Checkout bug 01',exact:true}).waitFor();
     const payload=await page.evaluate(()=>window.triageCalls[0]);
-    assert.deepEqual(payload,{project_id:'catalog-project',issue_ids:['bug-1','bug-2'],integration_id:'llm-b',prompt_guidance:'Classify only recorded symptoms. Cite field evidence.',smart_context:{reviewed_context:'Review the staging checkout incident only.'}});
+    assert.deepEqual(payload,{project_id:'catalog-project',issue_ids:['bug-1','bug-2'],integration_id:'llm-b',prompt_guidance:'Classify only recorded symptoms. Cite field evidence.',images:[],smart_context:{reviewed_context:'Review the staging checkout incident only.'}});
     await finding.getByText('Supporting evidence (1)',{exact:true}).click();
     await finding.getByText('Checkout displays a service error.',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>window.triageDecisions.length),0);
+    await finding.getByText('Checkout payment',{exact:true}).waitFor();
+    await finding.getByText('Preview triage comment',{exact:true}).click();
+    await finding.getByText(/Checkout test failed/).waitFor();
+    const applyCorrections=finding.getByRole('checkbox',{name:'Apply these corrections when posting'});
+    assert.equal(await applyCorrections.isChecked(),false);
+    await applyCorrections.check();
+    await finding.getByRole('button',{name:'Apply corrections and post comment',exact:true}).click();
+    await finding.getByText('Triage comment posted.',{exact:true}).waitFor();
+    assert.deepEqual(await page.evaluate(()=>window.triageDecisions),[{id:'bug-1',input:{project_id:'catalog-project',token:'review-bug-1',apply_corrections:true}}]);
     await finding.scrollIntoViewIfNeeded();
     await page.screenshot({path:'/tmp/qaira-ui-refinement/triage-desktop.png',animations:'disabled'});
     await dialog.getByLabel('Filter triage results',{exact:true}).selectOption('high');
@@ -81,15 +97,15 @@ const client=new QueryClient`);
     const bounds=await close.boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=844,'Footer stays reachable');
     await page.keyboard.press('Escape');
     await dialog.waitFor({state:'hidden'});
-    assert.equal(await page.getByRole('button',{name:'AI triage',exact:true}).evaluate(el=>el===document.activeElement),true);
-    await page.getByRole('button',{name:'AI triage',exact:true}).click();
+    assert.equal(await openTriage.evaluate(el=>el===document.activeElement),true);
+    await openTriage.click();
     await page.evaluate(()=>window.delayNext=true);
     await dialog.getByRole('button',{name:'Analyze selected Defects',exact:true}).click();
     await page.waitForFunction(()=>typeof window.finishDelayed==='function');
     await page.keyboard.press('Escape');
     await dialog.waitFor({state:'hidden'});
     await page.getByRole('checkbox',{name:'Select Defect BUG-1: Checkout bug 01',exact:true}).uncheck();
-    await page.getByRole('button',{name:'AI triage',exact:true}).click();
+    await openTriage.click();
     await dialog.getByRole('button',{name:'Analyze selected Defects',exact:true}).click();
     await finding.getByRole('heading',{name:'Checkout bug 02',exact:true}).waitFor();
     await page.evaluate(()=>window.finishDelayed());
@@ -99,6 +115,20 @@ const client=new QueryClient`);
     await dialog.getByRole('button',{name:'Review Defect',exact:true}).click();
     await dialog.waitFor({state:'hidden'});
     await page.waitForFunction(()=>window.fixtureRoute().includes('issue=bug-2'));
+    await page.setViewportSize({width:1440,height:900});
+    await page.evaluate(()=>window.fixtureNavigate('/issues?issue=bug-1'));
+    const title=page.getByRole('textbox',{name:'Defect Title'});
+    await page.waitForFunction(()=>document.querySelector('.bug-field-title input')?.value==='Checkout bug 01');
+    await title.fill('Unsaved checkout title');
+    await openTriage.click();
+    await dialog.getByRole('button',{name:'Analyze selected Defects',exact:true}).click();
+    await finding.getByText('Save your Defect edits before applying these corrections.',{exact:true}).waitFor();
+    assert.equal(await applyCorrections.isDisabled(),true);
+    await finding.getByRole('button',{name:'Post triage comment',exact:true}).click();
+    await finding.getByText('Triage comment posted.',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>window.triageDecisions.at(-1).input.apply_corrections),false);
+    await close.click();
+    assert.equal(await title.inputValue(),'Unsaved checkout title');
     assert.equal(await page.evaluate(()=>window.calls.all.some(call=>/^issues\.(update|create|remove|delete)/.test(call.path))),false);
     assert.deepEqual(errors,[]);
     await page.close();

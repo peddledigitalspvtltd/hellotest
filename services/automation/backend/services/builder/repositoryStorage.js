@@ -259,6 +259,7 @@ const normalizeRepositoryPatch = (existing, patch = {}) => {
   });
 
   const nextLocator = ports.normalizeText(patch.locator) || existing.locator;
+  const nextLocatorKind = patch.locator_kind !== undefined ? ports.normalizeText(patch.locator_kind) : existing.locator_kind;
   if (existing.locator && nextLocator !== existing.locator) {
     nextMetadata.previous_locators = [
       ...new Set([
@@ -266,6 +267,16 @@ const normalizeRepositoryPatch = (existing, patch = {}) => {
         existing.locator
       ].filter(Boolean))
     ];
+  }
+  if (nextLocator !== existing.locator || nextLocatorKind !== existing.locator_kind) {
+    // Validation belongs to the exact saved primary locator. Keep historical
+    // receipts, but do not carry the old locator's latest result onto edits.
+    nextMetadata.last_validated_at = null;
+    nextMetadata.last_validated_status = "not_validated";
+    if (Array.isArray(nextMetadata.locator_candidates)) {
+      nextMetadata.locator_candidates = nextMetadata.locator_candidates
+        .filter(candidate => candidate && !candidate.isPrimary && candidate.locator !== nextLocator);
+    }
   }
 
   nextMetadata.repository_version = Number(nextMetadata.repository_version || 0) + 1;
@@ -276,7 +287,7 @@ const normalizeRepositoryPatch = (existing, patch = {}) => {
     page_key: ports.normalizeText(patch.page_key) || existing.page_key,
     locator_intent: ports.normalizeText(patch.locator_intent || patch.intent) || existing.locator_intent,
     locator: nextLocator,
-    locator_kind: patch.locator_kind !== undefined ? ports.normalizeText(patch.locator_kind) : existing.locator_kind,
+    locator_kind: nextLocatorKind,
     confidence: Math.max(0, Math.min(1, ports.clampNumber(patch.confidence, ports.clampNumber(existing.confidence, 0)))),
     source: ports.normalizeText(patch.source) || "curated_repository",
     metadata: nextMetadata
@@ -895,56 +906,20 @@ exports.importLearningCacheEntries = async ({ project_id, app_type_id, entries, 
 
 
 const buildRepositoryUsageNeedles = (entry) => {
-  if (isRepositoryScreenRecord(entry)) {
-    return [];
-  }
-
+  if (isRepositoryScreenRecord(entry)) return [];
   const screenName = ports.normalizeText(entry.metadata?.screen_name || entry.page_key);
   const objectName = getRepositoryObjectName(entry, screenName);
   return [
-    entry.locator,
-    objectName,
     screenName && objectName ? `${screenName}.${objectName}` : null,
+    ...(Array.isArray(entry.metadata?.reference_aliases) ? entry.metadata.reference_aliases : []),
+    objectName,
     entry.locator_intent
-    ,...(Array.isArray(entry.metadata?.reference_aliases)?entry.metadata.reference_aliases:[])
   ].map(ports.normalizeText).filter(Boolean);
 };
 
-
 exports.findLearningCacheUsage = async (entryOrEntries) => {
   const entries = (Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries]).filter(Boolean);
-  const needles = [...new Set(entries.flatMap(buildRepositoryUsageNeedles))];
-
-  if (!needles.length) {
-    return [];
-  }
-
-  const scopedAppTypeIds = [...new Set(entries.map((entry) => ports.normalizeText(entry.app_type_id)).filter(Boolean))];
-  let query = `
-    SELECT DISTINCT test_cases.id, test_cases.display_id, test_cases.title, test_cases.automated
-    FROM test_steps
-    JOIN test_cases ON test_cases.id = test_steps.test_case_id
-    WHERE 1 = 1
-  `;
-  const params = [];
-
-  if (scopedAppTypeIds.length === 1) {
-    query += ` AND test_cases.app_type_id = ?`;
-    params.push(scopedAppTypeIds[0]);
-  }
-
-  const likeClauses = needles.flatMap(() => [
-    `LOWER(COALESCE(test_steps.action, '')) LIKE ?`,
-    `LOWER(COALESCE(test_steps.expected_result, '')) LIKE ?`,
-    `LOWER(COALESCE(test_steps.automation_code, '')) LIKE ?`
-  ]);
-  query += ` AND (${likeClauses.join(" OR ")}) ORDER BY test_cases.title`;
-  needles.forEach((needle) => {
-    const pattern = `%${needle.toLowerCase()}%`;
-    params.push(pattern, pattern, pattern);
-  });
-
-  return ports.obsDb.prepare(query).all(...params);
+  return require("../../lib/build/automationRepositoryUsage").findRepositoryUsage(entries, ports.db, buildRepositoryUsageNeedles);
 };
 
 

@@ -8,7 +8,8 @@ const resolveTestEngineIntegration = async (testCase) => {
   const integration = await ports.integrationService.getActiveIntegrationByTypeForProject("testengine", testCase.project_id);
 
   if (!integration?.base_url) {
-    throw new Error("Configure an active Test Engine integration before using browser automation or recording");
+    const { browserEntryError } = require("../../lib/browser/automationBrowserEntry");
+    throw browserEntryError("AUTOMATION_BROWSER_ENGINE_UNAVAILABLE", "Configure an active Test Engine integration before using browser automation or recording.", 503);
   }
 
   return integration;

@@ -309,14 +309,18 @@ async function checkReadiness(workflow,targetNodeId='',user,inputPayload) {
   if(hasInput){if(!inputPayload||typeof inputPayload!=='object'||Array.isArray(inputPayload))inputBlocker('Workflow input must be a JSON object.');else if(Buffer.byteLength(JSON.stringify(payload))>MAX_INPUT_BYTES)inputBlocker('Workflow input is limited to 16 KB.');}
   const selected=report.steps.map(step=>({node:workflow.nodes.find(node=>node.id===step.node_id),definition:nodeRegistry.get(step.kind)}));
   const checkedInputs=new Set(),warnings=new Set();
-  const context={workflow,user,payload,hasInput,hasNativeInput:selected.some(({definition})=>definition.inputContract==='nativeStory'),
+  const context={workflow,user,payload,hasInput,hasNativeInput:selected.some(({definition,node})=>definition.inputContract?.(node)==='nativeStory'),
     checkInputOnce(key,check){if(checkedInputs.has(key))return;checkedInputs.add(key);try{check();}catch(failure){inputBlocker(failure.publicMessage||failure.message);}},
     warnOnce(message){if(!warnings.has(message)){warnings.add(message);report.warnings.push(message);}}};
   for(const {node,definition}of selected)definition.validateInput?.({...context,node});
   if(report.blockers.length){report.ready=false;return report;}
   for(const phase of ['model','connection'])for(const {node,definition}of selected){
-    const check=definition.preflight?.[phase];if(!check)continue;
-    try{await check({...context,node});}catch(failure){report.blockers.push({node_id:node.id,node_name:nodeName(node),message:definition.preflightFailure?.(phase,failure)||failure.publicMessage||'Check this node configuration and connection.'});}
+    const check=definition.preflight?.[phase];if(!check || phase==='connection' && report.blockers.some(item=>item.node_id===node.id))continue;
+    try{await check({...context,node});}catch(failure){
+      const detail=events.failureInfo(failure);
+      report.blockers.push({node_id:node.id,node_name:nodeName(node),message:failure.publicMessage|| (detail.resolution && detail.code !== 'NODE_EXECUTION_FAILED' ? detail.message : definition.preflightFailure?.(phase,failure)) || 'Check this node configuration and connection.',
+        ...(detail.resolution ? {code:detail.code,resolution:detail.resolution} : {})});
+    }
   }
   report.ready=report.blockers.length===0;return report;
 }
@@ -418,6 +422,15 @@ function compactUpstream(run, node) {
 // project evidence. Every specialist independently retrieves permitted evidence.
 const {specialistPrompt,collectReviews,reviewSource}=require('../workflows/nodes/shared/reviewContext');
 const needsAttention = source => source.status === 'failed' || ['limited','limited_evidence','insufficient_evidence'].includes(source.output?.readiness?.status) || source.output?.verification?.status === 'needs_input' || array(source.iterations).some(item => needsAttention(item));
+
+function canContinueBatch(node, signal, failure, details) {
+  return node.data.loopItemFailure === 'continue' && !signal.aborted && !failure.outcome_unknown && !failure.transactionOutcomeUnknown
+    && !failure.systemic_failure
+    && ![401,403,408,429,499].includes(failure.statusCode) && failure.name !== 'AbortError'
+    && !['WORKFLOW_STOPPED','WORKFLOW_LOOP_BUDGET_EXCEEDED','WORKFLOW_LINEAGE_CONFLICT'].includes(details.code)
+    && !['authorization','cancelled','configuration','provider_request','provider_quota','provider_capacity','timeout'].includes(details.category)
+    && ([400,404,409,422].includes(failure.statusCode) || details.category === 'validation');
+}
 
 function terminalSummary(run, status, nodes, fallback) {
   const saved = new Map();
@@ -523,6 +536,7 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
       },
       async progress => {
         if (progress.current_item && progress.current_item !== result.progress?.current_item) events.log(result, { event: "item_started", item_index: progress.current_item - 1, message: `Processing item ${progress.current_item} of ${progress.total_items}.` });
+        if (progress.automation_startup_retry === true) events.log(result,{event:'browser_startup_retry',level:'warning',message:'Reconnecting Playwright MCP once before opening the application.'});
         result.progress = progress; await persist();
       },
       async event => { events.log(result, event); await persist(); }, { persist });
@@ -568,6 +582,7 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   await persist();
   const settings = run.workflow_snapshot.settings || {};
   if (kindOf(node) === 'artifactTask' && ['test-case-generation', 'automation-engineer'].includes(node.data.artifactTask)
+    && !require('../workflows/automationNodeInputs').manualCaseSource(node.data)
     && settings.template_id === 'sprint-automator' && settings.library_publication_mode === 'automatic') {
     const recordPublication = publication => {
       result.output.library_publication = publication;
@@ -618,7 +633,7 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
   const directIds = bodyIds.filter(id => !nestedIds.has(id));
   const bodyNodes = run.workflow_snapshot.execution_order.filter(id => directIds.includes(id)).map(id => run.workflow_snapshot.nodes.find(item => item.id === id));
   const loopResult = run.node_results.find(result => result.node_id === node.id);
-  const collected = [], paired_items = [], batches = Math.ceil(items.length / size);
+  const collected = [], paired_items = [], iteration_failures = [], batches = Math.ceil(items.length / size);
   let limited = false;
   let lineageComplete = true;
   let collectedLineage = null;
@@ -659,6 +674,7 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
           status: 'queued', execution_mode: MODE, attempts: 0, logs: [], iterations: prior.iterations || [] };
       }
       const pending = new Set(directIds);
+      let batchFailed = false;
       await onProgress({ percent: Math.round(batchIndex / batches * 100), current_item: batchIndex * size + 1, total_items: items.length, current_batch: batchIndex + 1, total_batches: batches, batch_size: batch.length });
       try {
         while (pending.size) {
@@ -675,14 +691,19 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
             stopped.status = loopSignal.aborted ? 'cancelled' : 'failed'; stopped.error_details = events.failureInfo(failure); stopped.error = stopped.error_details.message;
             stopped.completed_at = new Date().toISOString(); stopped.duration_ms = events.duration(stopped);
             events.log(stopped, { event: 'node_' + stopped.status, level: 'error', ...stopped.error_details });
-            throw failure;
+            if (!canContinueBatch(node,loopSignal,failure,stopped.error_details)) throw failure;
+            iteration_failures.push({loop_node_id:node.id,batch_index:batchIndex,iteration_path:child.iteration_path,
+              input_start_index:batchIndex * size,input_item_count:batch.length,failed_node_id:step.id,...stopped.error_details});
+            events.log(loopResult,{event:'loop_batch_failed',level:'warning',message:`Batch ${batchIndex + 1} failed. The loop will process the next batch.`,code:stopped.error_details.code});
+            batchFailed = true;
+            break;
           }
           pending.delete(step.id);
           if (outcome?.needsReview) { limited = true; break; }
         }
         const returnEdges = run.workflow_snapshot.edges.filter(edge => edge.target === node.id && scheduling.isReturn(edge));
         const nativeSources = [];
-        for (const edge of returnEdges) {
+        for (const edge of batchFailed ? [] : returnEdges) {
           const source = run.node_results.find(result => result.node_id === edge.source);
           if (!scheduling.selectedEdge({ ...edge, targetHandle: undefined }, source, 'loop')) continue;
           nativeSources.push(source);
@@ -718,7 +739,9 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
   if (lineageComplete && collectedLineage) loopResult.execution_context = collectedLineage;
   await onProgress({ percent: limited ? loopResult.progress?.percent || 0 : 100, total_items: items.length, total_batches: batches, completed_batches: run.node_results.find(result => bodyIds.includes(result.node_id))?.iterations?.length || 0 });
   return { data: collected, paired_items, loop_mode: 'workflow', processed: limited ? Math.min(items.length, (run.node_results.find(result => bodyIds.includes(result.node_id))?.iterations?.length || 0) * size) : items.length,
-    total_batches: batches, execution_usage: { batches: budget.batches - budgetStart.batches, node_executions: budget.node_executions - budgetStart.node_executions }, ...(limited ? { readiness: { status: 'insufficient_evidence' } } : {}) };
+    total_batches: batches, execution_usage: { batches: budget.batches - budgetStart.batches, node_executions: budget.node_executions - budgetStart.node_executions },
+    ...(iteration_failures.length ? {iteration_failures,verification:{status:'needs_input'}} : {}),
+    ...(limited ? { readiness: { status: 'insufficient_evidence' } } : {}) };
 }
 
 async function perform(run, user, controller) {
@@ -814,7 +837,7 @@ async function perform(run, user, controller) {
     const message = timedOut ? "The review reached its deadline. Completed results are preserved."
       : state === "cancelled" ? "Review execution stopped. Completed results are preserved."
         : failure.statusCode === 403 ? "Access changed while this review was running. Further steps were stopped."
-          : events.safeMessage(failure.publicMessage, "A workflow node could not finish. Review its configuration and completed output before retrying.");
+          : events.failureInfo(failure).message;
     run.node_results = terminalNodes(run.node_results, currentNode, state);
     const failedStep = run.node_results.find(node => node.node_id === currentNode && node.status === state);
     if (failedStep) {

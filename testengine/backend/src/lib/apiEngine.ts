@@ -513,6 +513,9 @@ export async function executeApiStepInEngine(
 ): Promise<ApiStepExecutionResult> {
   const stepTimeout = automationStepOptions(step).timeoutMs;
   const request = resolveApiRequest(stepTimeout && step.api_request ? { ...step.api_request, timeout_ms: stepTimeout } : step.api_request, envelope, capturedValues, step);
+  if (request.captures?.some(capture => !normalizeText(capture.path) || !normalizeText(capture.parameter))) {
+    throw new Error("Complete each API capture path and output parameter before execution.");
+  }
   const preview = await runResolvedApiRequest(request, signal);
   const assertions: ReturnType<typeof evaluateApiAssertions> = preview.response.body_error
     ? [{kind:"response_body",passed:false,target:null,expected:"Complete response body",actual:null,summary:preview.response.body_error}]

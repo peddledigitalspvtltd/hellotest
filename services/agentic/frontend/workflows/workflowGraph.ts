@@ -51,9 +51,10 @@ export const nodeKindDescriptions = Object.fromEntries(Object.entries(nodeKinds.
 export const executableNodeKinds = new Set(Object.entries(nodeKinds.kinds).filter(([, entry]) => entry.executable).map(([kind]) => kind));
 
 const paletteOrder = ["Start","Native artifact tasks","AI reviews and source analysis","Connections and servers","Project capabilities","Data and flow","Results and recovery"];
+export const legacyNodeKinds = new Set<WorkflowNodeKind>(['llmAgent','apiAgent']);
 export const nodePaletteGroups: Array<{label:string;kinds:WorkflowNodeKind[]}> = [...new Set(Object.values(nodeKinds.kinds).map(entry=>entry.ui.paletteGroup))]
  .sort((a,b)=>paletteOrder.indexOf(a)-paletteOrder.indexOf(b))
- .map(label=>({label,kinds:(Object.keys(nodeKinds.kinds) as WorkflowNodeKind[]).filter(kind=>nodeKinds.kinds[kind].ui.paletteGroup===label)}));
+ .map(label=>({label,kinds:(Object.keys(nodeKinds.kinds) as WorkflowNodeKind[]).filter(kind=>!legacyNodeKinds.has(kind)&&nodeKinds.kinds[kind].ui.paletteGroup===label)}));
 
 export const compactCount = (
   count: number,
@@ -484,7 +485,11 @@ export const buildN8nPayload = (
           reviewCriteria: node.data.reviewCriteria || "",
           artifactTask: node.data.artifactTask || "",
           inspectBrowser: node.data.inspectBrowser ?? true,
+          automationRuntime: node.data.automationRuntime ?? 'auto',
           automationBrowserMode: node.data.automationBrowserMode ?? (node.data.inspectBrowser === false ? "offline" : "read_only"),
+          automationSource: node.data.automationSource || 'sprint',
+          automationManualCaseId: node.data.automationManualCaseId || '',
+          automationVerificationMode: node.data.automationVerificationMode || 'generate_only',
           readinessPolicy: node.data.readinessPolicy || "verify-inputs",
           model: node.data.model || "",
           llmIntegrationId: node.data.llmIntegrationId || "",
@@ -536,6 +541,7 @@ export const buildN8nPayload = (
           loop: {
             sourceKey: node.data.loopSourceKey || "",
             action: node.data.loopAction || "",
+            itemFailure: node.data.loopItemFailure || 'stop',
             maxIterations: node.data.loopMaxIterations || "",
             batchSize: node.data.loopBatchSize || 1,
           },

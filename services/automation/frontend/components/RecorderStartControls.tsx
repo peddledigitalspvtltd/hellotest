@@ -133,7 +133,9 @@ export function RecorderStartControls({
     };
   }, [isMoreOpen]);
 
-  if (platform === "api") return <p className="muted">Use the request editor to add API requests, assertions and response captures. Browser recording belongs to Web tests.</p>;
+  if (platform === "api") return hasSession
+    ? <div className="testops-recorder-actions recorder-control-buttons">{moreActions}</div>
+    : <p className="muted">Use the request editor to add API requests, assertions and response captures. Browser recording belongs to Web tests.</p>;
   if (platform === "android" || platform === "ios") return (
     <div className="recorder-control-pane">
       <p className="muted">{platform === "ios" ? "Connect an iOS device or simulator through an XCUITest host, or use a configured device cloud." : "Connect an Android device or emulator through Appium, or use a configured device cloud."}</p>

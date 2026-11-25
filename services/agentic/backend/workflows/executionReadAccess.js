@@ -45,7 +45,7 @@ function withoutPrivateState(value) {
   return result;
 }
 
-async function publicRun(run, user, accessCache = new Map()) {
+async function publicRun(run, user, accessCache = new Map(), { includeManualAutomationSaves = false } = {}) {
   if (!run) return run;
   const nodes = withoutPrivateState(run.node_results || []);
   const visibleRun = { ...run, node_results: nodes,
@@ -73,7 +73,10 @@ async function publicRun(run, user, accessCache = new Map()) {
   if (!accessCache.has(run.project_id)) accessCache.set(run.project_id,
     evidenceAccess.getOptionalEvidenceAccess(user, run.project_id, requiredPermissions));
   const access = await accessCache.get(run.project_id);
-  if (requiredPermissions.every(permission => access[permission] === true)) return visibleRun;
+  if (requiredPermissions.every(permission => access[permission] === true)) {
+    if (includeManualAutomationSaves) await require('./acceptDraft').projectManualAutomationSaves(run, nodes, user);
+    return visibleRun;
+  }
   const projectSnapshot = (node, parentNodeId) => {
     if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
     const result = { ...node };

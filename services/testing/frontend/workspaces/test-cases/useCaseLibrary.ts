@@ -52,8 +52,6 @@ const [modulePageCursorsById, setModulePageCursorsById] = useState<Record<string
 
 const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
 
-const [libraryScope, setLibraryScope] = useState<"manual" | "automation" | "both">("manual");
-
 const catalogFilters = useMemo(() => ({
     ids: workflowReviewScope?.ids.join(","),
     search: isReviewQueueOpen ? undefined : deferredSearchTerm.trim() || undefined,
@@ -62,11 +60,10 @@ const catalogFilters = useMemo(() => ({
     step_filter: isReviewQueueOpen || caseStepFilter === "all" ? undefined : caseStepFilter,
     run_filter: isReviewQueueOpen || caseRunFilter === "all" ? undefined : caseRunFilter,
     review_queue: isReviewQueueOpen ? "mine" as const : undefined,
-    exclude_automated: isReviewQueueOpen ? undefined : libraryScope === "manual",
-    automated: !isReviewQueueOpen && libraryScope === "automation" ? "yes" as const : undefined,
+    exclude_automated: isReviewQueueOpen ? undefined : true,
     include_total: false,
     include_execution: canViewExecutionInsights
-  }), [workflowReviewScope, isReviewQueueOpen, deferredSearchTerm, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, canViewExecutionInsights, libraryScope]);
+  }), [workflowReviewScope, isReviewQueueOpen, deferredSearchTerm, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, canViewExecutionInsights]);
 
 const catalogFilterKey = JSON.stringify(catalogFilters);
 
@@ -87,8 +84,14 @@ useEffect(() => {
   }, [catalogFilterKey]);
 
 const testCaseMetricsQuery = useQuery({
-    queryKey: ["test-case-metrics", appTypeId, projectId, canViewExecutionInsights, reviewUserId, isReviewQueueOpen, libraryScope],
-    queryFn: () => api.testCases.metrics({ app_type_id: appTypeId, project_id: projectId, exclude_automated: isReviewQueueOpen ? undefined : libraryScope === "manual", automated: !isReviewQueueOpen && libraryScope === "automation" ? "yes" : undefined, review_queue: isReviewQueueOpen ? "mine" : undefined, include_execution: canViewExecutionInsights }),
+    queryKey: ["test-case-metrics", appTypeId, projectId, canViewExecutionInsights, reviewUserId, isReviewQueueOpen],
+    queryFn: () => api.testCases.metrics({
+      app_type_id: appTypeId,
+      project_id: projectId,
+      exclude_automated: catalogFilters.exclude_automated,
+      review_queue: catalogFilters.review_queue,
+      include_execution: canViewExecutionInsights
+    }),
     enabled: can("testcase.view") && Boolean(appTypeId && projectId && !workflowReviewScope),
     staleTime: 120_000,
     gcTime: 600_000
@@ -223,5 +226,5 @@ const toggleModuleExpansion = (moduleId: string) => {
 
 const testCaseModules = workflowReviewScope || isReviewQueueOpen ? [] : asArray(testCaseModulesQuery.data);
 
-return { searchTerm, setSearchTerm, catalogViewMode, setCatalogViewMode, isCatalogViewPending, startCatalogViewTransition, deferredSearchTerm, visibleTestCaseCount, setVisibleTestCaseCount, caseStatusFilter, setCaseStatusFilter, casePriorityFilter, setCasePriorityFilter, caseStepFilter, setCaseStepFilter, caseRunFilter, setCaseRunFilter, selectedActionTestCaseIds, setSelectedActionTestCaseIds, selectedActionCaseSnapshotsRef, expandedModuleIds, setExpandedModuleIds, isUnassignedModuleExpanded, setIsUnassignedModuleExpanded, setModulePageCursorsById, selectedModuleIds, setSelectedModuleIds, libraryScope, setLibraryScope, catalogFilterKey, isCatalogFiltered, collapsedFilteredModuleIds, isModuleExpanded, testCaseMetricsQuery, testCasesQuery, testCaseModulesQuery, modulePageRequests, moduleCaseQueries, modulePageStateById, retryModulePage, loadNextModulePage, toggleModuleExpansion, testCaseModules };
+return { searchTerm, setSearchTerm, catalogViewMode, setCatalogViewMode, isCatalogViewPending, startCatalogViewTransition, deferredSearchTerm, visibleTestCaseCount, setVisibleTestCaseCount, caseStatusFilter, setCaseStatusFilter, casePriorityFilter, setCasePriorityFilter, caseStepFilter, setCaseStepFilter, caseRunFilter, setCaseRunFilter, selectedActionTestCaseIds, setSelectedActionTestCaseIds, selectedActionCaseSnapshotsRef, expandedModuleIds, setExpandedModuleIds, isUnassignedModuleExpanded, setIsUnassignedModuleExpanded, setModulePageCursorsById, selectedModuleIds, setSelectedModuleIds, catalogFilterKey, isCatalogFiltered, collapsedFilteredModuleIds, isModuleExpanded, testCaseMetricsQuery, testCasesQuery, testCaseModulesQuery, modulePageRequests, moduleCaseQueries, modulePageStateById, retryModulePage, loadNextModulePage, toggleModuleExpansion, testCaseModules };
 }

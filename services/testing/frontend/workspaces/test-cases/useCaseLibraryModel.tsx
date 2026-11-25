@@ -37,7 +37,6 @@ export interface useCaseLibraryModelInputs {
   isUnassignedModuleExpanded: boolean;
   selectedModuleIds: string[];
   setSelectedModuleIds: React.Dispatch<React.SetStateAction<string[]>>;
-  libraryScope: "automation" | "manual" | "both";
   catalogFilterKey: string;
   isCatalogFiltered: boolean;
   collapsedFilteredModuleIds: string[];
@@ -59,7 +58,7 @@ export interface useCaseLibraryModelInputs {
   executionResults: ExecutionResult[];
 }
 
-export function useCaseLibraryModel({ workflowReviewScope, appTypeId, can, canViewRequirements, canViewExecutionInsights, isReviewQueueOpen, catalogViewMode, deferredSearchTerm, visibleTestCaseCount, setVisibleTestCaseCount, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, selectedActionTestCaseIds, setSelectedActionTestCaseIds, selectedActionCaseSnapshotsRef, expandedModuleIds, isUnassignedModuleExpanded, selectedModuleIds, setSelectedModuleIds, libraryScope, catalogFilterKey, isCatalogFiltered, collapsedFilteredModuleIds, isModuleExpanded, testCaseMetricsQuery, testCasesQuery, modulePageRequests, moduleCaseQueries, modulePageStateById, loadNextModulePage, testCaseModules, moduleDraftInitialCaseIds, healthModuleId, modulePickerRequirementsQuery, requirements, suites, testCases, sharedStepGroups, executionResults }: useCaseLibraryModelInputs) {
+export function useCaseLibraryModel({ workflowReviewScope, appTypeId, can, canViewRequirements, canViewExecutionInsights, isReviewQueueOpen, catalogViewMode, deferredSearchTerm, visibleTestCaseCount, setVisibleTestCaseCount, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, selectedActionTestCaseIds, setSelectedActionTestCaseIds, selectedActionCaseSnapshotsRef, expandedModuleIds, isUnassignedModuleExpanded, selectedModuleIds, setSelectedModuleIds, catalogFilterKey, isCatalogFiltered, collapsedFilteredModuleIds, isModuleExpanded, testCaseMetricsQuery, testCasesQuery, modulePageRequests, moduleCaseQueries, modulePageStateById, loadNextModulePage, testCaseModules, moduleDraftInitialCaseIds, healthModuleId, modulePickerRequirementsQuery, requirements, suites, testCases, sharedStepGroups, executionResults }: useCaseLibraryModelInputs) {
 const historyByCaseId = useMemo(() => {
     const map: Record<string, ExecutionResult[]> = {};
 
@@ -257,9 +256,9 @@ const moduleHealthMetrics = (health: ReturnType<typeof deriveModuleHealth>): Qua
     const riskAvailable = canViewExecutionInsights && canViewRequirements;
     return [
       { label: "Test Cases", value: health.count, tone: "info", detail: `${health.count} Test Cases in this module's current library scope.`, methodology: "Uses complete module totals from the catalog API, independent of loaded pages or search. Review mode includes only cases assigned to you for review." },
-      { label: libraryScope === "manual" ? "Latest of manual or automation" : "Latest per catalog case", criteriaKey: libraryScope === "manual" ? "metric.module.latest_effective_pass" : "metric.module.latest_catalog_pass", value: !canViewExecutionInsights ? "Unavailable" : health.latestPassRatePercent === null ? "No runs" : `${health.latestPassRatePercent}%`,
+      { label: "Latest of manual or automation", criteriaKey: "metric.module.latest_effective_pass", value: !canViewExecutionInsights ? "Unavailable" : health.latestPassRatePercent === null ? "No runs" : `${health.latestPassRatePercent}%`,
         tone: !canViewExecutionInsights || health.latestPassRatePercent === null ? "neutral" : health.latestPassRatePercent >= 80 ? "success" : "warning",
-        detail: !canViewExecutionInsights ? executionUnavailable : health.latestPassRatePercent === null ? "No finalized case outcomes are available in this module." : `${health.latestPassRatePercent}% of cases with a latest finalized outcome passed.`, methodology: "Uses the latest finalized manual or linked automation outcome per manual origin. Both source verdicts remain visible on each case tile; historical manual outcomes are preserved. Cases without a finalized outcome are excluded from the denominator." },
+        detail: !canViewExecutionInsights ? executionUnavailable : health.latestPassRatePercent === null ? "No finalized case outcomes are available in this module." : `${health.latestPassRatePercent}% of cases with a latest finalized outcome passed.`, methodology: "Uses the latest finalized manual or linked automation outcome per manual test case. Cases without a finalized outcome are excluded from the denominator." },
       { label: "At Risk", value: riskAvailable ? health.riskCount : "Unavailable", tone: !riskAvailable ? "neutral" : health.riskCount ? "warning" : "success",
         detail: riskAvailable ? `${health.riskCount}/${health.count} Test Cases have at least one risk signal.` : "Story and execution access is required to evaluate every risk signal.", methodology: "Counts each case once if it has no linked Story, no executable steps, a latest failed/blocked result, or Critical/High priority without automation. Signals may overlap." },
       { label: "Pending Review", value: health.pendingReviewCount, tone: health.pendingReviewCount ? "warning" : "success",
@@ -286,7 +285,7 @@ const renderModuleMetrics = (health: ReturnType<typeof deriveModuleHealth>) => (
       metrics={[
         {
           icon: <IconChartBar aria-hidden="true" size={13} stroke={1.8} />,
-          label: libraryScope === "manual" ? "Latest of manual or automation" : "Latest per catalog case", criteriaKey: libraryScope === "manual" ? "metric.module.latest_effective_pass" : "metric.module.latest_catalog_pass",
+          label: "Latest of manual or automation", criteriaKey: "metric.module.latest_effective_pass",
           value: !canViewExecutionInsights ? "Unavailable" : health.latestPassRatePercent === null ? "No runs" : `${health.latestPassRatePercent}%`,
           tone: !canViewExecutionInsights || health.latestPassRatePercent === null ? "neutral" : health.latestPassRatePercent >= 80 ? "success" : health.latestPassRatePercent >= 60 ? "warning" : "danger",
           title: canViewExecutionInsights ? "Pass rate from the latest finalized outcome for each module Test Case" : "Run and result access is required."

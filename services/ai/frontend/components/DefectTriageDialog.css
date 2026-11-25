@@ -63,6 +63,14 @@
 .defect-triage-evidence article { margin-top: 10px; padding: 12px; background: var(--panel-strong); border: 1px solid var(--line); border-radius: 8px; }
 .defect-triage-evidence article strong { font-size: 12px; }
 .defect-triage-evidence article p { margin: 5px 0 0; color: var(--muted); }
+.defect-triage-corrections dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; }
+.defect-triage-corrections dl > div { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-strong); }
+.defect-triage-corrections dt { margin-bottom: 6px; font-size: 13px; font-weight: 650; }
+.defect-triage-corrections dd { margin: 4px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.defect-triage-corrections label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.defect-triage-approval { display: grid; gap: 12px; justify-items: start; }
+.defect-triage-approval details { width: 100%; }
+.defect-triage-approval details p { white-space: pre-wrap; }
 .defect-triage-provenance { padding: 14px 0 0; border-top: 1px solid var(--line); }
 .defect-triage-provenance p { font-size: 12px; line-height: 1.6; color: var(--muted); }
 .defect-triage-empty, .defect-triage-loading { display: grid; justify-items: center; gap: 10px; padding: 34px 24px; text-align: center; color: var(--muted); }

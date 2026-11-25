@@ -3,7 +3,7 @@ import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { readRequestSession } from "@hellotest/platform/frontend/src/lib/httpClient";
 import { automationApi } from "../api.client";
 import { activeAuthoringRecording, automationAuthoringInitial, caseAuthoringState, createAutomationAuthoringStore, type AuthoringBuildStatus, type AuthoringRecording, type RecordingOrigin, type RecordingParameterDraft } from "../lib/automationAuthoringState";
-import { createAutomationSelectionStore } from "../lib/automationSelectionState";
+import { createAutomationSelectionStore, type AutomationCatalogFilters } from "../lib/automationSelectionState";
 import type { RecorderStartOptions } from "../components/RecorderStartControls";
 import type { RecorderSessionResponse } from "@hellotest/platform/frontend/src/types";
 
@@ -38,6 +38,7 @@ function createController(projectId: string, appTypeId: string, actorId: string,
     recorderSessionUpdated(caseId: string, session: RecorderSessionResponse) { currentSession(); store.dispatch({ type: "record.session_updated", caseId, session }); },
     recordingParametersChanged(caseId: string, operationId: string, parameterBindings: Record<number, string>, privateValues?: string[]) { currentSession(); store.dispatch({ type: "record.parameters_changed", caseId, operationId, parameterBindings, privateValues }); },
     recordingDraftChanged(caseId: string, operationId: string, draft: RecordingParameterDraft) { currentSession(); store.dispatch({ type: "record.parameter_draft_changed", caseId, operationId, draft }); },
+    recordingActionInclusionChanged(caseId: string, operationId: string, index: number, included: boolean) { currentSession(); store.dispatch({ type: "record.action_inclusion_changed", caseId, operationId, index, included }); },
     beginRecordingSave(caseId: string) {
       currentSession(); const value = caseAuthoringState(store.snapshot(), caseId);
       if (!(value.phase === "recording" && value.recording?.session)) throw new Error("Return to the original recording before saving it.");
@@ -61,6 +62,7 @@ function createController(projectId: string, appTypeId: string, actorId: string,
       } finally { signal?.removeEventListener("abort", abort); if (reads.get(caseId) === controller) reads.delete(caseId); }
     },
     openCase(caseId: string, routeCaseId = caseId) { selection.dispatch({ type: "case.changed", caseId, routeCaseId }); },
+    filterCatalog(filters: Partial<AutomationCatalogFilters>) { selection.dispatch({ type: "catalog.filtered", filters }); },
     selectCases(ids: string[]) { selection.dispatch({ type: "cases.selected", ids }); },
     toggleCase(id: string, selected: boolean) { selection.dispatch({ type: "case.toggled", id, selected }); },
     selectSteps(ids: string[]) { selection.dispatch({ type: "steps.selected", ids }); },
@@ -96,6 +98,6 @@ export function useAutomationCaseAuthoring(caseId: string) {
 }
 export function useAutomationSelection() {
   const value = useController(), state = useSyncExternalStore(value.selection.subscribe, value.selection.snapshot, value.selection.snapshot);
-  return { state, openCase: value.commands.openCase, selectCases: value.commands.selectCases, toggleCase: value.commands.toggleCase, selectSteps: value.commands.selectSteps, toggleStep: value.commands.toggleStep, expandSteps: value.commands.expandSteps, toggleExpandedStep: value.commands.toggleExpandedStep, showInstructions: value.commands.showInstructions, showInstruction: value.commands.showInstruction, toggleInstructions: value.commands.toggleInstructions, reconcileSteps: value.commands.reconcileSteps };
+  return { state, openCase: value.commands.openCase, filterCatalog: value.commands.filterCatalog, selectCases: value.commands.selectCases, toggleCase: value.commands.toggleCase, selectSteps: value.commands.selectSteps, toggleStep: value.commands.toggleStep, expandSteps: value.commands.expandSteps, toggleExpandedStep: value.commands.toggleExpandedStep, showInstructions: value.commands.showInstructions, showInstruction: value.commands.showInstruction, toggleInstructions: value.commands.toggleInstructions, reconcileSteps: value.commands.reconcileSteps };
 }
 export type { AuthoringRecording };

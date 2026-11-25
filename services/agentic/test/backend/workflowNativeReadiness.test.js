@@ -27,6 +27,10 @@ function allow(t) {
   t.mock.method(permissions, 'hasPermission', async () => true);
   t.mock.method(flags, 'areEnabled', async () => true);
 }
+function browserAvailable(t) {
+  t.mock.method(require('@hellotest/platform/backend/public/applicationAccess'),'getAppType',async()=>({project_id:'project',kind:'web'}));
+  return t.mock.method(require('@hellotest/automation/build'),'preflightAutomationBrowser',async()=>({status:'ready'}));
+}
 
 test('native readiness resolves the exact feature defaults with trigger and node model precedence', async t => {
   allow(t);
@@ -48,16 +52,37 @@ test('native readiness resolves the exact feature defaults with trigger and node
 
 test('Automation Engineer readiness checks its Test Environment against the workflow application', async t => {
   allow(t);
+  const browser=browserAvailable(t);
   t.mock.method(registry, 'resolveModel', async () => ({ id: 'model' }));
   const environments = require('@hellotest/testing/backend/services/testEnvironment.service');
   let appTypeId = 'app';
   t.mock.method(environments, 'getTestEnvironment', async id => ({ id, project_id: 'project', app_type_id: appTypeId, base_url: 'https://fixture.example.test/', variables: [] }));
   const workflow = graph(); workflow.nodes.find(item => item.id === 'automation-engineer').data.testEnvironmentId = 'selected-environment';
   assert.equal((await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' })).ready, true);
+  assert.equal(browser.mock.callCount(),1);
+  assert.equal(browser.mock.calls[0].arguments[0].startUrl,'https://fixture.example.test/');
   appTypeId = 'another-app';
   const report = await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' });
   assert.equal(report.ready, false);
   assert.ok(report.blockers.some(item => item.node_id === 'automation-engineer' && /project and application/.test(item.message)));
+  assert.equal(browser.mock.callCount(),1);
+});
+
+test('API Automation Agent checks environment scope without starting browser or checking browser run permission', async t => {
+  allow(t);
+  const browser = browserAvailable(t);
+  t.mock.method(registry, 'resolveModel', async () => ({ id: 'model' }));
+  t.mock.method(permissions, 'hasPermission', async (_user, code) => code !== 'run.create');
+  const environment = t.mock.method(require('@hellotest/testing/backend/services/testEnvironment.service'), 'getTestEnvironment', async id => ({
+    id, project_id: 'project', app_type_id: 'app', base_url: 'https://api.example.test/', variables: []
+  }));
+  const workflow = graph();
+  Object.assign(workflow.nodes.find(item => item.id === 'automation-engineer').data, { testEnvironmentId: 'env',
+    automationRuntime: 'api', automationBrowserMode: 'perform_steps', automationVerificationMode: 'verify' });
+  const report = await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' });
+  assert.equal(report.ready, true);
+  assert.equal(environment.mock.callCount(), 1);
+  assert.equal(browser.mock.callCount(), 0);
 });
 
 test('invalid native input fails before model resolution and input changes cannot reuse readiness', async t => {
@@ -135,6 +160,7 @@ test('automatic publication checks Library write grants before any native task s
 
 test('automatic environment publication checks data metadata permission before generation starts', async t => {
   allow(t);
+  browserAvailable(t);
   t.mock.method(registry, 'resolveModel', async () => ({ id: 'model' }));
   t.mock.method(permissions, 'hasPermission', async (_user, code) => code !== 'data.view');
   t.mock.method(require('@hellotest/testing/backend/services/testEnvironment.service'), 'getTestEnvironment', async id => ({ id,

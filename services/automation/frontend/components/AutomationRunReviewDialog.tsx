@@ -5,7 +5,7 @@ import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/us
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { inspectAutomationTargets, type AutomationReadiness } from "../lib/automationReadiness";
 
-export type AutomationRunReviewRequest = { mode: "local" | "remote"; caseIds: string[]; projectId: string; appTypeId: string };
+export type AutomationRunReviewRequest = { mode: "local" | "remote"; caseIds: string[]; projectId: string; appTypeId: string; requestId: string };
 export function AutomationRunReviewDialog({ request, unsavedStepIds, verifySource, busy, error, pendingRunId, retryAllowed = true, executionProfile, onClose, onOpenCase, onRun, onRetryStart, onOpenRun }: {
   request: AutomationRunReviewRequest; unsavedStepIds: string[]; verifySource: boolean; busy: boolean; error: string; pendingRunId?: string; retryAllowed?: boolean;
   executionProfile: ReactNode; onClose: () => void; onOpenCase: (id: string) => void;

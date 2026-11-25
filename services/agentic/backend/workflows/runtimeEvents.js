@@ -1,5 +1,6 @@
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const { sanitizeInternalErrorText } = require("@hellotest/platform/backend/src/utils/serviceErrors");
+const { failureResolution } = require('./failureResolutions');
 const safeMessage = (value, fallback = "This node failed. Review its configuration and connection.") =>
   sanitizeAiText(typeof value === "string" && value ? value : fallback).text.slice(0, 2000);
 const canRetry = (kind, data = {}) => ["agent", "llmAgent", "customAI"].includes(kind)
@@ -11,7 +12,7 @@ const outputContractFailures = new Set(['AI_INVALID_JSON','AI_INVALID_TOOL_ARGUM
   'AI_OUTPUT_SCHEMA_VIOLATION','AI_MANAGED_SCHEMA_INVALID','AI_NATIVE_CONTRACT_INVALID',
   'AI_ASSURANCE_REVIEW_INVALID','AI_REVIEW_INVALID','AI_OUTPUT_TRUNCATED']);
 const terminalFailures = new Set([...outputContractFailures,'AI_PROVIDER_REFUSAL','AI_BUDGET_EXCEEDED',
-  'AGENT_BUDGET_EXCEEDED','AGENT_DEADLINE','NODE_TIMEOUT','DEADLINE_EXCEEDED','WORKFLOW_DEADLINE',
+  'AI_INPUT_BUDGET_EXCEEDED','AGENT_BUDGET_EXCEEDED','AGENT_DEADLINE','NODE_TIMEOUT','DEADLINE_EXCEEDED','WORKFLOW_DEADLINE',
   'MCP_UNAUTHORIZED','MCP_ACCESS_DENIED','MCP_HOST_DENIED','MCP_ORIGIN_DENIED','CORS_ORIGIN_DENIED']);
 const retryable = (failure = {}) => !failure.outcome_unknown && !failure.generation_received && failure.nonRetryable !== true
   && failure.retryable !== false && !terminalFailures.has(failure.code) && [408, 429, 500, 502, 503, 504].includes(failure.statusCode);
@@ -20,6 +21,7 @@ function withNode(input, run, node) {
   const failure = input && typeof input === 'object' ? input : new Error('A workflow node failed.');
   if (!failure.workflow_failure && Object.isExtensible(failure)) Object.defineProperty(failure, 'workflow_failure', { value: {
     node_id:node.id,node_name:node.data?.label || node.id,
+    ...(node.data?.artifactTask === 'automation-engineer' ? {automation_engineer:true} : {}),
     ...(run.loop_owner ? {loop_node_id:run.loop_owner,batch_index:run.iteration_index,iteration_path:run.iteration_path} : {})
   }, configurable:true });
   return failure;
@@ -63,12 +65,16 @@ function failureInfo(input) {
  const failureCategory = classification === 'WORKFLOW_CANCELLED' ? 'cancelled'
    : /TIMEOUT|DEADLINE/.test(classification) ? 'timeout' : /AUTHENTICATION|UNAUTHORIZED|ACCESS_DENIED|FORBIDDEN|(?:HOST|ORIGIN)_DENIED/.test(classification) ? 'authorization'
      : /QUOTA/.test(classification) ? 'provider_quota' : /RATE_LIMIT/.test(classification) ? 'provider_capacity'
-       : /^LLM_|^MODEL_/.test(classification)||classification==='AI_PROVIDER_REFUSAL' ? 'provider_request'
+       : /AUTOMATION_(?:ENVIRONMENT|START_URL|BROWSER_ENGINE|BROWSER_ENTRY|BROWSER_NAVIGATION)/.test(classification) ? 'configuration'
+         : /^LLM_|^MODEL_/.test(classification)||classification==='AI_PROVIDER_REFUSAL' ? 'provider_request'
          : outputContractFailures.has(classification)||failure.statusCode === 422 || /INVALID|VALIDATION|INPUT/.test(classification) ? 'validation' : 'execution';
  // Uncertain browser effects still block retry, independently of why the node
  // stopped. Keep the original validation/provider classification visible too.
  const category = failure.outcome_unknown ? 'outcome_unknown' : failureCategory;
- const fallback = failureCategory === 'provider_request' ? 'The selected model rejected or could not complete this node request. Review its model connection and output configuration.'
+ const resolution = code === 'NODE_EXECUTION_FAILED' && !origin.automation_engineer && artifact.artifact_task !== 'automation-engineer'
+   ? undefined : failureResolution(classification,code,failure.outcome_unknown,failure.effect_dispatched === true);
+ const fallback = resolution && !failure.outcome_unknown && code !== 'NODE_EXECUTION_FAILED' ? resolution.cause
+   : failureCategory === 'provider_request' ? 'The selected model rejected or could not complete this node request. Review its model connection and output configuration.'
    : failureCategory === 'provider_quota' ? 'The selected model provider has exhausted its quota. Check the integration usage and billing settings.'
      : failureCategory === 'provider_capacity' ? 'The selected model provider is limiting requests. Review capacity before starting a new execution.'
        : failureCategory === 'authorization' ? 'This node no longer has the required access. Check its current permissions or connection.'
@@ -78,6 +84,7 @@ function failureInfo(input) {
  const diagnosticText = value => safeMessage(sanitizeInternalErrorText(value));
  return {
   code, category,
+  ...(resolution ? {resolution} : {}),
   ...(failure.outcome_unknown && failureCategory !== 'execution' ? {failure_category:failureCategory} : {}),
   ...(providerCode ? {provider_failure_code:providerCode}:{}),
   ...(Number.isInteger(failure.statusCode) ? { status_code: failure.statusCode } : {}),
@@ -90,11 +97,12 @@ function failureInfo(input) {
     ...(Array.isArray(origin.iteration_path)&&origin.iteration_path.length<=32?{iteration_path:origin.iteration_path.filter(value=>identifier(value)||Number.isSafeInteger(value)&&value>=0&&value<100)}:{})
   }} : {}),
   ...(identifier(failure.operation_id) ? { operation_id: failure.operation_id } : {}),
+  ...(identifier(failure.verification_id) ? { verification_id: failure.verification_id } : {}),
   ...(failure.outcome_unknown ? { outcome_unknown: true, reconciliation_required: true } : {}),
   ...(Number.isInteger(failure.section_order) && failure.section_order > 0 && failure.section_order <= 200 ? {section_order:failure.section_order} : {}),
   ...(failure.generation_received ? { generation_received:true } : {}),
   ...(Object.keys(modelExecution).length?{model_execution:modelExecution}:{}),
-  ...(failure.effect_dispatched===false&&!failure.outcome_unknown?{effect_dispatched:false}:{}),
+  ...(typeof failure.effect_dispatched==='boolean'&&!failure.outcome_unknown?{effect_dispatched:failure.effect_dispatched}:{}),
   ...(identifier(artifact.story_id)&&['story-assurance','test-case-generation','test-case-assurance','test-data-generator','automation-engineer'].includes(artifact.artifact_task)?{
     artifact:{artifact_task:artifact.artifact_task,story_id:artifact.story_id,
       ...(Number.isInteger(artifact.case_index)&&artifact.case_index>=0&&artifact.case_index<100?{case_index:artifact.case_index}:{}),
@@ -108,7 +116,7 @@ function failureInfo(input) {
     ...(typeof item.issue==='string'?{issue:diagnosticText(item.issue).slice(0,500)}:{}),
     ...(typeof item.message==='string'?{message:diagnosticText(item.message).slice(0,500)}:{})
   })).filter(item=>Object.keys(item).length) } : {}),
-  ...(failure.code === "AUTOMATION_BUILD_INCOMPLETE" ? {
+  ...(['AUTOMATION_BUILD_INCOMPLETE','AUTOMATION_UPSTREAM_BUILD_INCOMPLETE','AUTOMATION_UPSTREAM_SOURCE_INVALID','AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'].includes(failure.code) ? {
     ...Object.fromEntries(["completed_sections", "total_sections"].filter(key => Number.isInteger(failure[key]) && failure[key] >= 0 && failure[key] <= 200).map(key => [key, failure[key]])),
     validation_feedback: (Array.isArray(failure.validation_feedback) ? failure.validation_feedback : []).slice(0, 5)
       .filter(item => item && typeof item.message === "string").map(item => ({

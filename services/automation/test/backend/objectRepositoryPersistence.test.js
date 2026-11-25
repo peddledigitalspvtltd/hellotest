@@ -121,6 +121,58 @@ test('equivalent closed locator syntax reuses one persisted field and its origin
  assert.notEqual(semantic.id,original.id,'a label and CSS ID are not assumed to select the same control');
 });
 
+test('editing a validated locator clears its current validation and retains the prior evidence', async () => {
+  const {service} = repositoryFixture();
+  const validation = { locator: '#email', status: 'unique', validated_at: '2026-11-25T00:00:00.000Z' };
+  const field = await service.createLearningCacheEntry({
+    app_type_id: 'app-a', screen_name: 'Login', locator: '#email', locator_kind: 'css', object_name: 'Email',
+    metadata: { last_validated_at: validation.validated_at, last_validated_status: 'unique', validation_history: [validation],
+      locator_candidates: [{ locator: '#email', strategy: 'css', isPrimary: true, lastValidatedStatus: 'unique' }] }
+  });
+  const described = await service.updateLearningCacheEntry(field.id, { description: 'Primary sign-in email' });
+  assert.equal(described.metadata.last_validated_status, 'unique', 'metadata-only edits preserve the current observation');
+  const edited = await service.updateLearningCacheEntry(field.id, { locator: '#new-email' });
+  assert.equal(edited.metadata.last_validated_status, 'not_validated');
+  assert.equal(edited.metadata.last_validated_at, null);
+  assert.deepEqual(edited.metadata.validation_history, [validation]);
+  assert.ok(edited.metadata.previous_locators.includes('#email'));
+  assert.equal(edited.metadata.locator_candidates.some(candidate => candidate.locator === '#new-email' && candidate.lastValidatedStatus === 'unique'),false);
+});
+
+test('repository usage is project and application scoped and ignores non-selector text', async () => {
+  const { findRepositoryUsage } = require('../../backend/lib/build/automationRepositoryUsage');
+  const entries = [{app_type_id:'app-a',project_id:'project-a'}];
+  const rows = [
+    {id:'other-app',appType:'app-b',project:'project-a',automation_code:'await web.click("Login.Email");'},
+    {id:'other-project',appType:'app-c',project:'project-b',automation_code:'await web.click("Login.Email");'},
+    {id:'mention',appType:'app-a',project:'project-a',automation_code:'await web.fill("#comment","Login.Email"); // Login.Email'},
+    {id:'inline',appType:'app-a',project:'project-a',automation_code:'await page.locator("#email").fill("value");'},
+    {id:'inline-helper',appType:'app-a',project:'project-a',automation_code:'await web.fill("#email", "value");'},
+    {id:'text-assertion',appType:'app-a',project:'project-a',automation_code:'await web.expectText("Login.Email", null);'},
+    {id:'similar',appType:'app-a',project:'project-a',automation_code:'await web.click("Login.EmailConfirmation");'},
+    {id:'explicit',appType:'app-a',project:'project-a',automation_code:'await web.click("Login.Email");'},
+    {id:'native',appType:'app-a',project:'project-a',automation_code:'await page.locator("Login.Email").fill("value");'},
+    {id:'native-direct',appType:'app-a',project:'project-a',automation_code:'await playwrightPage["getAttribute"]("Login.Email", "type");'},
+    {id:'upload',appType:'app-a',project:'project-a',automation_code:'await web.setInputFiles("Login.Email", "sample.txt");'},
+    {id:'parameterized',appType:'app-a',project:'project-a',automation_code:'await web.fill(params["t.field"], "value");',parameter_values:{'t.field':'Login.Email'}}
+  ];
+  const db = { prepare(sql) {
+    assert.match(sql,/JOIN app_types/);
+    assert.match(sql,/automation_code ~ .*page\|playwrightPage/);
+    return { all: async (appType, sameApp, project, sameProject) => {
+      assert.equal(appType,sameApp);
+      assert.equal(project,sameProject);
+      return rows.filter(row => (!appType || row.appType === appType) && row.project === project)
+        .map(({appType,project,...row}) => ({title:row.id,...row}));
+    }};
+  }};
+  const narrow = await findRepositoryUsage(entries,db,()=>['Login.Email','Email']);
+  assert.deepEqual(narrow.map(row=>row.id),['explicit','native','native-direct','parameterized','upload']);
+  assert.ok(narrow.every(row=>!Object.hasOwn(row,'automation_code')&&!Object.hasOwn(row,'parameter_values')));
+  const project = await findRepositoryUsage([{project_id:'project-a'}],db,()=>['Login.Email','Email']);
+  assert.deepEqual(project.map(row=>row.id),['explicit','native','native-direct','other-app','parameterized','upload']);
+});
+
 test("repository listing remains scoped and paginated, including historical app-owned rows without project IDs", async () => {
   const { service, state } = repositoryFixture();
   for (const [app, screen] of [["app-a", "A"], ["app-a", "B"], ["app-b", "Other project"]]) {

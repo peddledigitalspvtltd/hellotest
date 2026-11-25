@@ -1,6 +1,7 @@
 export type AgentSystem = 'workflow'|'repository'|'quality'|'automation';
 export type AgentStatus = 'queued'|'running'|'waiting'|'succeeded'|'partial'|'failed'|'cancelled'|'unknown';
-export type AgentDescriptor = {schema_version:'agent-descriptor/1';system:AgentSystem;id:string;name:string;objective:string;instructions:{version:string;parts:string[]};tools:Array<{name:string;effect:'read'|'reviewed_action'|'compiler'}>;evidence:{scopes:string[]};output:{contract:string;review_required:true};limits:Record<string,number>};
+export type AgentGuardrail = {id:string;text:string;enforcement:'code'|'prompt';severity:'warning'|'error'};
+export type AgentDescriptor = {schema_version:'agent-descriptor/1';system:AgentSystem;id:string;name:string;objective:string;instructions:{version:string;parts:string[]};tools:Array<{name:string;effect:'read'|'reviewed_action'|'compiler'}>;guardrails?:AgentGuardrail[];evidence:{scopes:string[]};output:{contract:string;review_required:true};limits:Record<string,number>};
 export const VERSION:'agent-descriptor/1';
 export const RUN_VERSION:'agent-run/1';
 export const SYSTEMS:readonly AgentSystem[];

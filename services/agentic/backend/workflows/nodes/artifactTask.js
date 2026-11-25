@@ -52,4 +52,21 @@ async function execute({ run, node, sources, user, signal, onProgress, review, }
     return require("../artifactTasks").execute({ run, node, sources, user, signal, onProgress, context });
     throw connections.fail("This node does not have an execution adapter.");
 }
-module.exports=require("./definition")("artifactTask",{timeoutMaxMs:()=>3600000,inputContract:'nativeStory',validateInput(context){if(context.hasInput)context.checkInputOnce('nativeStory',()=>require('../artifactTasks').checkInput({project_id:context.workflow.project_id,app_type_id:context.workflow.app_type_id,input_payload:context.payload,workflow_snapshot:context.workflow}));else context.warnOnce('Trigger values have not been checked. Choose a Sprint and supply the execution input before running native tasks.');},preflight:{model:require('./shared/nativePreflight')},preflightFailure:(_phase,failure)=>failure.publicMessage||failure.message||'Check the native task model and permissions.',validate,execute});
+function inputContract(node) {
+    return require('../automationNodeInputs').manualCaseSource(node.data) ? 'manualAutomationCase' : 'nativeStory';
+}
+function validateInput(context) {
+    if (inputContract(context.node) === 'manualAutomationCase') {
+        if (context.hasInput || context.node.data.automationManualCaseId) {
+            context.checkInputOnce(`manualAutomationCase-${context.node.id}`, () => require('../automationNodeInputs').checkManualInput({project_id:context.workflow.project_id,app_type_id:context.workflow.app_type_id,input_payload:context.payload},context.node));
+        } else context.warnOnce('Supply manual_test_case_id in the trigger input before running manual Test Case automation.');
+        return;
+    }
+    if (context.hasInput) context.checkInputOnce('nativeStory', () => require('../artifactTasks').checkInput({project_id:context.workflow.project_id,app_type_id:context.workflow.app_type_id,input_payload:context.payload,workflow_snapshot:context.workflow}));
+    else context.warnOnce('Trigger values have not been checked. Choose a Sprint and supply the execution input before running native tasks.');
+}
+module.exports=require('./definition')('artifactTask',{
+    timeoutMaxMs:()=>3600000,inputContract,validateInput,
+    preflight:{model:require('./shared/nativePreflight'),connection:require('./shared/automationBrowserPreflight')},
+    preflightFailure:(_phase,failure)=>failure.publicMessage||failure.message||'Check the native task model and permissions.',validate,execute
+});

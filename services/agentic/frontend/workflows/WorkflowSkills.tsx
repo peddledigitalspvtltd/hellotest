@@ -45,10 +45,10 @@ export function WorkflowSkills({ data, projectId, appTypeId, disabled, onChange,
       <p className="studio-caption">Choose the evidence this node may retrieve. Connect HTTP or MCP nodes for external operations.</p>
       {workflowTools.map(tool => <label className={`studio-check-field studio-tool-choice ${selectedTools.includes(tool.id) ? "is-selected" : ""}`} key={tool.id}>
         <input type="checkbox" disabled={disabled} checked={selectedTools.includes(tool.id)} onChange={event => onChange({ allowedTools: event.target.checked ? [...selectedTools, tool.id] : selectedTools.filter(id => id !== tool.id) })} />
-        <span><strong>{tool.name}</strong><small>{tool.description}</small></span>
+        <span><strong>{tool.name} · {tool.effect}</strong><small>{tool.description}</small></span>
       </label>)}
       <div className="studio-required-guardrails"><strong><IconShieldCheck size={15} />Always enforced</strong><ul className="studio-guardrails">{requiredGuardrails.map(item => <li key={item}>{item}</li>)}</ul></div>
-      <label><span>Additional guardrails</span><textarea disabled={disabled} rows={3} value={String(data.guardrails || "")} maxLength={5000} placeholder="For example: flag missing acceptance criteria before recommending tests." onChange={event => onChange({ guardrails: event.target.value })} /></label>
+      <label><span>Additional guardrails</span><textarea disabled={disabled} rows={3} value={String(data.guardrails || "")} maxLength={editingAgent ? 2000 : 5000} placeholder="For example: flag missing acceptance criteria before recommending tests." onChange={event => onChange({ guardrails: event.target.value })} /><small>{editingAgent ? "Prompt guidance · 2,000 characters" : "Prompt guidance"}</small></label>
     </details>
   </>;
 }

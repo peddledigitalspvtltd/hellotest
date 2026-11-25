@@ -50,6 +50,13 @@ export function safeBugReportReturnRoute(value: string | null | undefined) {
   }
 }
 
+export function bugReportExactOrigin(params: URLSearchParams, runId: string, caseIds: string[], frozenCaseId?: string) {
+  const originalCaseIds = uniqueIds([...(params.get("linked_test_case_ids") || "").split(","), params.get("testCase") || ""]);
+  const caseId = frozenCaseId || (originalCaseIds.length === 1 ? originalCaseIds[0] : "");
+  const resultId = runId && runId === params.get("run") && caseIds.includes(caseId) ? params.get("executionResult") || undefined : undefined;
+  return { linked_execution_result_id: resultId, linked_step_id: resultId ? params.get("step") || undefined : undefined };
+}
+
 export function buildBugReportPath(context: BugReportContext, mode: "manual" | "ai" = "manual") {
   const params = new URLSearchParams();
   params.set(mode === "ai" ? "ai" : "create", "1");

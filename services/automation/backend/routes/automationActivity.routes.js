@@ -5,6 +5,41 @@ const projects = require('@hellotest/platform/backend/public/projectAccess');
 const { activityCursor, streamAutomationActivity } = require("../lib/build/automationActivityStream");
 
 module.exports = async function automationActivityRoutes(fastify) {
+  fastify.get('/automation/build-scorecard', async (req, reply) => {
+    await fastify.authenticate(req);
+    const { project_id: projectId } = req.query || {};
+    fastify.validate({ project_id: { required: true, type: 'string' } }, req.query || {});
+    await projects.getProject(projectId, req.user.id);
+    for (const code of ['automation.view', 'automation.build']) await fastify.requirePermission(code, { projectId })(req);
+    const { getOptionalEvidenceAccess } = require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
+    const access = await getOptionalEvidenceAccess(req.user, projectId, ['environment.view']);
+    return reply.header('Cache-Control', 'private, no-store').send(await require('../services/automationBuildScorecard.service').load({
+      projectId, canViewEnvironments: access['environment.view'] === true
+    }));
+  });
+  fastify.post('/automation/browser-preflight', async (req, reply) => {
+    await fastify.authenticate(req);
+    const input = req.body || {};
+    fastify.validate({
+      case_id: { required: true, type: 'string' },
+      start_url: { required: true, type: 'string' },
+      test_environment_id: { required: false, type: 'string' },
+      test_configuration_id: { required: false, type: 'string' },
+      test_data_set_id: { required: false, type: 'string' },
+      test_suite_id: { required: false, type: 'string' },
+      integration_id: { required: false, type: 'string' }
+    }, req.body || {});
+    const controller = new AbortController();
+    const close = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once('close', close);
+    try {
+      return await require('../services/aiAutomationBuilder.service').preflightAutomationBrowser({
+        caseId: input.case_id, startUrl: input.start_url, environmentId: input.test_environment_id,
+        configurationId: input.test_configuration_id, dataSetId: input.test_data_set_id, suiteId: input.test_suite_id,
+        integrationId: input.integration_id, checkModel: true, user: req.user, signal: controller.signal
+      });
+    } finally { reply.raw.off('close', close); }
+  });
   fastify.get('/test-cases/:id/automation/authoring-state', async req => {
     await fastify.authenticate(req);
     const testCase = await require('@hellotest/platform/backend/src/db').prepare('SELECT tc.id,tc.app_type_id,app.project_id FROM test_cases tc JOIN app_types app ON app.id=tc.app_type_id WHERE tc.id=?').get(req.params.id);

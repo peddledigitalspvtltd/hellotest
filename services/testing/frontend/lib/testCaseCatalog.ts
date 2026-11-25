@@ -10,11 +10,18 @@ export type TestCaseCatalogFilters = {
   run_filter?: string;
   exclude_automated?: boolean;
   automated?: "yes" | "no";
+  automation_plan?: "ready" | "incomplete";
+  automation_case_type?: TestCase["automation_case_type"];
+  automation_outcome?: "passed" | "failed" | "blocked" | "not_verified";
   manual_test_case_id?: string;
   include_execution?: boolean;
   review_queue?: 'mine';
 };
-export type TestCaseCatalogRow = TestCase & { recent_results?: ExecutionResult[]; run_count?: number };
+export type TestCaseCatalogRow = TestCase & {
+  recent_results?: ExecutionResult[];
+  run_count?: number | null;
+  latest_finalized_status?: "passed" | "failed" | "blocked" | null;
+};
 export type TestCasePickerFilters = TestCaseCatalogFilters & {
   project_id?: string;
   app_type_id?: string;

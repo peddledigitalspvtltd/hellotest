@@ -57,6 +57,51 @@ test('workflow execution API exposes owned node I/O while retaining private line
   assert.equal(internal.node_results[0].progress.automation_checkpoint.stories[0].automation[0].executable.code,'private checkpoint source','HTTP projection cannot mutate per-case resume checkpoints');
 });
 
+test('reading a workflow run restores only the matching accepted automation for each authorized iteration', async t => {
+  const registered = new Map();
+  const app = { ...Object.fromEntries(['get','post','put','delete'].map(method=>[method,(path,...args)=>registered.set(`${method} ${path}`,args.at(-1))])),
+    authenticate:async()=>{},validate:()=>{},requirePermission:()=>async()=>{} };
+  const { fingerprint } = require('../../backend/workflows/artifactTasks');
+  const makeSnapshot = (iteration_path, title) => {
+    const source = { id:'manual-case', title, source_fingerprint:'authored-source' };
+    const automation = { validation:{status:'passed'}, execution_context:{test_environment_id:'env'}, steps:[{step_type:'web',automation_code:'fixture source'}] };
+    const data = { manual_case:source, automation };
+    return { status:'completed', iteration_path, output:{artifact_task:'automation-engineer',data}, execution_context:{data} };
+  };
+  const first = makeSnapshot(['loop',0],'Case A');
+  const second = makeSnapshot(['loop',1],'Case B');
+  const run = { id:'run',project_id:'project',app_type_id:'app',execution_mode:'review',status:'completed',
+    workflow_snapshot:{nodes:[{id:'build',data:{artifactTask:'automation-engineer',automationSource:'manual_case'}}]},
+    node_results:[{...second,node_id:'build',node_type:'artifactTask',iterations:[first,second]}] };
+  const slot = item => `manual-case:${fingerprint(['build',item.iteration_path,'manual-case'])}`;
+  const createRow = (item,id) => ({node_id:'build', story_id:slot(item),
+    request_hash:fingerprint({source:item.execution_context.data.manual_case,automation:item.execution_context.data.automation,app_type_id:'app'}),
+    receipt:{id,manual_test_case_id:'manual-case',saved:true}});
+  t.mock.method(projects,'getProject',async()=>({id:'project'}));
+  t.mock.method(workflows,'getWorkflowRun',async()=>run);
+  const evidence = require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
+  let canReadCase = true;
+  t.mock.method(evidence,'getOptionalEvidenceAccess',async(_user,_project,codes)=>Object.fromEntries(codes.map(code=>[code,code!=='testcase.view'||canReadCase])));
+  const db = require('@hellotest/platform/backend/src/db');
+  const read = t.mock.method(db,'prepare',sql=>({all:async(...args)=>{
+    assert.match(sql,/saved\.app_type_id = \?/);
+    assert.deepEqual(args.slice(0,3),['app','run','project']);
+    assert.deepEqual(new Set(args[3]),new Set([slot(first),slot(second)]));
+    return [createRow(first,'accepted-first'), {...createRow(second,'stale'), request_hash:'older-artifact'}];
+  }}));
+  await routes(app);
+  const request = {user:{id:'reader'},params:{id:'run'}};
+  const handler = registered.get('get /agentic-workflow-runs/:id');
+  const result = await handler(request);
+  assert.equal(result.node_results[0].iterations[0].output.data.saved_automation_case_id,'accepted-first');
+  assert.equal(result.node_results[0].iterations[1].output.data.saved_automation_case_id,undefined);
+  assert.equal(run.node_results[0].iterations[0].output.data.saved_automation_case_id,undefined);
+  canReadCase = false;
+  const restricted = await handler(request);
+  assert.equal(restricted.node_results[0].iterations[0].output.data.saved_automation_case_id,undefined);
+  assert.equal(read.mock.callCount(),1);
+});
+
 test('workflow execution routes recheck automation source permission and feature access without hiding unrelated stages',async t=>{
   const registered=new Map();
   const app={...Object.fromEntries(['get','post','put','delete'].map(method=>[method,(path,...args)=>registered.set(`${method} ${path}`,args.at(-1))])),

@@ -26,6 +26,19 @@ export function agentFindingProposals(finding: Finding, index: number, artifacts
     && item.citation_ids?.some(source => finding.citation_ids?.includes(source)));
 }
 
+export function agentOutcomeCoverage(result: AgenticAssistantResult, citations: AgenticAssistantCitation[] = []) {
+  const findings = result.findings || [];
+  const artifacts = result.artifacts || [];
+  const known = new Set(citations.map(citation => citation.id));
+  const items = [...findings, ...artifacts, ...(result.deliverables || []), ...(result.sections || []), ...(result.tables || []), ...(result.charts || [])];
+  return {
+    citedItems: items.filter(item => item.citation_ids?.some(id => known.has(id))).length,
+    items: items.length,
+    findingsWithDrafts: findings.filter((finding, index) => agentFindingProposals(finding, index, artifacts).length).length,
+    findings: findings.length
+  };
+}
+
 /** Keep untraced attempts visible and avoid counting a chain link as a second call. */
 export function agentOutcomeCalls(records: CallRecord[] = [], chain: CallRecord[] = []): CallRecord[] {
   const calls = [...records];
