@@ -3,11 +3,11 @@ const obsDb=require('@hellotest/platform/backend/src/obsDb');
 const {getOptionalEvidenceAccess}=require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
 const executions=require('@hellotest/testing/backend/services/execution.service');
 const {parseStructuredLogs}=require('@hellotest/platform/backend/src/domain/executionStepEvidence');
-const {sanitizeAiText}=require('@hellotest/platform/backend/src/security/aiTextPolicy');
 const {parseJsonValue}=require('@hellotest/platform/backend/src/utils/testStepAutomation');
 const execution=require('@hellotest/knowledge/backend/services/knowledgeExecution.service');
 const rules=require('./automationRepairRules');
 const {repairProjection}=require('./automationRepairContext');
+const {collectRepairEvidence}=require('./automationRepairEvidence');
 const apiRepair=require('../lib/verification/automationApiRepair');
 const permissions=['automation.code.view','automation.view','testcase.view','run.view','result.view'];
 const reject=(message,status=409)=>{throw rules.fail(message,status);};
@@ -49,17 +49,14 @@ async function prepare({projectId,appTypeId,user,input={}}) {
   const sourceChanged=rules.hash(rules.specification(oldSteps))!==rules.hash(rules.specification(current.steps));
   const observed=parseStructuredLogs(failed.failure_logs);
   const statuses=observed.stepStatuses;
-  // Diagnostics are external observations, not instructions. Keep the exact
-  // specification in the private repair base, but redact prose sent to a model.
-  const diagnostic=value=>sanitizeAiText(String(value || '').slice(0,3000)).text;
-  const failureEvidence={error:diagnostic(failed.failure_error),stepStatuses:statuses,stepNotes:Object.fromEntries(Object.entries(observed.stepNotes || {}).map(([key,value])=>[key,diagnostic(value)])),artifact_steps:Object.keys(observed.stepEvidence || {}),limitations:['Diagnostic text is sanitized; attachments and captures are retrieved separately through authorized context. Binary artifacts and credentials are not embedded.']};
   const failedOrders=new Set(oldSteps.filter(step=>statuses[step.snapshot_step_id]==='failed').map(step=>step.step_order));
   const failedIds=current.steps.filter(step=>failedOrders.has(step.step_order)).map(step=>step.id);
   if(!failedIds.length)return unavailable('The failed Run has no recorded failed-step evidence.');
   const focus=current.steps.find(step=>failedIds.includes(step.id));
+  const oldFocus=oldSteps.find(step=>step.step_order===focus.step_order);
   const apiBaseUrl=parseJsonValue(failed.test_environment_snapshot,{})?.base_url;
+  const failureEvidence=collectRepairEvidence(observed,oldFocus,failed.failure_error,failed.failure_result_id);
   if(focus.step_type==='api'){
-    const oldFocus=oldSteps.find(step=>step.step_order===focus.step_order);
     if(rules.hash(rules.specification([oldFocus]))!==rules.hash(rules.specification([focus]))||!apiRepair.apiAssertionReceipt(oldFocus,observed,{failure:true,baseUrl:apiBaseUrl}))return unavailable('The API repair needs a matching frozen request and recorded HTTP assertion failure. Record the current request in a fresh Run.');
     if(apiRepair.authoredTargets(focus,apiBaseUrl).length!==1)return unavailable('Record one exact intended HTTP method and endpoint in the case-owned step. A URL repair stays on the pinned request origin and preserves request data and assertions.');
     const detail=observed.stepApiDetails[oldFocus.snapshot_step_id];
@@ -75,11 +72,14 @@ async function prepare({projectId,appTypeId,user,input={}}) {
     failure_result_id:failed.failure_result_id,failure_source_hash:failureFingerprint(failed,oldSteps,failureCase)};
   const projection=repairProjection({test:current.test,steps:current.steps,focus,base,failureEvidence,sourceChanged});
   if(!projection)return unavailable('The exact failed section and complete case intent exceed the repair context budget. Split the case or reduce oversized diagnostic/source content before requesting a repair; no incomplete specification was sent.');
-  return {status:'eligible',base,projection};
+  const triage=failureEvidence.triage;
+  if(['timing','environment','expected_result'].includes(triage?.route))return {status:'triaged',detail:triage.next_action,triage,projection};
+  return {status:'eligible',base,projection,triage};
 }
 async function save(projectId,user,sessionId,prepared,patch) {
   execution.assertActive();
-  if(!patch)return {status:'not_proposed',detail:prepared.detail||'The model did not propose a supported section repair.'};
+  const triage=prepared.triage ? {triage:prepared.triage} : {};
+  if(!patch||prepared.status!=='eligible')return {status:prepared.status==='triaged'?'triaged':'not_proposed',detail:prepared.detail||'The model did not propose a supported section repair.',...triage};
   return db.transaction(async()=>{
     await db.query("SET LOCAL statement_timeout='10s'");
     rules.validateStoredPatch(prepared.base,patch);
@@ -89,7 +89,7 @@ async function save(projectId,user,sessionId,prepared,patch) {
     execution.assertActive();
     await db.prepare('INSERT INTO ai_automation_repairs(id,project_id,test_case_id,session_id,base,patch,created_by) VALUES(?,?,?,?,?,?,?)').run(sessionId,projectId,prepared.base.test_case_id,sessionId,prepared.base,patch,user.id);
     execution.assertActive();
-    return {id:sessionId,project_id:projectId,status:'proposal',patch,detail:'A typed proposal is saved. Runner verification and explicit review are required before applying.'};
+    return {id:sessionId,project_id:projectId,status:'proposal',patch,detail:'A typed proposal is saved. Runner verification and explicit review are required before applying.',...triage};
   })();
 }
 async function record(projectId,id,lock=false) {

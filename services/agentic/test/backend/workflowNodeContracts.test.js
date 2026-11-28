@@ -12,10 +12,11 @@ const node = (id, kind, data = {}) => ({id, type:'agenticStep', data:{kind, labe
 const edge = (source, target, sourceHandle, targetHandle) => ({source,target,...(sourceHandle?{sourceHandle}:{}),...(targetHandle?{targetHandle}:{})});
 const workflow = (nodes, edges) => ({id:'workflow',project_id:'project',app_type_id:'app',status:'draft',trigger_kind:'manual',settings:{},nodes,edges});
 
-test('all 23 exposed node kinds have valid implemented readiness paths, including loop ports and error routes', () => {
+test('all registered node kinds have valid implemented readiness paths, including loop ports and error routes', () => {
   const definitions = {
     artifactTask:{artifactTask:'story-assurance'}, customAI:{prompt:'Review the selected evidence.'},
     mcpTool:{connectionId:'managed-mcp',mcpTool:'read'},repositoryAgent:{repositoryAgentType:'api_tests'},
+    qualityAgent:{qualityAgentKind:'web',testEnvironmentId:'qa'},
     trigger:{},agent:{agentId:'quality-evaluator',prompt:'Review the selected evidence.'},
     llmAgent:{agentId:'quality-evaluator',prompt:'Review the selected evidence.'},webAgent:{apiUrl:'https://example.test/api'},
     apiAgent:{apiUrl:'https://example.test/api'},apiTool:{apiUrl:'https://example.test/api'},knowledgeTool:{},repositoryTool:{},testOpsTool:{testOpsAction:'read-runs'},

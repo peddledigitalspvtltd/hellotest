@@ -103,20 +103,32 @@ exports.resolveLlmIntegrationForUsage = async ({
   const configuredIntegrationId = agentOwned ? null : normalizePromptLlmOverrides(preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY])[context.usageKey];
   const successfulSelections = normalizeSuccessfulSelections(preferences?.[AI_LAST_SUCCESSFUL_LLM_KEY])
     .filter((entry) => entry.project_id === context.projectId);
-  const candidates = [...new Set([
-    configuredIntegrationId,
-    ...successfulSelections.filter((entry) => entry.usage_key === context.usageKey).map((entry) => entry.integration_id),
-    ...successfulSelections.map((entry) => entry.integration_id)
-  ].filter(Boolean))];
-  for (const id of candidates) {
+  const readCandidate = async (id) => {
     // Implicit preferences can become stale after an integration is retired.
     // They must not prevent a remaining active provider from working.
     let candidate;
     try { candidate = await integrationService.getIntegration(id); }
-    catch (error) { if (error?.message === "Integration not found") continue; throw error; }
+    catch (error) { if (error?.message === "Integration not found") return null; throw error; }
     const candidateProject = normalizeText(candidate?.config?.project_id);
-    if (candidate?.type !== "llm" || !candidate.is_active || (candidateProject && candidateProject !== context.projectId)) continue;
-    return remember(candidate);
+    return candidate?.type === "llm" && candidate.is_active && (!candidateProject || candidateProject === context.projectId)
+      ? candidate : null;
+  };
+  if (configuredIntegrationId) {
+    const configured = await readCandidate(configuredIntegrationId);
+    if (configured) return remember(configured);
+  }
+  if (fallback !== "none") {
+    const preferred = await integrationService.getPreferredLlmIntegration(context.projectId);
+    if (preferred) return remember(preferred);
+  }
+  const successfulIds = new Set([
+    ...successfulSelections.filter((entry) => entry.usage_key === context.usageKey).map((entry) => entry.integration_id),
+    ...successfulSelections.map((entry) => entry.integration_id)
+  ]);
+  successfulIds.delete(configuredIntegrationId);
+  for (const id of successfulIds) {
+    const candidate = await readCandidate(id);
+    if (candidate) return remember(candidate);
   }
 
   let integration = null;

@@ -31,4 +31,7 @@ const SCHEMA = { type: 'object', additionalProperties: false, properties, requir
 const providerSchema = value => Array.isArray(value) ? value.map(providerSchema) : value && typeof value === 'object'
   ? Object.fromEntries(Object.entries(value).filter(([key]) => !['minLength', 'maxLength', 'minimum', 'maximum', 'allOf'].includes(key)).map(([key, item]) => [key, providerSchema(item)])) : value;
 const PROVIDER_SCHEMA = providerSchema({ ...SCHEMA, required: Object.keys(properties) });
-module.exports = { SCHEMA, PROVIDER_SCHEMA, providerSchema };
+const WORKFLOW_ACTIONS = Object.freeze(['extract', 'complete', 'blocked', 'scroll', 'wait', 'assert_text']);
+const WORKFLOW_SCHEMA = { ...SCHEMA, properties: { ...properties, action: { type: 'string', enum: WORKFLOW_ACTIONS } } };
+const WORKFLOW_PROVIDER_SCHEMA = providerSchema({ ...WORKFLOW_SCHEMA, required: Object.keys(properties) });
+module.exports = { SCHEMA, PROVIDER_SCHEMA, WORKFLOW_ACTIONS, WORKFLOW_SCHEMA, WORKFLOW_PROVIDER_SCHEMA, providerSchema };

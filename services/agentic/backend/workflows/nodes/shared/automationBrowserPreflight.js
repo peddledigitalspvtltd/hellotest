@@ -11,9 +11,12 @@ module.exports = async ({workflow,node,user,payload,hasInput,warnOnce}) => {
   const source = manual && (hasInput || node.data.automationManualCaseId)
     ? await require('../../manualAutomationTask').loadSource({run,node,user,access,automationSteps:artifactTasks.automationSteps}) : null;
   const resolved = await inputs.resolveNodeInputs({run,node,user,access,startUrlFallback:source?.source.automation_start_url});
-  if (source && !source.draft.test_data_set_ids.length) {
-    const supplied=inputs.caseInputs(source.draft,source.draft.steps,resolved);
-    const gap=artifactTasks.draftParameterInputGap(supplied.inputDraft,supplied.draft.steps,source.source.id,0,supplied.availableParameterNames);
+  if ((source?.verificationMode || resolved.verificationMode) !== 'generate_only') {
+    await access(user, run.project_id, ['automation.run.local', 'run.create']);
+  }
+  if (source) {
+    const {supplied,availableNames}=await require('../../manualAutomationTask').prepareInputs({run,node,user,access,draft:source.draft,resolved});
+    const gap=artifactTasks.draftParameterInputGap(supplied.inputDraft,supplied.draft.steps,source.source.id,0,availableNames);
     if (gap) throw Object.assign(new Error(gap.message),{statusCode:422,code:gap.code,effect_dispatched:false,
       publicMessage:`Configure the required Test Case parameters ${gap.required_parameters.join(', ')} before building automation.`});
   }

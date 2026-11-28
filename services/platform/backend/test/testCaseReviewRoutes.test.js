@@ -15,6 +15,7 @@ async function fixture() {
       if (name === '../services/testCase.service') return {
         getTestCase: async id => ({ id, app_type_id: 'app', updated_at: timestamp }),
         createTestCase: async payload => { calls.push({ kind: 'create', payload }); return { id: 'created' }; },
+        updateTestCase: async (id, payload) => { calls.push({ kind: 'update', id, payload }); return { updated: true }; },
         reviewTestCase: async (id, payload) => { calls.push({ kind: 'review', id, payload }); return { updated: true }; },
         acceptGeneratedTestCase: async (id, payload) => { calls.push({ kind: 'accept', id, payload }); return { accepted: true }; },
         rejectGeneratedTestCase: async (id, payload) => { calls.push({ kind: 'reject', id, payload }); return { deleted: true }; }
@@ -23,6 +24,7 @@ async function fixture() {
         resolveTestCaseProjectIds: async () => ['project'],
         uniqueIds: ids => [...new Set(ids)], resolveSuiteScopes: async () => []
       };
+      if (name === '../services/testCaseAiData.service') return require('../../../testing/backend/services/testCaseAiData.service');
       if (name === '@hellotest/platform/backend/public/applicationAccess') return { getAppType: async id => ({ id, project_id: 'project', type: 'web' }) };
       if (name === '@hellotest/platform/backend/public/projectAccess') return { getProject: async id => ({ id }) };
       if (name === '@hellotest/platform/backend/services/mobileFeature.service') return { testCaseUsesMobile: async () => false };
@@ -32,7 +34,7 @@ async function fixture() {
     }
   });
   await register.exports({
-    get() {}, post: (path, handler) => handlers.set(`POST ${path}`, handler), put() {}, delete: (path, handler) => handlers.set(`DELETE ${path}`, handler), validate: validateInput,
+    get() {}, post: (path, handler) => handlers.set(`POST ${path}`, handler), put: (path, handler) => handlers.set(`PUT ${path}`, handler), delete: (path, handler) => handlers.set(`DELETE ${path}`, handler), validate: validateInput,
     authenticate: async () => { if (!state.authenticated) throw Object.assign(new Error('Unauthenticated'), { statusCode: 401 }); },
     requirePermission: (code, scope) => async () => {
       permissions.push({ code, projectId: scope.projectId });
@@ -73,6 +75,31 @@ test('public AI authoring accepts only interactive provenance and derives pendin
   assert.equal(saved.ai_generation_review_status, 'pending');
   assert.equal(saved.ai_generation_job_id, null);
   assert.equal(saved.review_history.length, 0);
+});
+
+test('saving a raw AI Test Param generates a scoped model pool and never persists an unresolved token', async t => {
+  const { handlers, calls, state, request } = await fixture();
+  const pool = `{{oneOf:${Buffer.from(JSON.stringify(['customer@example.test'])).toString('base64url')}}}`;
+  const preview = t.mock.method(require('@hellotest/ai/services/aiTestDataGeneration'), 'preview', async () => ({ generation_mode: 'llm', randomized_template: pool }));
+  const parameter_values = { 't.email': 'demo-{{aiData : customer email with a demo prefix}}', 't.label': '{{randomString:8}}' };
+  const create = handlers.get('POST /test-cases');
+  const update = handlers.get('PUT /test-cases/:id');
+  await create(request({ app_type_id: 'app', title: 'Customer case', parameter_values }));
+  await update(request({ parameter_values }));
+  assert.deepEqual(calls.map(({ payload }) => payload.parameter_values), [
+    { 't.email': `demo-${pool}`, 't.label': '{{randomString:8}}' },
+    { 't.email': `demo-${pool}`, 't.label': '{{randomString:8}}' }
+  ]);
+  assert.equal(preview.mock.callCount(), 2);
+  assert.deepEqual(preview.mock.calls[0].arguments[0], { projectId: 'project', appTypeId: 'app', userId: 'signed-in-user',
+    prompt: 'customer email with a demo prefix', fieldContext: 't.email', sampleCount: 8 });
+
+  state.denied = 'data.ai';
+  await assert.rejects(update(request({ parameter_values })), { statusCode: 403 });
+  state.denied = null;
+  await assert.rejects(update(request({ parameter_values: { 't.password': '{{aiData:example credential}}' } })), { statusCode: 422 });
+  assert.equal(preview.mock.callCount(), 2);
+  assert.equal(calls.length, 2);
 });
 
 for (const [method, endpoint, permission, kind] of [

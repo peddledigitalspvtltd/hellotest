@@ -1,124 +1,221 @@
 @import "../../../platform/frontend/src/shared/components/ui-tokens.css";
 
-.mcp-server-dialog { width:min(850px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); display:flex; flex-direction:column; overflow:hidden; }
-.mcp-server-dialog > header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px; border-bottom:1px solid var(--border); }
-.mcp-server-dialog h2 { margin:0; font-size:18px; }
-.mcp-server-dialog-body { overflow:auto; padding:20px; display:grid; gap:22px; }
-.mcp-server-dialog > .workflow-connection-form { overflow:auto; padding:20px; }
-.mcp-server-dialog h3 { display:flex; gap:8px; align-items:center; font-size:14px; }
-.mcp-server-dialog p { font-size:12px; color:var(--text-secondary); line-height:1.6; }
-.mcp-server-dialog code { font-size:12px; overflow-wrap:anywhere; }
-.mcp-server-dialog pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:260px; overflow:auto; font-size:11px; }
-.mcp-server-dialog section { display:grid; gap:10px; }
-.mcp-tool-row,.mcp-plan { padding:12px 0; border-top:1px solid var(--border); }
-.mcp-tool-row small { color:var(--text-secondary); font-size:10px; }
-.mcp-tool-filters { display:grid; grid-template-columns:minmax(0,2fr); grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:12px; margin-top:14px; }
-.mcp-tool-filters label { display:grid; gap:6px; font-size:12px; min-width:0; }
-.mcp-tool-filters :is(input,select) { width:100%; min-width:0; }
-@media(max-width:600px){.mcp-tool-filters{grid-template-columns:minmax(0,1fr);grid-auto-flow:row;grid-auto-columns:auto}}
-.mcp-tool-sets { display:grid; gap:8px; margin:0; padding:10px 12px; border:1px solid var(--border); border-radius:8px; min-width:0; }
-.mcp-tool-sets legend { font-size:12px; font-weight:600; padding:0 4px; }
-.mcp-tool-set { display:flex; align-items:flex-start; gap:8px; font-size:12px; }
-.mcp-tool-set > span { display:grid; gap:2px; min-width:0; overflow-wrap:anywhere; }
-.mcp-tool-set small { color:var(--text-secondary); font-size:11px; }
-.mcp-credential-row { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12px; }
-@media(max-width:600px){.mcp-server-dialog > header,.mcp-server-dialog-body{padding:16px}.mcp-server-dialog .workflow-connection-form{padding:16px}}
-.mcp-credential-row span { min-width:0; overflow-wrap:anywhere; }
-.mcp-server-card .tile-card-description p { overflow-wrap:anywhere; }
-
-/* Keep the heading and catalog together rather than stretching to viewport height. */
 body #root .mcp-server-page {
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: none !important;
   justify-content: flex-start;
-  gap: 12px;
+  align-items: stretch !important;
+  width: 100% !important;
+  max-width: none !important;
   min-height: 0;
+  gap: 12px;
 }
-body #root .mcp-server-page > .page-header {
+
+body #root .mcp-server-page > :is(.page-header, .mcp-catalog-panel) {
   flex: 0 0 auto;
+  align-self: stretch !important;
+  width: 100% !important;
+  max-width: none !important;
   min-height: 0 !important;
   margin: 0 !important;
-  padding-block: 16px !important;
 }
+
+body #root .mcp-server-page > .page-header { padding-block: 16px !important; }
 body #root .mcp-server-page > .mcp-catalog-panel {
-  flex: 0 0 auto;
-  min-height: 0 !important;
   height: auto !important;
   grid-template-rows: none !important;
   grid-auto-rows: auto;
   align-content: start;
   gap: 12px;
-  margin: 0 !important;
 }
-body #root .mcp-server-page .mcp-server-catalog {
-  height: auto !important;
-  align-self: start;
-  width: 100%;
-}
-body #root .mcp-server-page .mcp-server-catalog[data-view="list"] :is(.data-table, .catalog-data-table) {
-  min-width: max(100%, 720px) !important;
-}
-body #root .mcp-server-page {
-  width: 100% !important;
-  max-width: none !important;
-  align-items: stretch !important;
-}
-body #root .mcp-server-page > :is(.page-header, .mcp-catalog-panel) {
-  width: 100% !important;
-  max-width: none !important;
-  align-self: stretch !important;
-}
-body #root .mcp-server-card .tile-card-facts strong {
-  font-size: 12px;
-  line-height: 1.4;
-  word-break: normal;
-  overflow-wrap: normal;
-}
-body #root .mcp-server-page {
-  display: flex !important;
-  flex-direction: column !important;
-  grid-template-columns: none !important;
-}
-
-/* Size tiles independently of the number of configured servers. */
+body #root .mcp-server-page .mcp-server-catalog { height: auto !important; align-self: start; width: 100%; }
+body #root .mcp-server-page .mcp-server-catalog[data-view="list"] :is(.data-table, .catalog-data-table) { min-width: max(100%, 720px) !important; }
 body #root .mcp-server-page .mcp-server-catalog[data-view="tile"] .agentic-workflow-grid {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 320px)) !important;
   justify-content: start;
 }
-/* One dialog scroll surface keeps long discovery forms and Save reachable. */
-body .modal-card.mcp-server-dialog {
-  max-height: calc(100dvh - 32px) !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
-  overscroll-behavior: contain;
+
+body #root .mcp-server-page .mcp-server-card { position: relative; min-width: 0; min-height: 0; padding: 0 !important; }
+body #root .mcp-server-page .mcp-server-card-open {
+  display: grid;
+  align-self: stretch;
+  width: 100% !important;
+  min-width: 0;
+  gap: 12px;
+  padding: 15px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
-body .mcp-server-dialog > header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  flex: 0 0 auto;
-  background: var(--app-surface, var(--surface, var(--ui-surface)));
+.mcp-card-topline { display: flex; min-width: 0; align-items: center; gap: 9px; padding-inline-end: 26px; }
+.mcp-card-topline .tile-card-title-group { min-width: 0; gap: 2px; }
+body #root .mcp-server-page .mcp-server-card .tile-card-title-group::before { display: none !important; content: none !important; }
+.mcp-card-topline strong { overflow-wrap: anywhere; }
+.mcp-card-topline small { color: var(--ui-text-muted); font-size: .6875rem; }
+.mcp-card-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-text-muted); font-size: .8125rem; }
+.mcp-card-facts { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .75rem; }
+.mcp-server-page .mcp-card-select { position: absolute; inset: 10px 10px auto auto; display: grid; place-items: center; width: 30px; height: 30px; margin: 0; cursor: pointer; }
+.mcp-card-select input { margin: 0; }
+.mcp-server-card-open:focus-visible { outline-offset: -3px; }
+
+/* These dialogs have a stable top edge as tool rows and disclosures expand. */
+#root .mcp-server-page > .modal-backdrop.mcp-server-backdrop {
+  --mcp-modal-top: max(1rem, min(5vh, 40px), env(safe-area-inset-top));
+  align-items: flex-start !important;
+  overflow: hidden !important;
+  padding-top: var(--mcp-modal-top) !important;
 }
-body .mcp-server-dialog :is(.workflow-connection-form, .mcp-server-dialog-body) {
+#root .mcp-server-page .mcp-server-backdrop > .modal-card.mcp-server-dialog {
+  --mcp-dialog-padding: clamp(14px, 3vw, 26px);
+  width: min(860px, 100%) !important;
+  max-height: calc(100dvh - var(--mcp-modal-top) - max(1rem, env(safe-area-inset-bottom))) !important;
+  min-width: 0;
+  gap: 0;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  scrollbar-gutter: auto;
+}
+#root .mcp-server-page .mcp-server-backdrop > .mcp-server-dialog--builtin { overflow: hidden !important; }
+#root .mcp-server-page .mcp-server-backdrop > .mcp-server-dialog--external { overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: contain; }
+
+.mcp-server-dialog > .mcp-dialog-header {
+  display: flex;
   flex: 0 0 auto;
-  min-height: 0;
-  max-height: none !important;
-  height: auto !important;
-  overflow: visible !important;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+  padding: 13px var(--mcp-dialog-padding);
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--hellotest-dialog-surface, var(--ui-surface));
+}
+.mcp-server-dialog--external > .mcp-dialog-header { position: sticky; z-index: 2; top: 0; }
+.mcp-server-dialog .mcp-dialog-header h2 { margin: 0; font-size: 1.125rem; line-height: 1.3; font-weight: 680; }
+.mcp-dialog-header .dialog-close-button { flex: 0 0 auto; }
+
+.mcp-server-sections {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 0 var(--mcp-dialog-padding);
+  border-bottom: 1px solid var(--ui-border);
+  overflow-x: auto;
+}
+.mcp-server-sections button {
+  min-height: 42px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  background: transparent;
+  color: var(--ui-text-muted);
+  font: inherit;
+  font-size: .8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mcp-server-sections button[aria-current="page"] { border-block-end-color: var(--ui-primary); color: var(--ui-primary); font-weight: 650; }
+.mcp-server-sections button:hover:not(:disabled) { background: var(--ui-surface-subtle); color: var(--ui-text); }
+.mcp-server-sections button:focus-visible { outline-offset: -3px; }
+
+.mcp-server-dialog-body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 18px var(--mcp-dialog-padding); }
+.mcp-server-dialog--external > .workflow-connection-form { flex: 0 0 auto !important; max-height: none !important; min-height: 0; overflow: visible !important; padding: 4px var(--mcp-dialog-padding) 18px; }
+.mcp-server-dialog > p { margin: 16px var(--mcp-dialog-padding); }
+.mcp-view { display: grid; min-width: 0; align-content: start; gap: 14px; }
+.mcp-dialog-block { display: grid; min-width: 0; align-content: start; gap: 9px; }
+.mcp-dialog-block + .mcp-dialog-block { padding-block-start: 12px; border-top: 1px solid var(--ui-border); }
+.mcp-view h3, .mcp-dialog-block h3 { margin: 0; font-size: .9375rem; line-height: 1.35; }
+.mcp-view p, .mcp-dialog-block p, .mcp-token-selection-state p { margin: 0; }
+.mcp-view pre { margin: 0; padding: 9px 11px; color: var(--ui-text); background: var(--ui-surface-subtle); border-radius: 5px; font-size: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mcp-view code, .mcp-dialog-footer code { overflow-wrap: anywhere; }
+.mcp-muted { color: var(--ui-text-muted); font-size: .8125rem; line-height: 1.5; }
+.mcp-self-start { justify-self: start; }
+.mcp-feedback { margin: 0; color: var(--ui-text); font-size: .8125rem; overflow-wrap: anywhere; }
+.mcp-feedback.is-error { color: var(--ui-danger-text); }
+.mcp-server-dialog-body > .mcp-feedback { margin-top: 12px; }
+
+.mcp-inline-actions, .mcp-oauth-discovery-links { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px; }
+.mcp-value-line { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 10px; padding: 7px 9px 7px 11px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface-subtle); }
+.mcp-value-line code { flex: 1 1 190px; min-width: 0; font-size: .8125rem; }
+.mcp-panel-disclosure { min-width: 0; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); }
+.mcp-panel-disclosure > summary { padding: 10px 12px; font-size: .8125rem; font-weight: 650; overflow-wrap: anywhere; cursor: pointer; }
+.mcp-disclosure-body { display: grid; min-width: 0; gap: 10px; padding: 0 12px 12px; }
+.mcp-connection-details { display: grid; margin: 0; gap: 8px; font-size: .8125rem; }
+.mcp-connection-details > div { display: grid; grid-template-columns: minmax(100px, .5fr) minmax(0, 1fr); gap: 6px 12px; }
+.mcp-connection-details dt { color: var(--ui-text-muted); }
+.mcp-connection-details dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-oauth-discovery-links a { font-size: .8125rem; }
+
+.mcp-section-title, .mcp-tool-pagination, .mcp-tool-selection-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; }
+.mcp-token-form .mcp-section-title { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: start; }
+.mcp-server-dialog .form-field { margin: 0; min-width: 0; }
+.mcp-server-dialog .form-field :is(input, select) { min-width: 0; width: 100%; }
+.mcp-tool-filters { display: grid; grid-template-columns: minmax(140px, 2fr) repeat(2, minmax(0, 1fr)); align-items: start; gap: 9px; }
+.mcp-tool-list, .mcp-record-list { display: grid; min-width: 0; gap: 6px; }
+.mcp-tool-row, .mcp-credential-row { display: grid; min-width: 0; align-content: start; gap: 3px; padding: 9px 11px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); }
+.mcp-tool-row[data-selected="true"] { border-color: var(--ui-primary); background: var(--ui-primary-surface); }
+.mcp-tool-row-heading { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mcp-tool-row p { color: var(--ui-text-muted); font-size: .8125rem; line-height: 1.4; overflow-wrap: anywhere; }
+.mcp-tool-row small, .mcp-tool-pagination > small, .mcp-tool-selection-actions > small { color: var(--ui-text-muted); font-size: .75rem; }
+.mcp-tool-choice { flex: 1 1 auto; display: flex; min-width: 0; gap: 8px; align-items: flex-start; cursor: pointer; }
+#root .mcp-server-dialog .mcp-tool-choice > input[type="checkbox"] {
+  width: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  flex: 0 0 16px;
+  margin: 2px 0 0 !important;
+  padding: 0 !important;
+}
+.mcp-tool-choice > span, .mcp-tool-name { display: grid; min-width: 0; gap: 3px; }
+.mcp-tool-row-heading code { min-width: 0; font-size: .8125rem; font-weight: 600; }
+.mcp-tool-row small.mcp-tool-access { flex: 0 0 auto; padding: 3px 5px; border-radius: 4px; background: var(--ui-surface-muted); color: var(--ui-text-muted); font-size: .6875rem; white-space: nowrap; }
+.mcp-tool-row small.mcp-tool-access[data-action="true"] { background: var(--ui-amber-surface); color: var(--ui-amber-text); }
+.mcp-tool-contracts { display: grid; gap: 3px; }
+.mcp-tool-row summary, .mcp-record-details summary { width: fit-content; color: var(--ui-text-muted); font-size: .75rem; cursor: pointer; }
+.mcp-tool-details { padding-inline-start: 22px; }
+.mcp-record-details ul { margin: 4px 0 0; padding-inline-start: 18px; color: var(--ui-text-muted); font-size: .75rem; }
+.mcp-credential-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.mcp-credential-row strong, .mcp-plan summary { overflow-wrap: anywhere; }
+.mcp-credential-row strong { font-size: .8125rem; }
+.mcp-plan summary small { margin-inline-start: 9px; color: var(--ui-text-muted); font-weight: 500; }
+
+.mcp-dialog-footer {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 10px var(--mcp-dialog-padding);
+  border-top: 1px solid var(--ui-border);
+  background: var(--hellotest-dialog-surface, var(--ui-surface));
+}
+.mcp-token-selection-state { flex: 1 1 220px; min-width: 0; display: grid; gap: 3px; }
+.mcp-token-selection-state p { font-size: .8125rem; }
+
+@media (max-width: 650px) {
+  #root .mcp-server-page > .modal-backdrop.mcp-server-backdrop { --mcp-modal-top: max(1rem, env(safe-area-inset-top)); }
+  .mcp-tool-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mcp-tool-search { grid-column: 1 / -1; }
+  .mcp-server-sections button { padding-inline: 9px; }
+}
+@media (max-width: 460px) {
+  .mcp-connection-details > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .mcp-tool-row-heading { flex-wrap: wrap; }
+  .mcp-token-selection-state { flex-basis: 100%; }
 }
 @media (max-width: 380px) {
-  body #root .mcp-server-page .mcp-server-catalog[data-view="tile"] .agentic-workflow-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
+  body #root .mcp-server-page .mcp-server-catalog[data-view="tile"] .agentic-workflow-grid { grid-template-columns: minmax(0, 1fr) !important; }
 }
-:root body #root .mcp-server-page .modal-card.mcp-server-dialog {
-  max-height: calc(100dvh - 32px) !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-}
-:root body #root .mcp-server-page .mcp-server-dialog :is(.workflow-connection-form, .mcp-server-dialog-body) {
-  flex: 0 0 auto !important;
-  max-height: none !important;
-  height: auto !important;
-  overflow: visible !important;
+@media (max-width: 340px) {
+  .mcp-token-form .mcp-section-title { grid-template-columns: minmax(0, 1fr); }
+  .mcp-token-expiry { justify-self: start; }
 }

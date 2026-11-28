@@ -52,6 +52,7 @@ import { ProgressMeter } from "../src/shared/components/ProgressMeter";
 import { ProjectDeletionProgress } from "../src/platform/components/ProjectDeletionProgress";
 import { ProjectMetricBreakdown } from "@hellotest/manual/frontend/components/ProjectMetricBreakdown";
 import { ProjectTraceabilityMap } from "@hellotest/manual/frontend/components/ProjectTraceabilityMap";
+import { attachmentChecksum } from "@hellotest/manual/frontend/lib/attachmentChecksum";
 import { RichTextEditor, richTextToPlainText } from "../src/platform/components/RichTextEditor";
 import {
   TileCardCaseIcon,
@@ -80,7 +81,7 @@ import { areFeatureFlagsEnabled } from "../src/platform/lib/featureFlags";
 import { readDefaultCatalogViewMode } from "../src/shared/lib/viewPreferences";
 import { hasPermission } from "../src/platform/lib/permissions";
 import { resolveVisibleEmail } from "../src/platform/lib/userDisplay";
-import type { AppType, Execution, ExecutionResult, Issue, JiraAttachment, Project, ProjectPortfolioAnalyticsItem, ProjectPortfolioImpact, Requirement, RequirementIteration, TestCase, TestCaseModule, WorkspaceTransaction } from "../src/types";
+import type { AppType, Execution, ExecutionResult, Issue, Project, ProjectPortfolioAnalyticsItem, ProjectPortfolioImpact, Requirement, RequirementIteration, TestCase, TestCaseModule, WorkspaceTransaction } from "../src/types";
 import "./ProjectsPage.css";
 
 type ProjectSection = "details" | "members" | "applications" | "attachments" | "traceability";
@@ -111,7 +112,10 @@ type ProjectCreateMutationInput = {
     app_types: Array<{ name: string; type: AppType["type"]; is_unified?: boolean }>;
   };
   attachments: File[];
+  ownerId: string;
 };
+
+type PendingProjectAttachments = { ownerId: string; files: File[]; error: string };
 
 type ProjectDetailsDraft = {
   name: string;
@@ -119,6 +123,26 @@ type ProjectDetailsDraft = {
 };
 
 const MAX_PROJECT_ATTACHMENTS = 10;
+
+async function uploadProjectAttachments(projectId: string, files: File[]) {
+  const scope = { project_id: projectId, entity_type: "project" as const, entity_id: projectId };
+  const failed: File[] = [];
+  let error = "";
+  for (let offset = 0; offset < files.length; offset += 2) {
+    const batch = files.slice(offset, offset + 2);
+    const results = await Promise.allSettled(batch.map(async (file) => {
+      const checksumSha256 = await attachmentChecksum(await file.arrayBuffer());
+      return api.attachments.upload(scope, file, { checksumSha256 });
+    }));
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        failed.push(batch[index]);
+        if (!error) error = result.reason instanceof Error ? result.reason.message : "The upload could not be completed.";
+      }
+    });
+  }
+  return { uploaded: files.length - failed.length, failed, error };
+}
 
 const formatProjectAttachmentBytes = (value: number) => {
   if (!value) return "0 B";
@@ -475,12 +499,12 @@ export function ProjectsPage() {
   const canExportPortfolioAttention = hasPermission(session, "run.report.export");
   const canManageProjectMembers = hasPermission(session, "project_member.manage", selectedProjectId);
   const canManageAppTypes = hasPermission(session, "app_type.manage", selectedProjectId);
-  const canViewAttachments = hasPermission(session, "attachment.view", selectedProjectId);
-  const canCreateAttachments = hasPermission(session, "attachment.create", selectedProjectId);
-  const canDeleteAttachments = hasPermission(session, "attachment.delete", selectedProjectId);
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
   const [focusedProjectId, setFocusedProjectId] = useState("");
+  const canViewAttachments = Boolean(focusedProjectId && hasPermission(session, "attachment.view", focusedProjectId));
+  const canCreateAttachments = Boolean(focusedProjectId && hasPermission(session, "attachment.create", focusedProjectId));
+  const canDeleteAttachments = Boolean(focusedProjectId && hasPermission(session, "attachment.delete", focusedProjectId));
   const [section, setSection] = useState<ProjectSection>("details");
   const { can } = useCapabilityAccess(focusedProjectId || null);
   const { users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData({
@@ -509,6 +533,8 @@ export function ProjectsPage() {
   const [projectMemberSearch, setProjectMemberSearch] = useState("");
   const [isProjectAttachmentDragging, setIsProjectAttachmentDragging] = useState(false);
   const projectAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingProjectAttachments, setPendingProjectAttachments] = useState<Record<string, PendingProjectAttachments>>({});
+  const focusedPendingAttachments = pendingProjectAttachments[focusedProjectId];
   const [isRiskEvidenceOpen, setIsRiskEvidenceOpen] = useState(false);
   const [isExportingRiskPdf, setIsExportingRiskPdf] = useState(false);
   const riskEvidenceReportRef = useRef<HTMLDivElement | null>(null);
@@ -537,9 +563,10 @@ export function ProjectsPage() {
   const projectAttachmentMetaQuery = useQuery({
     queryKey: ["project-attachment-meta"],
     queryFn: api.attachments.meta,
-    enabled: Boolean((isCreateModalOpen || (focusedProjectId && section === "attachments")) && can("attachment.view") && canCreateAttachments),
+    enabled: isCreateModalOpen && can("attachment.view", selectedProjectId),
     staleTime: 5 * 60_000
   });
+  const canStageProjectAttachments = canCreateProjects && projectAttachmentMetaQuery.data?.enabled !== false;
   const projectCatalogQuery = useQuery({
     queryKey: ["projects", "catalog"],
     queryFn: ({ signal }) => api.projects.catalog({ signal }),
@@ -1439,35 +1466,24 @@ export function ProjectsPage() {
   const createProject = useMutation({
     mutationFn: async ({ project, attachments }: ProjectCreateMutationInput) => {
       const response = await api.projects.create(project);
-      const uploaded: JiraAttachment[] = [];
-      const attachmentErrors: string[] = [];
-      const scope = { project_id: response.id, entity_type: "project" as const, entity_id: response.id };
-
-      for (let offset = 0; offset < attachments.length; offset += 2) {
-        const batch = attachments.slice(offset, offset + 2);
-        const results = await Promise.allSettled(batch.map((file) => api.attachments.upload(scope, file)));
-        results.forEach((result, index) => {
-          if (result.status === "fulfilled") uploaded.push(result.value);
-          else attachmentErrors.push(`${batch[index].name}: ${result.reason instanceof Error ? result.reason.message : "upload failed"}`);
-        });
-      }
-
-      return {
-        ...response,
-        attachments_uploaded: uploaded.length,
-        attachment_errors: attachmentErrors
-      };
+      const attachmentResult = await uploadProjectAttachments(response.id, attachments);
+      return { ...response, attachmentResult };
     },
-    onSuccess: async (response) => {
+    onSuccess: async (response, { ownerId }) => {
       const provisioningErrorCount = response.provisioning_errors?.length || 0;
-      const attachmentErrorCount = response.attachment_errors.length;
+      const { uploaded, failed, error } = response.attachmentResult;
+      const attachmentErrorCount = failed.length;
+      if (attachmentErrorCount) {
+        setPendingProjectAttachments((current) => ({ ...current, [response.id]: { ownerId, files: failed, error } }));
+      }
       const hasWarnings = Boolean(provisioningErrorCount || attachmentErrorCount);
       setMessageTone(hasWarnings ? "error" : "success");
-      setMessage(provisioningErrorCount
-        ? `Project created, but ${provisioningErrorCount} access or application item${provisioningErrorCount === 1 ? " needs" : "s need"} attention. Open the project and retry the missing setup.`
-        : attachmentErrorCount
-          ? `Project created with ${response.attachments_uploaded} attachment${response.attachments_uploaded === 1 ? "" : "s"}. ${attachmentErrorCount} file${attachmentErrorCount === 1 ? " needs" : "s need"} to be retried from Project Details.`
-          : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"}, ${response.app_types_created} application${response.app_types_created === 1 ? "" : "s"}, and ${response.attachments_uploaded} compressed attachment${response.attachments_uploaded === 1 ? "" : "s"} are ready.`);
+      setMessage(hasWarnings ? [
+        "Project created.",
+        provisioningErrorCount ? `${provisioningErrorCount} access or application item${provisioningErrorCount === 1 ? " needs" : "s need"} attention.` : "",
+        attachmentErrorCount ? `Retry ${attachmentErrorCount} file${attachmentErrorCount === 1 ? "" : "s"} in Project attachments.` : ""
+      ].filter(Boolean).join(" ")
+        : `Project created. ${response.members_added} HelloTest role assignment${response.members_added === 1 ? "" : "s"}, ${response.app_types_created} application${response.app_types_created === 1 ? "" : "s"}, and ${uploaded} attachment${uploaded === 1 ? "" : "s"} are ready.`);
       queryClient.setQueryData<Project[]>(["projects", "catalog"], (current) => {
         const createdProject: Project = {
           id: response.id,
@@ -1493,6 +1509,7 @@ export function ProjectsPage() {
         if (!activated) { setMessageTone('error'); setMessage(current => `${current} Project access is still being prepared. Open it after access is available.`); }
       } catch { setMessageTone('error'); setMessage(current => `${current} The project was saved; workspace scope could not be refreshed. Reload before continuing.`); }
       setFocusedProjectId(response.id);
+      setSection(attachmentErrorCount ? "attachments" : "details");
       setIsCreateModalOpen(false);
       setExpandedProjectAppTypeId("");
       setProjectDraft(createInitialProjectDraft(defaultAppTypeValue));
@@ -1501,6 +1518,20 @@ export function ProjectsPage() {
     onError: (error) => {
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Unable to create project");
+    }
+  });
+  const retryProjectAttachments = useMutation({
+    mutationFn: ({ projectId, files }: PendingProjectAttachments & { projectId: string }) => uploadProjectAttachments(projectId, files),
+    onSuccess: ({ failed, error }, { projectId, ownerId }) => {
+      setPendingProjectAttachments((current) => {
+        const next = { ...current };
+        if (failed.length) next[projectId] = { ownerId, files: failed, error };
+        else delete next[projectId];
+        return next;
+      });
+      setMessageTone(failed.length ? "error" : "success");
+      setMessage(failed.length ? `${failed.length} file${failed.length === 1 ? " still needs" : "s still need"} to be uploaded.` : "Project attachments uploaded.");
+      void queryClient.invalidateQueries({ queryKey: ["hellotest-attachments", projectId, "project", projectId] });
     }
   });
   const updateProjectFavorite = useMutation({
@@ -1703,15 +1734,17 @@ export function ProjectsPage() {
   };
 
   const stageProjectAttachments = (files: FileList | File[]) => {
-    if (!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false) {
+    if (createProject.isPending) return;
+    if (!canStageProjectAttachments) {
       setMessageTone("error");
       setMessage(projectAttachmentMetaQuery.data?.enabled === false
         ? "Attachments are disabled for this workspace."
-        : "Permission required: attachment.create");
+        : "Permission required: project.create");
       return;
     }
 
     const candidates = Array.from(files);
+    if (projectAttachmentInputRef.current) projectAttachmentInputRef.current.value = "";
     const uploadLimit = Number(projectAttachmentMetaQuery.data?.uploadLimit || 0);
     const invalid = candidates.find((file) => file.size <= 0 || (uploadLimit > 0 && file.size > uploadLimit));
     if (invalid) {
@@ -1733,8 +1766,6 @@ export function ProjectsPage() {
       ...current,
       attachments: [...current.attachments, ...unique.slice(0, availableSlots)]
     }));
-
-    if (projectAttachmentInputRef.current) projectAttachmentInputRef.current.value = "";
   };
 
   const removeProjectAttachment = (fileToRemove: File) => {
@@ -1852,6 +1883,7 @@ export function ProjectsPage() {
 
   const handleProjectCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (createProject.isPending) return;
 
     if (!canCreateProjects) {
       setMessageTone("error");
@@ -1905,7 +1937,8 @@ export function ProjectsPage() {
         })),
         app_types: normalizedAppTypes
       },
-      attachments: projectDraft.attachments
+      attachments: projectDraft.attachments,
+      ownerId: session.user.id
     });
   };
 
@@ -2784,6 +2817,18 @@ export function ProjectsPage() {
 
             {section === "attachments" && focusedProject ? (
               <Panel title="Project attachments" subtitle="Project briefs, references, and supporting files.">
+                {focusedPendingAttachments && focusedPendingAttachments.ownerId === session?.user.id ? (
+                  <div aria-label="Pending project attachments" className="inline-message error-message" role="region">
+                    <strong>Files awaiting upload</strong>
+                    <ul>{focusedPendingAttachments.files.map((file) => <li key={`${file.name}:${file.size}:${file.lastModified}`}>{file.name}</li>)}</ul>
+                    <p>{focusedPendingAttachments.error}</p>
+                    {canCreateAttachments ? (
+                      <button className="ghost-button compact" disabled={retryProjectAttachments.isPending} onClick={() => retryProjectAttachments.mutate({ ...focusedPendingAttachments, projectId: focusedProject.id })} type="button">
+                        {retryProjectAttachments.isPending ? "Uploading…" : "Retry file uploads"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 {canViewAttachments ? (
                   <JiraAttachmentPanel
                     canDelete={canDeleteAttachments}
@@ -3297,12 +3342,12 @@ export function ProjectsPage() {
                           <span className="project-create-attachments-icon"><IconPaperclip aria-hidden="true" size={16} stroke={2.1} /></span>
                           <span>
                             <strong id="project-create-attachments-title">Attachments</strong>
-                            <small>{projectDraft.attachments.length}/{MAX_PROJECT_ATTACHMENTS} files · gzip compressed on upload</small>
+                            <small>{projectDraft.attachments.length}/{MAX_PROJECT_ATTACHMENTS} files · PDF, Word, Excel, and other files</small>
                           </span>
                         </div>
-                        {canCreateAttachments ? (<button
+                        {canCreateProjects ? (<button
                           className="project-create-attachment-browse"
-                          disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
+                          disabled={!canStageProjectAttachments || createProject.isPending}
                           onClick={() => projectAttachmentInputRef.current?.click()}
                           type="button"
                         >
@@ -3311,6 +3356,8 @@ export function ProjectsPage() {
                         </button>) : null}
                       </div>
                       <input
+                        aria-label="Choose project attachments"
+                        disabled={!canStageProjectAttachments || createProject.isPending}
                         hidden
                         multiple
                         onChange={(event) => event.target.files && stageProjectAttachments(event.target.files)}
@@ -3333,18 +3380,18 @@ export function ProjectsPage() {
                                 <span className="project-create-attachment-file-icon"><IconPaperclip aria-hidden="true" size={14} stroke={2} /></span>
                                 <span className="project-create-attachment-file-copy">
                                   <strong title={file.name}>{file.name}</strong>
-                                  <small>{formatProjectAttachmentBytes(file.size)} · ready to compress</small>
+                                  <small>{formatProjectAttachmentBytes(file.size)} · ready to upload</small>
                                 </span>
-                                <button aria-label={`Remove ${file.name}`} onClick={() => removeProjectAttachment(file)} type="button">
+                                <button aria-label={`Remove ${file.name}`} disabled={createProject.isPending} onClick={() => removeProjectAttachment(file)} type="button">
                                   <IconX aria-hidden="true" size={15} stroke={2} />
                                 </button>
                               </li>
                             ))}
                           </ul>
                         ) : (
-                          (canCreateAttachments ? (<button
+                          (canCreateProjects ? (<button
                             className="project-create-attachment-empty"
-                            disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
+                            disabled={!canStageProjectAttachments || createProject.isPending}
                             onClick={() => projectAttachmentInputRef.current?.click()}
                             type="button"
                           >
@@ -3354,7 +3401,7 @@ export function ProjectsPage() {
                         )}
                       </div>
                       {projectAttachmentMetaQuery.error ? (
-                        <span className="project-create-attachment-error">Unable to verify attachment storage. Files can be retried from Project Details.</span>
+                        <span className="project-create-attachment-error">Unable to verify attachment storage. Failed uploads can be retried from Project attachments.</span>
                       ) : null}
                     </section>
                   </div>

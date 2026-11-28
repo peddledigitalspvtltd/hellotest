@@ -12,7 +12,7 @@ function plugin(authenticate,options={}){
   '@hellotest/platform/backend/src/db':options.db||{},
   './registry':{register:()=>{},revision:()=>'revision',all:()=>[]},
   // The plugin verifies the credential's signature (decode) before it takes a capacity slot, then authenticates it.
-  './auth':{authenticate,decode:options.decode||(token=>({jti:'credential-'+(token||'none'),project_id:'project',int:false})),fail,...options.auth},
+  './auth':{authenticate,decode:options.decode||(token=>({jti:'credential-'+(token||'none'),project_id:'project',int:false})),fail,MANUAL_CREDENTIAL_LIFETIMES:[3600,86400,604800,2592000,7776000],...options.auth},
   './backplane':{configure:()=>{}},
   './mcpServer':options.server||{tools:{},handler:{fetch:async()=>new Response('{}',{headers:{'Content-Type':'application/json'}}),close:async()=>{}}},
   './readDatabase':{close:async()=>{}}
@@ -198,6 +198,9 @@ test('host credentials are issued with the requested tool sets and can never be 
  // A caller that asks for the platform's marker gets an ordinary credential: the option cannot be reached from HTTP.
  assert.equal((await create({internal:true,ttlSeconds:99999})).statusCode,200);
  assert.deepEqual(Object.keys(issued[1].options),['scopes','clientKey']);assert.equal(issued[1].options.scopes,undefined,'no scopes asked for means the read-only default is applied by issue()');
+ const exact=await create({tool_names:['hellotest_project_get'],expires_in:604800});
+ assert.equal(exact.statusCode,200);assert.equal(exact.headers['cache-control'],'no-store');
+ assert.deepEqual(issued[2].options,{scopes:undefined,clientKey:'a'.repeat(64),toolNames:['hellotest_project_get'],expiresIn:604800});
 });
 
 test('discovery publishes the tool sets, each tool\'s set, and the credential contract without claiming OAuth',async t=>{
@@ -219,6 +222,8 @@ test('discovery publishes the tool sets, each tool\'s set, and the credential co
  assert.deepEqual(body.client_contract.default_scopes,['knowledge','records']);assert.deepEqual(body.client_contract.scopes_supported,['knowledge','records','actions','automation']);
  assert.equal(body.client_contract.oauth_supported,false);
  assert.equal(body.client_contract.credential_issuance_enabled,true);
+ assert.deepEqual(body.client_contract.credential_expiry_options_seconds,[3600,86400,604800,2592000,7776000]);
+ assert.ok(body.tools.every(tool=>tool.credential_selectable));
 });
 
 test('production refuses manual external credentials while preserving internal platform calls',async t=>{
@@ -233,10 +238,22 @@ test('production refuses manual external credentials while preserving internal p
  assert.equal(create.statusCode,503);assert.equal(create.json().code,'MCP_OAUTH_REQUIRED');
  const metadata=(await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=project',headers:{host:'localhost'}})).json();
  assert.equal(metadata.external_credentials_enabled,false);assert.equal(metadata.client_contract.credential_issuance_enabled,false);
+ assert.equal(metadata.client_contract.credential_expiry_options_seconds,undefined);
  const external=await post(app,'external');assert.equal(external.statusCode,503);assert.equal(external.json().code,'MCP_OAUTH_REQUIRED');
  assert.equal(authenticated,0,'blocked external credentials never reach authentication or tools');
  assert.equal((await post(app,'internal')).statusCode,200,'platform credentials remain available');
  assert.equal(authenticated,1);
+});
+
+test('a signed development-only exact credential is refused before admission when production OAuth is enabled',async t=>{
+ withEnv(t,{NODE_ENV:'production',HELLOTEST_MCP_OAUTH_ENABLED:'true',HELLOTEST_MCP_PUBLIC_URL:'https://mcp.example.test/mcp'});
+ const app=Fastify();
+ app.register(plugin(async()=>{assert.fail('Policy must reject before database authentication.');},{decode:()=>({jti:'exact',project_id:'project',tool_scope_hash:'a'.repeat(64)})}));
+ await app.ready();t.after(()=>app.close());
+ const result=await post(app,'development-credential');
+ assert.equal(result.statusCode,401);
+ assert.equal(result.json().code,'MCP_OAUTH_REQUIRED');
+ assert.match(result.headers['www-authenticate'],/https:\/\/mcp\.example\.test/);
 });
 
 test('the credential list shows a person\'s own host credentials with their access, not the platform\'s internal ones',async t=>{
@@ -247,5 +264,5 @@ test('the credential list shows a person\'s own host credentials with their acce
  const rows=(await app.inject({method:'GET',url:'/agentic-workflows/mcp/credentials?project_id=project',headers:{host:'localhost'}})).json();
  assert.deepEqual(rows[0].scopes,['knowledge','records']);
  const listing=statements.find(sql=>sql.includes('FROM mcp_credentials'));
- assert.match(listing,/\bscopes\b/);assert.match(listing,/internal=FALSE/);
+ assert.match(listing,/\bscopes\b/);assert.match(listing,/\btool_names\b/);assert.match(listing,/internal=FALSE/);
 });

@@ -1,5 +1,17 @@
 @import "../../../platform/frontend/src/shared/components/ui-tokens.css";
 
+.page-agentic-workflows > .toast-message.is-success {
+  width: fit-content !important;
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+
+.page-agentic-workflows:has(.workflow-studio, .studio-execution) > .toast-message {
+  pointer-events: none;
+}
+.page-agentic-workflows:has(.workflow-studio, .studio-execution) > .toast-message > .toast-dismiss {
+  pointer-events: auto;
+}
+
 .ai-agent-catalog-page,
 .ai-agent-specialist-catalog {
   display: grid;

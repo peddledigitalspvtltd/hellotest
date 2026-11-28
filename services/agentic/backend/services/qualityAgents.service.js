@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const C = require('./qualityAgentContracts');
+const agentInvocation = require('../agents/agentInvocation');
 const terminal = status => ['completed','failed','cancelled'].includes(status);
 const iso = value => value instanceof Date ? value.toISOString() : value || null;
 const runDeadline = metadata => Date.parse(metadata.queued_at) + Math.min(metadata.request.options.timeout_ms + 90000,
@@ -76,14 +77,21 @@ function createQualityAgentService(deps) {
     if(options.mission) {limitations.splice(0,limitations.length,'The agent observes the current browser before each action. Review the target, credential reference, submission policy and execution limits.');}
     return {...C.contextSelection(input),kind:input.kind,target_url,goal,steps,options,source,generation_mode,grounding,limitations,review_required:true};
   }
-  async function createRun(input,user,{requestKey}={}) {
+  async function createRun(input,user,{requestKey,workflowTrace}={}) {
     if(!C.KINDS.has(input?.kind))throw C.fail('Choose a supported quality agent.');
     if(input.options!=null&&(!input.options||typeof input.options!=='object'||Array.isArray(input.options)))throw C.fail('Choose valid agent settings.');
     const execution_mode=input.execution_mode||'agent';
     if(!['agent','checks'].includes(execution_mode))throw C.fail('Choose AI agent mode or explicit checks-only execution.');
     if(execution_mode==='checks'&&input.options?.mission)throw C.fail('Browser missions require AI agent mode.');
     if(input.reviewed_plan&&input.options?.mission)throw C.fail('Choose a reviewed journey or an observed browser mission, not both.');
-    const launch=execution_mode==='agent'?{...input,goal:input.goal||input.reviewed_plan?.goal||require('./qualityAgentSkills').defaultGoal(input.kind),options:{...input.options,...(!input.reviewed_plan?{mission:input.options?.mission||{max_actions:6,allow_form_submission:false}}:{})}}:input;
+    if (workflowTrace && input.reviewed_plan) throw C.fail('Workflow Browser Quality Agents use a bounded preset or browser mission.');
+    const useMission = !input.reviewed_plan && (!workflowTrace || input.kind === 'web');
+    const { mission, ...options } = input.options || {};
+    if (workflowTrace) delete options.credential_ref;
+    const missionOptions = mission || { max_actions: 6, allow_form_submission: false };
+    const launch=execution_mode==='agent'?{...input,goal:input.goal||input.reviewed_plan?.goal||require('./qualityAgentSkills').defaultGoal(input.kind),
+      options:{...options,...(workflowTrace ? { max_pages: 1 } : {}),
+        ...(useMission?{mission:workflowTrace?{...missionOptions,allow_form_submission:false}:missionOptions}:{})}}:input;
     const request={...C.normalizeLaunch(launch),execution_mode};
     if(execution_mode==='agent'&&request.options.mission&&request.ai_configuration?.agent_execution?.max_model_calls===1)throw C.fail('A browser mission needs at least two model calls: one observed decision and one final assessment. Increase the model-call budget or supply a reviewed journey for assessment-only execution.',422,'QUALITY_AGENT_MODEL_BUDGET');
     await scope(request.project_id,request.app_type_id,user,'agentic_workflow.run');
@@ -104,6 +112,7 @@ function createQualityAgentService(deps) {
     const key=requestKey||input.idempotency_key||null;
     if (key && (typeof key!=='string' || key.length>160 || !/^[\w.:/-]+$/.test(key))) throw C.fail('Use an idempotency key within 160 characters.');
     const metadata={schema_version:1,id:randomUUID(),request,request_key:key,request_hash:C.hash(request),run_status:'queued',outcome:null,engine_run_id:null,engine_baseline_id:baseline?.metadata.engine_baseline_id||null,queued_at:new Date().toISOString(),stages:[],findings:[],artifacts:[],metrics:{},limitations:[],...(execution_mode==='agent'?{model_usage:{calls:0,max_calls:Math.min(26,request.ai_configuration?.agent_execution?.max_model_calls??((request.options.mission?.max_actions||1)*2+2)),reserved_output_tokens:0,max_output_tokens:65536,prompt_tokens:0,completion_tokens:0,usage_available:false}}:{})};
+    if (workflowTrace) metadata.workflow_trace = { run_id: workflowTrace.run_id, node_id: workflowTrace.node_id };
     const descriptors=require('../agents/agentDescriptors.service'),{descriptor_hash:defaultDescriptorHash,...baseDescriptor}=descriptors.quality(request.kind);
     const effectiveDescriptor={...baseDescriptor,limits:{...baseDescriptor.limits,model_calls:metadata.model_usage?.max_calls||0,tool_calls:request.options.mission?.max_actions||C.LIMITS.max_steps,timeout_ms:request.options.timeout_ms,pages:request.options.max_pages}};
     metadata.agent_descriptor=effectiveDescriptor;metadata.agent_descriptor_hash=descriptors.hash(effectiveDescriptor);
@@ -111,7 +120,7 @@ function createQualityAgentService(deps) {
     const result=await store.create(request,user,metadata,key);
     if (result.busy) throw C.fail('Three reviews are already active for this project. Wait for a review to finish or stop one.',429,'QUALITY_AGENT_QUEUE_FULL');
     if (result.existing && result.row.metadata.request_hash!==metadata.request_hash) throw C.fail('This request key already belongs to a different review.',409,'QUALITY_AGENT_IDEMPOTENCY_CONFLICT');
-    if (!result.existing) await store.event(result.row,{phase:'queued',message:'Quality review queued on the configured Test Engine.'});
+    if (!result.existing && !workflowTrace) await store.event(result.row,{phase:'queued',message:'Quality review queued on the configured Test Engine.'});
     return publicRun(result.row);
   }
   async function getRun(id,user) {return publicRun(await findRun(id,user));}
@@ -138,6 +147,7 @@ function createQualityAgentService(deps) {
     return publicRun(cancelled);
   }
   function modelTrace(row,actor,controller,stage,sequence=0) {
+    const presentation = row.metadata.workflow_trace ? agentInvocation.workflow : agentInvocation.interactive;
     const usage={calls:0,max_calls:26,reserved_output_tokens:0,max_output_tokens:65536,prompt_tokens:0,completion_tokens:0,usage_available:false,...row.metadata.model_usage};
     const pending=new Map();
     const redactors=new Map();
@@ -174,11 +184,12 @@ function createQualityAgentService(deps) {
         if(value.text.length>=512||Date.now()-value.at>=500)await flushPending(data.call_id);
       }else{if(['model_done','error'].includes(type))await flush(data?.call_id);else await flushPending(data?.call_id);await append(type,data);}
     };
-    return {run_id:row.metadata.id,session_id:row.id,signal:controller.signal,deadline_at:new Date(deadline).toISOString(),onEvent,
-      onProgress:async update=>{
+    return {run_id:row.metadata.id,session_id:row.id,signal:controller.signal,deadline_at:new Date(deadline).toISOString(),
+      workflowTrace: row.metadata.workflow_trace, onEvent: presentation.stream ? onEvent : undefined,
+      onProgress:presentation.progress ? async update=>{
         await guard();
         if(!await store.checkpoint(row,{mission_progress:progress(update.phase,update.message,{sequence,revision:update.revision||0})})){controller.abort();throw C.fail('The Quality Agent is no longer active.',409,'QUALITY_AGENT_CANCELLED');}
-      },
+      } : undefined,
       beforeDispatch:async({payload,call_id,phase,revision})=>{
         await guard();await scope(row.project_id,row.app_type_id,await workerUser(row.created_by),'agentic_workflow.run');
         const reserved=Number(payload?.max_completion_tokens??payload?.max_tokens??4096);
@@ -208,7 +219,7 @@ function createQualityAgentService(deps) {
         :await engineRequest(connection,'/runs',{client_run_id:m.id,kind:r.kind,target_url:r.target_url,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},options:{...engineOptions,...(r.options.mission?{mission:{...r.options.mission,goal:r.goal}}:{}),...(r.kind==='web'&&!r.options.mission?{approved_steps:r.reviewed_plan?.steps?.map(({id,label,...s})=>s)||[]} : {}),...(m.engine_baseline_id?{baseline_id:m.engine_baseline_id}:{})},limits:{max_pages,max_duration_ms:Math.min(timeout_ms,Math.floor(deadline-Date.now()))}},{operation:'quality-agent.start',deadlineMs:Math.max(100,Math.min(10000,deadline-Date.now()))});
       C.validateEngineRun(engine,{id:m.id,...r,engine_run_id:m.engine_run_id});
       const receipts=(engine.mission_report?.actions||[]).filter(item=>item.sequence>(m.last_tool_sequence||0));
-      for(const receipt of receipts) {
+      for(const receipt of m.workflow_trace ? [] : receipts) {
         if(store.appendStreamEvent&&!await store.appendStreamEvent(row,{type:'tool_result',data:{tool_call_id:`${m.id}:browser:${receipt.sequence}`,name:`browser.${receipt.action}`,sequence:receipt.sequence,status:receipt.status,summary:receipt.summary,observed_url:receipt.url},at:new Date().toISOString()},{lease_token:m.lease_token}))return;
       }
       if(receipts.length&&!await store.checkpoint(row,{last_tool_sequence:Math.max(...receipts.map(item=>item.sequence))}))return;
@@ -224,13 +235,16 @@ function createQualityAgentService(deps) {
           const trace=modelTrace(row,actor,controller,'decision',sequence);
           try {decision=await decideMission(r,actor,engine.decision_request,engine.mission_report?.actions||[],{...trace,observations});await trace.flush();} finally {trace.dispose();if(!controller.signal.aborted)try{await trace.flush();}catch{controller.abort();}if(activeDecisions.get(m.id)===controller)activeDecisions.delete(m.id);}
         }
+        if (m.workflow_trace && !require('./browserMissionDecisionContract').WORKFLOW_ACTIONS.includes(decision?.action)) {
+          throw C.fail('This workflow can observe and verify the configured page. Browser input actions require an interactive run.', 422, 'QUALITY_AGENT_ACTION_SCOPE');
+        }
         if(!await store.checkpoint(row,{last_decision:{sequence,decision},model_dispatch:null,mission_observations:observations,mission_progress:progress('dispatching',decision.summary,{sequence}),...(decision.outcome?{mission_outcome:decision.outcome}:{})}))return;
         const current=await store.findRun(m.id);if(!current||terminal(current.metadata.run_status))return;
         const activeActor=await workerUser(row.created_by);await scope(row.project_id,row.app_type_id,activeActor,'agentic_workflow.run');
         if(Date.now()>=deadline)throw deadlineFailure();
         const {outcome:reviewedOutcome,...browserDecision} = decision;
         if(m.last_dispatched_sequence!==sequence) {
-          if(store.appendStreamEvent&&!await store.appendStreamEvent(row,{type:'tool_start',data:{tool_call_id:`${m.id}:browser:${sequence}`,name:`browser.${decision.action}`,sequence,summary:decision.summary},at:new Date().toISOString()},{lease_token:m.lease_token}))return;
+          if(!m.workflow_trace&&store.appendStreamEvent&&!await store.appendStreamEvent(row,{type:'tool_start',data:{tool_call_id:`${m.id}:browser:${sequence}`,name:`browser.${decision.action}`,sequence,summary:decision.summary},at:new Date().toISOString()},{lease_token:m.lease_token}))return;
           if(!await store.checkpoint(row,{last_dispatched_sequence:sequence}))return;
         }
         await engineRequest(connection,`/runs/${engine.id}/decision`,{sequence:engine.decision_request.sequence,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},decision:browserDecision},{operation:'quality-agent.decision',deadlineMs:Math.max(100,Math.min(10000,deadline-Date.now()))});

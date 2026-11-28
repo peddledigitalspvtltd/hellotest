@@ -1,242 +1,100 @@
-import type { WorkflowDraft } from "./workflowGraph";
+import type { AgenticWorkflowEdge, AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 import { specialistDefaults } from "./specialistProfiles";
 import { nativeTaskDefaults } from "./nativeTaskProfiles";
-import {
-  createWorkflowDraft,
-  createFlowEdge,
-  buildNodeDefaults,
-  layoutWorkflow,
-} from "./workflowGraph";
+import { buildNodeDefaults, createFlowEdge, createWorkflowDraft, layoutWorkflow, type WorkflowDraft, type WorkflowNodeKind } from "./workflowGraph";
 
 export type WorkflowTemplate = {
-  id: string;
+  id: "sprint-automator" | "spec-to-script";
   name: string;
   description: string;
-  category: "Reviews" | "Source agents" | "Data flow";
-  agent?: string;
-  source?: string;
-  task?: string;
 };
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
-  { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read Sprint Stories, generate and assess Test Cases, prepare case-specific data, and build automation for each case." },
-  { id: "manual-test-automation", name: "Build automation from a manual Test Case", category: "Data flow", description: "Build Playwright source or native API requests with assertions from a saved manual Test Case." },
-  {
-    id: "foreach",
-    name: "Process a list of items",
-    category: "Data flow",
-    description:
-      "Process batches through connected steps, return each batch, and inspect the collected results.",
-  },
-  {
-    id: "custom",
-    name: "Your own AI review",
-    category: "Reviews",
-    description:
-      "Write your task, select a model and review the answer with its project sources.",
-  },
-  {
-    id: "release",
-    name: "Release readiness",
-    category: "Reviews",
-    description:
-      "Review story coverage, then recommend an evidence-based test plan.",
-  },
-  {
-    id: "story",
-    name: "Story assurance",
-    category: "Reviews",
-    agent: "story-architect",
-    description:
-      "Find acceptance gaps and missing boundaries before development.",
-    task: "Review the requested stories for missing acceptance criteria, ambiguous boundaries and coverage gaps. Cite permitted project evidence.",
-  },
-  {
-    id: "failure",
-    name: "Failure investigation",
-    category: "Reviews",
-    agent: "failure-analyst",
-    description:
-      "Review failed runs and separate observed evidence from hypotheses.",
-    task: "Investigate failures in the requested run scope. Cite observed failures, identify likely causes and recommend verification steps. Do not change run results.",
-  },
-  {
-    id: "objects",
-    name: "Build UI object repository",
-    category: "Source agents",
-    source: "object_repository",
-    description:
-      "Inspect source files, discover UI objects and review stable locators.",
-  },
-  {
-    id: "api",
-    name: "Build API test cases",
-    category: "Source agents",
-    source: "api_tests",
-    description:
-      "Read routes and contracts, extract scenarios and review test drafts.",
-  },
-  {
-    id: "knowledge",
-    name: "Build repository knowledge",
-    category: "Source agents",
-    source: "repository_knowledge",
-    description:
-      "Analyze repository structure and prepare source-linked documentation.",
-  },
-  {
-    id: "components",
-    name: "Build component tests",
-    category: "Source agents",
-    source: "component_tests",
-    description:
-      "Inspect UI components and derive reviewable component test contracts.",
-  },
+  { id: "sprint-automator", name: "Sprint Automator", description: "Turn Sprint Stories into assessed Test Cases, test data, and automation drafts." },
+  { id: "spec-to-script", name: "SpecToScript", description: "Use Sprint Stories and optional repository evidence to build linked manual cases, API coverage, and automation drafts." },
 ];
 
-export function draftFromTemplate(template: WorkflowTemplate): {
-  draft: WorkflowDraft;
-  input?: string;
-} {
+type NodeDefinition = [id: string, kind: WorkflowNodeKind, data: AgenticWorkflowNodeData];
+
+const stage = (source: string, target: string, ports: Partial<Pick<AgenticWorkflowEdge, "sourceHandle" | "targetHandle">> = {}) => ({
+  ...createFlowEdge(source, target),
+  id: `${source}-${target}`,
+  ...ports,
+});
+
+const sourceStages: NodeDefinition[] = [
+  ["repository-objects", "repositoryAgent", { label: "Build Object Repository", summary: "Find candidate UI objects and stable locators in the selected repository.", repositoryAgentType: "object_repository", repositoryOptional: true }],
+  ["repository-api", "repositoryAgent", { label: "Discover API Test Cases", summary: "Read routes and contracts for candidate API scenarios and assertions.", repositoryAgentType: "api_tests", repositoryOptional: true }],
+  ["repository-curator", "agent", {
+    ...specialistDefaults("repository-curator"),
+    label: "Object Repository Curator",
+    repositoryOptional: true,
+    prompt: "Review the upstream source findings and existing Object Repository for this application. Highlight reusable locators, ambiguity, and conflicts. Treat candidate locators as source evidence. Cite the target or finding when available. Return only relevant findings and review decisions for downstream Test Case design. Preserve existing repository entries.",
+  }],
+  ["repository-context", "aggregator", { label: "Collect repository findings", mergeMode: "waitAllAppend" }],
+  ["source-barrier", "aggregator", { label: "Join Sprint and source branches", mergeMode: "chooseInput", mergeChooseInput: "1" }],
+];
+
+export function draftFromTemplate(template: WorkflowTemplate): { draft: WorkflowDraft; input: string } {
   const draft = createWorkflowDraft();
+  const withSource = template.id === "spec-to-script";
+  const definitions: NodeDefinition[] = [
+    ["request", "trigger", { label: "Manual Sprint trigger" }],
+    ["sprint-stories", "apiTool", {
+      label: "Read all Sprint Stories",
+      apiResource: withSource ? "workspaceSprintStories" : "sprintStories",
+      apiPagination: "cursor", apiMethod: "GET", connectionId: "", apiUrl: "", timeoutMs: "70000", retryCount: "0", outputKey: "sprint_stories",
+    }],
+    ...(withSource ? sourceStages : []),
+    ["each-story", "loop", {
+      label: "For each Story", loopItemFailure: "continue", loopSourceKey: withSource ? "input.0.items" : "input.items",
+      loopMaxIterations: "100", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "story_packets",
+    }],
+    ["story-assurance", "artifactTask", { label: "AI Story Assurance", artifactTask: "story-assurance" }],
+    ["test-case-generation", "artifactTask", { label: withSource ? "Generate Manual and API Test Cases" : "AI Test Case Generator", artifactTask: "test-case-generation",
+      ...(withSource ? { generationInstructions: "Create readable manual cases grounded in the Story. Include API cases when the Story calls for a documented API behavior. Use relevant approved source evidence to ground the exact routes, assertions, and object references. Identify unresolved contracts and fixtures." } : {}) }],
+    ["each-test-case", "loop", { label: "For each Test Case", loopItemFailure: "continue", loopSourceKey: "input.0.cases", loopMaxIterations: "10", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "case_automation" }],
+    ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
+    ["test-data-generator", "artifactTask", { label: "AI Test Data Generator", artifactTask: "test-data-generator", testDataSource: "synthetic", testDataSetId: "" }],
+    ["automation-engineer", "artifactTask", { label: "Automation Build Agent", artifactTask: "automation-engineer", automationSource: "sprint", ...(withSource ? { automationBrowserMode: "read_only" } : {}) }],
+    ["sprint-output", "output", { label: "Sprint results and Library cases" }],
+  ];
+  draft.nodes = definitions.map(([id, kind, data], index) => ({
+    id, type: "agenticStep", position: { x: 0, y: 0 },
+    data: { ...buildNodeDefaults(kind, index), ...(kind === "artifactTask" ? nativeTaskDefaults(String(data.artifactTask)) : {}), ...data },
+  }));
+  draft.edges = [
+    stage("request", "sprint-stories"),
+    ...(withSource ? [
+      stage("request", "repository-objects"),
+      stage("request", "repository-api"),
+      stage("repository-objects", "repository-curator"),
+      stage("repository-curator", "repository-context"),
+      stage("repository-api", "repository-context"),
+      stage("sprint-stories", "source-barrier", { targetHandle: "input-1" }),
+      stage("repository-context", "source-barrier", { targetHandle: "input-2" }),
+    ] : []),
+    stage(withSource ? "source-barrier" : "sprint-stories", "each-story"),
+    stage("each-story", "story-assurance", { sourceHandle: "loop" }),
+    stage("story-assurance", "test-case-generation"),
+    stage("test-case-generation", "each-test-case"),
+    stage("each-test-case", "test-case-assurance", { sourceHandle: "loop" }),
+    stage("test-case-assurance", "test-data-generator"),
+    stage("test-data-generator", "automation-engineer"),
+    stage("automation-engineer", "each-test-case", { targetHandle: "continue" }),
+    stage("each-test-case", "each-story", { sourceHandle: "done", targetHandle: "continue" }),
+    stage("each-story", "sprint-output", { sourceHandle: "done" }),
+  ];
   draft.name = template.name;
   draft.description = template.description;
-  if (template.id === "release") return { draft };
-  if (template.id === "sprint-automator") {
-    const definitions: Array<[string, string, Record<string, unknown>]> = [
-      ["request", "trigger", { label: "Manual Sprint trigger" }],
-      ["sprint-stories", "apiTool", { label: "Read all Sprint Stories", apiResource: "sprintStories", apiPagination: "cursor", apiMethod: "GET", connectionId: "", apiUrl: "", timeoutMs: "70000", retryCount: "0", outputKey: "sprint_stories" }],
-      ["each-story", "loop", { label: "For each Story", loopItemFailure: "continue", loopSourceKey: "input.items", loopMaxIterations: "100", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "story_packets" }],
-      ["story-assurance", "artifactTask", { label: "AI Story Assurance", artifactTask: "story-assurance" }],
-      ["test-case-generation", "artifactTask", { label: "AI Test Case Generator", artifactTask: "test-case-generation" }],
-      ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
-      ["each-test-case", "loop", { label: "For each Test Case", loopItemFailure: "continue", loopSourceKey: "input.0.cases", loopMaxIterations: "10", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "case_automation" }],
-      ["test-data-generator", "artifactTask", { label: "AI Test Data Generator", artifactTask: "test-data-generator", testDataSource: "synthetic", testDataSetId: "" }],
-      ["automation-engineer", "artifactTask", { label: "AI Automation Engineer", artifactTask: "automation-engineer", automationSource: "sprint" }],
-      ["sprint-output", "output", { label: "Sprint results and Library cases" }],
-    ];
-    draft.nodes = definitions.map(([id, kind, data], index) => ({ id, type: "agenticStep", position: { x: 80 + index * 310, y: 140 }, data: { ...buildNodeDefaults(kind as Parameters<typeof buildNodeDefaults>[0], index), ...(kind === "artifactTask" ? nativeTaskDefaults(String(data.artifactTask)) : {}), ...data } }));
-    draft.edges = [
-      createFlowEdge("request", "sprint-stories"),
-      createFlowEdge("sprint-stories", "each-story"),
-      { ...createFlowEdge("each-story", "story-assurance"), sourceHandle: "loop" },
-      createFlowEdge("story-assurance", "test-case-generation"),
-      createFlowEdge("test-case-generation", "each-test-case"),
-      { ...createFlowEdge("each-test-case", "test-case-assurance"), sourceHandle: "loop" },
-      createFlowEdge("test-case-assurance", "test-data-generator"),
-      createFlowEdge("test-data-generator", "automation-engineer"),
-      { ...createFlowEdge("automation-engineer", "each-test-case"), targetHandle: "continue" },
-      { ...createFlowEdge("each-test-case", "each-story"), sourceHandle: "done", targetHandle: "continue" },
-      { ...createFlowEdge("each-story", "sprint-output"), sourceHandle: "done" },
-    ];
-    draft.nodes = layoutWorkflow(draft.nodes, draft.edges);
-    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", template_version: 5, library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
-    return { draft, input: JSON.stringify({ sprint_id: "" }, null, 2) };
-  }
-  if (template.id === 'manual-test-automation') {
-    draft.nodes = [
-      {id:'request',type:'agenticStep',position:{x:80,y:140},data:buildNodeDefaults('trigger',0)},
-      {id:'build-script',type:'agenticStep',position:{x:400,y:140},data:{...buildNodeDefaults('artifactTask',1),...nativeTaskDefaults('automation-engineer'),automationSource:'manual_case',outputKey:'automation_script'}},
-      {id:'output',type:'agenticStep',position:{x:720,y:140},data:{...buildNodeDefaults('output',2),label:'Automation results'}}
-    ];
-    draft.edges = [createFlowEdge('request','build-script'),createFlowEdge('build-script','output')];
-    draft.settings = {execution_mode:'review',template_id:template.id,processing_mode:'sequential'};
-    return {draft,input:JSON.stringify({manual_test_case_id:''},null,2)};
-  }
-  if (["foreach", "custom"].includes(template.id)) {
-    const task = {
-      id: `task-${template.id}`,
-      type: "agenticStep",
-      position: { x: 390, y: 140 },
-      data: buildNodeDefaults(
-        template.id === "foreach" ? "loop" : "customAI",
-        1,
-      ),
-    };
-    draft.nodes = [
-      draft.nodes[0],
-      task,
-      { ...draft.nodes[3], position: { x: 710, y: 140 } },
-    ];
-    draft.edges = [
-      createFlowEdge(draft.nodes[0].id, task.id),
-      createFlowEdge(task.id, draft.nodes[2].id),
-    ];
-    if (template.id === "foreach") {
-      const body = { id: "shape-batch", type: "agenticStep", position: { x: 740, y: 140 }, data: { ...buildNodeDefaults("dataOperation", 2), label: "Shape batch items", dataMapping: '{\n  "title": "$item.title",\n  "priority": "$item.priority"\n}' } };
-      draft.edges = [
-        createFlowEdge(draft.nodes[0].id, task.id),
-        { ...createFlowEdge(task.id, body.id), sourceHandle: "loop" },
-        { ...createFlowEdge(body.id, task.id), targetHandle: "continue" },
-        { ...createFlowEdge(task.id, draft.nodes[2].id), sourceHandle: "done" },
-      ];
-      draft.nodes = layoutWorkflow([...draft.nodes, body], draft.edges);
-    }
-    return {
-      draft,
-      input:
-        template.id === "foreach"
-          ? JSON.stringify(
-              {
-                items: [
-                  { title: "Review acceptance criteria", priority: "High" },
-                  { title: "Check regression coverage", priority: "Medium" },
-                ],
-              },
-              null,
-              2,
-            )
-          : undefined,
-    };
-  }
-  const task = {
-    id: `task-${template.id}`,
-    type: "agenticStep",
-    position: { x: 390, y: 140 },
-    data: template.source
-      ? {
-          label: template.name,
-          kind: "repositoryAgent",
-          repositoryAgentType: template.source,
-          timeoutMs: "180000",
-          retryCount: "0",
-        }
-      : {
-          ...specialistDefaults(template.agent || "quality-evaluator"),
-          label: template.name,
-          kind: "agent",
-          agentId: template.agent,
-          prompt: template.task,
-          knowledgeScope: "stories,test-cases,runs,bugs,knowledge",
-          timeoutMs: "70000",
-          retryCount: "1",
-        },
+  draft.nodes = layoutWorkflow(draft.nodes, draft.edges);
+  draft.settings = {
+    execution_mode: "review", maxDurationMs: 3600000, template_id: template.id, template_version: withSource ? 1 : 5,
+    library_publication_mode: "automatic", requires_human_review: false, processing_mode: withSource ? "parallel" : "sequential",
+    ...(withSource ? {
+      max_parallel_nodes: 3,
+      source_evidence_nodes: { objects: "repository-objects", curator: "repository-curator", api: "repository-api" },
+    } : {}),
   };
-  draft.nodes = [
-    draft.nodes[0],
-    task,
-    { ...draft.nodes[3], position: { x: 710, y: 140 } },
-  ];
-  draft.edges = [
-    createFlowEdge(draft.nodes[0].id, task.id),
-    createFlowEdge(task.id, draft.nodes[2].id),
-  ];
-  return {
-    draft,
-    ...(template.source
-      ? {
-          input: JSON.stringify(
-            {
-              source: {
-                type: "github",
-                repository_url: "",
-                ref: "",
-                integration_id: "",
-              },
-            },
-            null,
-            2,
-          ),
-        }
-      : {}),
-  };
+  return { draft, input: JSON.stringify({ sprint_id: "" }, null, 2) };
 }

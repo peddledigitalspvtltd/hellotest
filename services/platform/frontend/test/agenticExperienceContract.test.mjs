@@ -24,7 +24,7 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
     "Quality Orchestrator",
     "Story Architect",
     "Test Design Agent",
-    "Automation Engineer",
+    "Automation Build Agent",
     "Smart Run Planner",
     "Failure Analyst",
     "Defect Reporter",

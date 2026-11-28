@@ -43,7 +43,7 @@ attachments: {
       formData.append("entity_id", scope.entity_id);
       if(options?.checksumSha256)formData.append('checksum_sha256',options.checksumSha256);
       formData.append("file", file, file.name);
-      return requestForm<JiraAttachment>("/attachments", formData);
+      return requestForm<JiraAttachment>(`/attachments${toQueryString({ project_id: scope.project_id })}`, formData);
     },
     download: (attachmentId: string) => requestBlob(`/attachments/${attachmentId}/download`),
     aiAccess: (attachmentId: string, projectId: string) => request<{ id:string; url:string; expires_at:string }>(`/attachments/${attachmentId}/ai-access`, { method:'POST', body:JSON.stringify({ project_id:projectId }) }),

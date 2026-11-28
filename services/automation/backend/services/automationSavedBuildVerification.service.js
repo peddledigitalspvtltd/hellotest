@@ -162,7 +162,7 @@ async function verifySavedBuild(input, ports) {
       ...summary,
       status: 'blocked',
       error_code: errorCode,
-      message: errorCode === 'AUTOMATION_VERIFICATION_LINKED_CASES_REQUIRED'
+      message: ['AUTOMATION_VERIFICATION_LINKED_CASES_REQUIRED', 'AUTOMATION_VERIFICATION_EXPECTED_RESULT_UNCOVERED'].includes(errorCode)
         ? error.message : 'Saved generation is available; this case could not be prepared for isolated verification.'
     });
     return summary;

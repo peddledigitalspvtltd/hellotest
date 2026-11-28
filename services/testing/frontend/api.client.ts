@@ -719,7 +719,7 @@ testDataSets: {
       request<{ id: string }>("/test-data-sets", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ project_id: string; app_type_id: string; name: string; description: string; mode: TestDataSetMode; columns: string[]; rows: Array<Record<string, string>> }>) =>
       request<TestDataSet>(`/test-data-sets/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    previewAiData: (input: { project_id: string; app_type_id?: string; prompt: string; field_context?: string; sample_count?: number; prompt_instruction?: string; integration_id?: string; additional_context?: string }) =>
+    previewAiData: (input: { project_id: string; app_type_id?: string; prompt: string; field_context?: string; sample_count?: number; single_value?: boolean; prompt_instruction?: string; integration_id?: string; additional_context?: string }) =>
       request<AiTestDataGenerationPreviewResponse>("/test-data-sets/ai-generate-preview", { method: "POST", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/test-data-sets/${id}`, { method: "DELETE" })
   },

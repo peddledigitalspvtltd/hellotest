@@ -255,19 +255,39 @@ test('a saved manual Test Case drives the native workflow builder directly, with
     verification_status:'verified',verification:{status:'passed',verification_id:'verify-1'},executable:{filename:'automation.spec.ts',language:'typescript',framework:'playwright',code:'fixture source'}}));
   const options={run:{id:'run',project_id:'project',app_type_id:'app',input_payload:{manual_test_case_id:'manual-case'}},
     node:{id:'build',data:{kind:'artifactTask',artifactTask:'automation-engineer',automationRuntime:'web',automationSource:'manual_case',automationBrowserMode:'perform_steps',
-      automationVerificationMode:'verify',testEnvironmentId:'test'}},user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:{}}};
+      automationVerificationMode:'verify_cli',testEnvironmentId:'test'}},user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:{}}};
   const result=await tasks.execute(options);
   const row=result.__workflow_result.output.data;
   assert.equal(row.manual_case.id,'manual-case');
   assert.equal(row.manual_case.revision,3);
+  assert.deepEqual(row.test_data.parameter_sources,{'t.term':{source:'case'}});
   assert.equal(row.automation.verification.verification_id,'verify-1');
+  assert.equal(row.automation.execution_evidence.verification,'passed');
   assert.equal(build.mock.callCount(),1);
   const input=build.mock.calls[0].arguments[0];
   assert.deepEqual(input.draft.manual_test_case_ids,['manual-case']);
   assert.equal(input.draft.steps[0].expected_result,authored[0].expected_result);
   assert.equal(input.presentation,'artifact');
   assert.equal(input.verification_mode,'verify');
+  assert.equal(input.verification_driver,'playwright_test_cli');
   assert.equal(input.allow_browser_actions,true);
+  options.node.data.automationVerificationMode = 'verify_repair';
+  const recovered = (await tasks.execute(options)).__workflow_result.output;
+  const recoveryInput = build.mock.calls[1].arguments[0];
+  assert.equal(recoveryInput.verification_mode, 'verify_repair');
+  assert.equal(recoveryInput.verification_driver, 'native');
+  assert.equal(recovered.data.automation.execution_evidence.verification, 'passed');
+  t.mock.method(builder,'previewAutomationDraft',async({draft})=>({steps:draft.steps,validation:{status:'passed'},
+    verification_status:'verified',verification:{status:'passed'}}));
+  const missingReceipt=(await tasks.execute(options)).__workflow_result.output;
+  assert.equal(missingReceipt.verification.status,'needs_input');
+  assert.equal(missingReceipt.data.automation.verification_status,'unverified');
+  assert.equal(missingReceipt.data.automation.execution_evidence.verification,'receipt_missing');
+  t.mock.method(builder,'previewAutomationDraft',async({draft})=>({steps:draft.steps.map(section=>({...section,expected_result:'A different outcome'})),
+    validation:{status:'passed'},verification_status:'unverified'}));
+  const changedIntent=(await tasks.execute(options)).__workflow_result.output;
+  assert.equal(changedIntent.data.automation_failure.code,'AUTOMATION_BUILD_INCOMPLETE');
+  assert.equal(changedIntent.data.automation,undefined);
   t.mock.method(journal,'invoke',async(_input,dispatch)=>({...await dispatch(),operation_receipt:{id:'op-known'}}));
   t.mock.method(builder,'previewAutomationDraft',async()=>{
     throw Object.assign(new Error('This step needs fixture state.'),{code:'AUTOMATION_DEPENDENCY_MISSING',statusCode:422,
@@ -291,6 +311,9 @@ test('offline API and mixed builds of saved manual cases retain requested inputs
     authoring_mode:'structured',test_data_set_ids:['catalog-data']
   }));
   t.mock.method(require('@hellotest/testing/backend/services/testCaseScope.service'),'resolveTestCaseProjectIds',async()=>['project']);
+  t.mock.method(require('@hellotest/testing/backend/services/testDataSet.service'),'getTestDataSet',async id=>({
+    id,project_id:'project',app_type_id:'app',mode:'table',rows:[{itemId:'fixture-catalog-item'}]
+  }));
   const apiStep={...step('Read the catalog item','api'),id:'api-step',step_order:1,
     api_request:{method:'GET',url:'https://catalog.example/products/@t.itemId'}};
   for (const runtime of ['api','auto']) await t.test(runtime,async t=>{
@@ -301,6 +324,9 @@ test('offline API and mixed builds of saved manual cases retain requested inputs
       user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:{}}};
     const build=t.mock.method(builder,'previewAutomationDraft',async input=>{
       assert.deepEqual(input.draft.test_data_set_ids,['catalog-data']);
+      assert.equal(input.test_data_set_id,'catalog-data');
+      assert.equal(input.draft.steps[0].api_request.url,'https://catalog.example/products/@r.itemid');
+      assert.doesNotMatch(JSON.stringify(input.draft), /fixture-catalog-item/);
       assert.equal(input.inspect_browser,false);
       assert.equal(input.allow_browser_actions,false);
       assert.equal(input.verification_mode,'generate_only');
@@ -320,6 +346,35 @@ test('offline API and mixed builds of saved manual cases retain requested inputs
   });
 });
 
+test('manual workflow generation stops before dispatch when a selected runtime dataset column is incomplete', async t => {
+  t.mock.method(permissions, 'hasPermission', async () => true);
+  t.mock.method(flags, 'areEnabled', async () => true);
+  t.mock.method(require('@hellotest/testing/backend/services/testCase.service'), 'getTestCase', async () => ({
+    id: 'manual-case', title: 'Review catalog rows', revision: 1, automated: 'no', app_type_id: 'app', app_type_kind: 'web',
+    authoring_mode: 'structured', test_data_set_ids: ['selected']
+  }));
+  t.mock.method(require('@hellotest/testing/backend/services/testCaseScope.service'), 'resolveTestCaseProjectIds', async () => ['project']);
+  t.mock.method(require('@hellotest/testing/backend/services/testStep.service'), 'getTestSteps', async () => [
+    { ...step('Search for @r.product', 'web'), id: 'search', step_order: 1 }
+  ]);
+  t.mock.method(require('@hellotest/testing/backend/services/testDataSet.service'), 'getTestDataSet', async id => ({
+    id, project_id: 'project', app_type_id: 'app', mode: 'table', rows: [{ product: 'fixture value' }, { region: 'Other' }]
+  }));
+  const build = t.mock.method(builder, 'previewAutomationDraft', async () => { throw new Error('An incomplete selected dataset must block generation.'); });
+  const result = await tasks.execute({
+    run: { id: 'run', project_id: 'project', app_type_id: 'app', input_payload: { manual_test_case_id: 'manual-case' } },
+    node: { id: 'build', data: { kind: 'artifactTask', artifactTask: 'automation-engineer', automationRuntime: 'web',
+      automationSource: 'manual_case', automationBrowserMode: 'offline' } },
+    user: { id: 'actor' }, onProgress: async () => {}, context: { input: {} }
+  });
+  const output = result.__workflow_result.output;
+  assert.equal(build.mock.callCount(), 0);
+  assert.equal(output.verification.status, 'needs_input');
+  assert.deepEqual(output.data.automation_input_required.required_parameters, ['@r.product']);
+  assert.deepEqual(output.data.test_data.missing_parameter_details, [{ parameter: 'r.product', reason: 'dataset_binding_missing', step_orders: [1] }]);
+  assert.doesNotMatch(JSON.stringify(output), /fixture value/);
+});
+
 function progressFixture(t, steps) {
   t.mock.method(permissions, 'hasPermission', async () => true);
   t.mock.method(flags, 'areEnabled', async () => true);
@@ -333,6 +388,33 @@ function progressFixture(t, steps) {
     loop_owner: 'each-test-case', iteration_index: 0, iteration_path: ['each-story', 0, 'each-test-case', 0] },
   node: { id: 'automation', data: { kind: 'artifactTask', artifactTask: 'automation-engineer', automationBrowserMode: 'read_only', automationStartUrl: 'https://catalog.example/' } } };
 }
+
+test('a mixed-runtime draft surfaces unsupported verification at the build node and workflow output', async t => {
+  const fixture = progressFixture(t, [step('Open the catalog', 'web'), step('GET https://catalog.example/products/one', 'api')]);
+  Object.assign(fixture.node.data, { automationBrowserMode: 'perform_steps', testEnvironmentId: 'qa', automationVerificationMode: 'verify_cli' });
+  t.mock.method(require('@hellotest/testing/backend/services/testEnvironment.service'), 'getTestEnvironment', async () => ({
+    id: 'qa', project_id: 'project', app_type_id: 'app', base_url: 'https://catalog.example/'
+  }));
+  t.mock.method(journal, 'invoke', async (_input, dispatch) => dispatch());
+  t.mock.method(builder, 'previewAutomationDraft', async input => {
+    assert.equal(input.verification_mode, 'generate_only');
+    return { steps: resolveAutomationDraftSteps(input.draft, input.draft.steps).steps,
+      validation: { status: 'passed' }, verification_status: 'unverified' };
+  });
+  const returned = await tasks.execute({ run: fixture.run, node: fixture.node, sources: [], user: { id: 'actor' },
+    signal: new AbortController().signal, onProgress: async () => {}, context: { input: [fixture.packet], item: fixture.draft } });
+  const { output } = returned.__workflow_result;
+  assert.equal(output.verification.status, 'needs_input');
+  assert.equal(output.data[0].automation[0].execution_evidence.verification, 'unsupported');
+  const publish = { id: 'publish', data: { kind: 'output' } };
+  const source = { node_id: fixture.node.id, status: 'completed', output };
+  const result = await require('../../backend/workflows/nodes/output').execute({ node: publish, sources: [source], run: {
+    ...fixture.run, workflow_snapshot: { nodes: [fixture.node, publish], edges: [{ source: fixture.node.id, target: publish.id }] },
+    node_results: [source]
+  } });
+  assert.deepEqual(result.automation_counts, { verified: 0, unverified: 1, failed: 0, needs_input: 0 });
+  assert.equal(result.automation_execution_review_count, 1);
+});
 
 test('case draft checkpoints retain live-validation blockers through private-value projection without claiming execution', async t => {
   const fixture = progressFixture(t, [step('Open the catalog', 'manual')]);

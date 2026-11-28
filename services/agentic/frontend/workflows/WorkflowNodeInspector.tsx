@@ -1,4 +1,5 @@
 import {useQuery} from "@tanstack/react-query";
+import nodeKinds from "../../shared/workflowNodeKinds.json";
 import {agenticApi} from "../api.client";
 import { WorkflowOperationFields } from "./WorkflowOperationFields";
 import { NodeAiSettings, nodeAiDefaults, type NodeAiConfiguration } from './NodeAiConfiguration';
@@ -30,11 +31,13 @@ import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
 import { WorkflowFailureDetails, WorkflowFailureResolution } from './WorkflowFailureDetails';
 import { WorkflowAutomationResult, WorkflowSprintAutomationResult } from './WorkflowAutomationResult';
+import { WorkflowTestDataResult } from './WorkflowTestDataResult';
 import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
 import {
   nodeKindLabels,
   legacyNodeKinds,
   buildNodeDefaults,
+  isWorkflowLoop,
   type WorkflowNodeKind,
 } from "./workflowGraph";
 
@@ -112,42 +115,32 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
     setAdvanced(JSON.stringify(node.data, null, 2));
   }, [node.id, run?.id]);
   const kind = String(node.data.kind || "agent");
+  const nodeDisabled = node.data.disabled === true;
+  const bypassDescription = isWorkflowLoop(node) ? "Input continues through Done and skips the loop body."
+    : kind === "condition" ? "Input follows True when connected, otherwise False."
+    : kind === "dataOperation" && node.data.dataOperation === "switch" ? "Input follows Fallback when connected, otherwise the first connected output."
+    : "Connected input passes through this node during execution.";
   const automationAgent = kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer';
   const specialist = ["agent", "llmAgent", "customAI"].includes(kind) || (kind === "loop" && node.data.loopAction === "customAI");
   const canRetry = specialist || (["apiTool", "apiAgent", "webAgent"].includes(kind) && ["GET", "HEAD"].includes(kind === "webAgent" ? "GET" : String(node.data.apiMethod || "GET").trim().toUpperCase()));
   const recordedInput = result && Object.prototype.hasOwnProperty.call(result, "input") ? result.input : result?.input_context;
   const inputContext = recordedInput && typeof recordedInput === "object" && !Array.isArray(recordedInput) ? recordedInput as Record<string, unknown> : undefined;
-  const progress = result?.progress as
-    | {
-        repository_run_id?: string;
-        repository_agent_type?: string;
-        percent?: number;
-        current_case?: number;
-        total_cases?: number;
-        automation_progress?: {
-          total?: number;
-          active_case_index?: number;
-        };
-        stages?: Array<{
-          id: string;
-          label: string;
-          status: string;
-          detail?: string;
-        }>;
-      }
-    | undefined;
-  const automationProgress = automationAgent ? progress?.automation_progress : undefined;
-  const activeCase = progress?.current_case ?? (automationProgress?.active_case_index == null ? undefined : automationProgress.active_case_index + 1);
-  const totalCases = progress?.total_cases ?? automationProgress?.total;
+  const progressPercent = (result?.progress as { percent?: number } | undefined)?.percent;
   const output = result?.output as Record<string, unknown> | undefined;
+  const qualityAgentId = kind === 'qualityAgent' && typeof output?.agent_id === 'string' ? output.agent_id : '';
+  const qualityRunId = qualityAgentId.startsWith('browser-') && typeof output?.quality_run_id === 'string' ? output.quality_run_id : '';
   const automationCounts = output?.automation_counts as {verified:number;unverified:number;failed:number;needs_input:number} | undefined;
+  const executionReviewCount = typeof output?.automation_execution_review_count === 'number' ? output.automation_execution_review_count : 0;
   const batchFailures = Array.isArray(output?.iteration_failures) ? output.iteration_failures : [];
   const template = (run?.workflow_snapshot.settings as {template_id?: string} | undefined)?.template_id;
   const artifactOutput = automationAgent || kind === 'output' && Boolean(automationCounts)
-    && (template === 'manual-test-automation' || template === 'sprint-automator');
-  const splitData = expanded && !artifactOutput && !["logs", "model calls"].includes(tab) && (!run || editable || tab !== "parameters");
-  const availableTabs = artifactOutput ? (["parameters", "output"] as const) : (["parameters", "input", "output", "logs", "model calls"] as const);
-  const selectedTab = artifactOutput && tab !== 'parameters' ? 'output' : tab;
+    && (template === 'manual-test-automation' || template === 'sprint-automator' || template === 'spec-to-script');
+  const agentOutput = (nodeKinds.kinds[kind as WorkflowNodeKind] as { agent_output?: string } | undefined)?.agent_output;
+  const finalOnly = agentOutput === 'final' || agentOutput === 'loop-review' && node.data.loopAction === 'customAI';
+  const availableTabs: (typeof tab)[] = artifactOutput ? ["parameters", "output"] : finalOnly
+    ? ["parameters", "input", "output"] : ["parameters", "input", "output", "logs", "model calls"];
+  const selectedTab = availableTabs.includes(tab) ? tab : "output";
+  const splitData = expanded && !artifactOutput && !["logs", "model calls"].includes(selectedTab) && (!run || editable || selectedTab !== "parameters");
   const field = (name: string, label: string, multiline = false) => (
     <label>
       <span>{label}</span>
@@ -219,51 +212,18 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         iterationPath={Array.isArray(result?.iteration_path) ? result.iteration_path : undefined}
         canAccept={result?.status==='completed' && ['completed','needs_review'].includes(run.status)}/>}
       {run && automationAgent && <WorkflowSprintAutomationResult value={output?.data} projectId={run.project_id} />}
+      {kind === 'artifactTask' && node.data.artifactTask === 'test-data-generator' && <WorkflowTestDataResult value={output?.data} />}
       {automationCounts && <p role="status">{automationCounts.verified} verified · {automationCounts.unverified} generated, unverified · {automationCounts.failed} failed · {automationCounts.needs_input} need input</p>}
+      {executionReviewCount > 0 && <p role="status">{executionReviewCount} generated {executionReviewCount === 1 ? 'draft needs' : 'drafts need'} execution review.</p>}
       {batchFailures.length > 0 && <section aria-label="Failed loop batches"><h4>Failed loop batches</h4><ol>{batchFailures.map((failure,index)=><li key={index}>
         <strong>{failure.origin?.node_name || failure.failed_node_id} · Batch {Number(failure.batch_index)+1}</strong>
         <p>{failure.message}</p>{artifactOutput ? <WorkflowFailureResolution value={failure.resolution}/> : <WorkflowFailureDetails value={failure}/>}
       </li>)}</ol></section>}
-      {progress && (!automationAgent || result?.status === 'running') && (
-        <div className="studio-source-progress">
-          {automationProgress && <div role="status">
-            <strong>Automation progress</strong>
-            {activeCase != null && <p>Case {activeCase}{totalCases != null ? ` of ${totalCases}` : ""}</p>}
-          </div>}
-          <progress
-            max={100}
-            value={Number(progress.percent) || 0}
-            aria-label={automationProgress ? "Automation generation progress" : "Source analysis progress"}
-          />
-          {!automationAgent && <ol>
-            {progress.stages?.map((stage) => (
-              <li key={stage.id}>
-                <strong>{stage.label}</strong>
-                <span>{stage.status.replace(/_/g, " ")}</span>
-                {stage.detail && <small>{stage.detail}</small>}
-              </li>
-            ))}
-          </ol>}
-          {!output && progress.repository_run_id && props.onOpenSource && (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() =>
-                props.onOpenSource?.(
-                  String(progress.repository_agent_type),
-                  String(progress.repository_run_id),
-                )
-              }
-            >
-              Open source analysis
-            </button>
-          )}
-        </div>
-      )}
+      {result?.status === 'running' && progressPercent != null && <progress max={100} value={progressPercent} aria-label="Workflow step progress" />}
       {artifactOutput ? !output && !result?.error && <p>{result?.status === 'running' ? 'The automation draft appears here when the build completes.'
         : result?.status === 'skipped' ? String(result.skip_reason || 'This step was not reached.') : 'No automation draft was recorded.'}</p> : <WorkflowDataView
         value={output}
-        defaultMode={run ? "json" : "readable"}
+        defaultMode={run && !qualityRunId ? "json" : "readable"}
         jsonLabel="Node output JSON"
         copyJsonLabel="Copy output JSON"
         empty={
@@ -302,6 +262,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           Review source analysis
         </button>
       ) : null}
+      {qualityRunId && <a className="ghost-button" href={`?${new URLSearchParams({view:'workbench',agent:qualityAgentId,quality_agent:qualityAgentId.slice(8),quality_run:qualityRunId})}`}>Open saved browser review</a>}
     </section>
   );
   const parameters = (
@@ -316,6 +277,12 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         </p>
       )}
       <fieldset disabled={!editable || props.busy}>
+        <button className="studio-node-enable" role="switch" aria-checked={!nodeDisabled} type="button"
+          onClick={() => props.onChange({ disabled: nodeDisabled ? undefined : true })}>
+          <span aria-hidden="true" />
+          Enable node
+        </button>
+        {nodeDisabled && <p className="studio-caption">{bypassDescription}</p>}
         {field("label", "Node name")}
         <label>
           <span>Step kind</span>
@@ -329,6 +296,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                 ),
                 ...buildNodeDefaults(event.target.value as WorkflowNodeKind, 0),
                 label: node.data.label,
+                disabled: node.data.disabled,
               })
             }
           >
@@ -339,13 +307,14 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             ))}
           </select>
         </label>
-        {kind === "artifactTask" && <label><span>Model connection</span><select aria-label="Model connection" value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Use configured project model</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
+        {["artifactTask", "qualityAgent"].includes(kind) && <label><span>Model connection</span><select aria-label="Model connection" value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Use configured project model</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         {specialist && (
           <>
             {kind !== "customAI" && kind !== "loop" && (
               <label>
                 <span>Specialist</span>
                 <select
+                  aria-label="Specialist"
                   value={String(node.data.agentId || "")}
                   onChange={(event) => {
                     const saved = props.projectAgents?.find(agent => agent.id === event.target.value);
@@ -355,9 +324,9 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                   <option value="">Choose a specialist</option>
                   {String(node.data.agentId || "").startsWith("agent-") && !props.projectAgents?.some(agent => agent.id === node.data.agentId) && <option value={String(node.data.agentId)}>Unavailable project agent · choose another</option>}
                   {(props.projectAgents || []).map(agent => <option value={agent.id} key={agent.id}>{(agent.active_definition || agent.definition).name} · v{agent.active_version}</option>)}
-                  {HELLOTEST_AGENT_CATALOG.map((agent) => (
+                  {HELLOTEST_AGENT_CATALOG.filter(agent => agent.id !== "automation-engineer" || node.data.agentId === agent.id).map((agent) => (
                     <option value={agent.id} key={agent.id}>
-                      {agent.name}
+                      {agent.id === "automation-engineer" ? "Automation planning review" : agent.name}
                     </option>
                   ))}
                 </select>
@@ -476,7 +445,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         {field("summary", "Description", true)}
         <details>
           <summary>Execution settings</summary>
-          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "artifactTask" || kind === "loop" && node.data.loopAction === "workflow" ? 3600000 : kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
+          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "artifactTask" || kind === "loop" && node.data.loopAction === "workflow" ? 3600000 : kind === "qualityAgent" ? 240000 : kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
           <label>
             <span>On error</span>
             <select
@@ -559,7 +528,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       </fieldset>
       {["apiTool", "apiAgent"].includes(kind) &&
         props.onTestApi &&
-        props.canRun && (
+        props.canRun && !nodeDisabled && (
           <>
             <p className="studio-caption">
               Testing sends a real HTTP request. Workflow graph previews do not
@@ -687,7 +656,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                 <IconTrash size={17} />
               </button>
             )}
-            {props.canRun && EXECUTABLE_NODE_KINDS.has(kind) && (
+            {props.canRun && !nodeDisabled && EXECUTABLE_NODE_KINDS.has(kind) && (
               <button
                 type="button"
                 className="primary-button"
@@ -698,7 +667,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                 Execute step
               </button>
             )}
-            {props.canRun && <small>Preceding steps run first.</small>}
+            {props.canRun && !nodeDisabled && <small>Preceding steps run first.</small>}
           </footer>
         )}
       </aside>

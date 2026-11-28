@@ -20,6 +20,7 @@ function fixture(){
   if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
   if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
+  if(id==='./automationRepairEvidence')return require('../../../automation/backend/services/automationRepairEvidence');
   if(id==='../lib/verification/automationApiRepair')return require('../../../automation/backend/lib/verification/automationApiRepair');
   if(id.endsWith('/testStepAutomation'))return require(id);
   throw Error(`Unexpected dependency: ${id}`);

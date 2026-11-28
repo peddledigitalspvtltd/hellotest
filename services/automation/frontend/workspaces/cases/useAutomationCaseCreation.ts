@@ -22,7 +22,6 @@ const {
     automationCreateParameters,
     automationApiSourceParameters,
     automationCreateManualCaseIds,
-    showError,
     automationCreateSteps,
     setAutomationCreateSteps,
     setAutomationApiSourceParameters,
@@ -57,7 +56,6 @@ const {
     allowBrowserActions,
     buildBrowserLocation,
     buildPipelineOptions,
-    message,
     invalidateAutomationData,
     searchParams,
     navigate,
@@ -67,10 +65,8 @@ const {
 const applyApiSourceDraft = (result: ApiAutomationSourceResult, mode: "append" | "replace") => {
     const existing = { ...automationCreateParameters.values, ...normalizeAutomationParameterValues(automationApiSourceParameters, "t") };
     const conflicts = Object.keys(result.parameter_values).filter(key => (mode === "append" || automationCreateManualCaseIds.length > 0) && Object.prototype.hasOwnProperty.call(existing, `t.${key}`) && existing[`t.${key}`] !== result.parameter_values[key]);
-    if (conflicts.length) {
-        showError(new Error(`Imported parameter defaults conflict: ${conflicts.join(", ")}. Replace the draft or rename the source variables before adding requests.`), "Review API source parameters");
-        return false;
-    }
+    if (conflicts.length)
+        return `Parameter defaults conflict for ${conflicts.join(", ")}. Replace the draft or rename the source variables.`;
     const incoming = result.steps.map(step => ({ id: crypto.randomUUID(), action: step.action, expected_result: step.expected_result, step_type: "api" as const, precondition: false, api_request: step.api_request }));
     const retained = mode === "replace" ? [] : automationCreateSteps;
     setAutomationCreateSteps([...retained, ...incoming]);
@@ -81,6 +77,7 @@ const applyApiSourceDraft = (result: ApiAutomationSourceResult, mode: "append" |
 const closeCreateAutomation = () => {
     if (createAutomationCase.isPending)
         return;
+    createAutomationCase.reset();
     setIsCreateAutomationOpen(false);
     setAutomationCreateMetadata(emptyAutomationMetadata);
     setAutomationCreateSteps([]);
@@ -255,8 +252,7 @@ const createAutomationCase = useMutation({
         if (transactionId)
             next.set("agent_activity", transactionId);
         navigate({ pathname: engineerPath || "/automation", search: next.toString() }, { replace: true, state: { automationNotice: { tone, message } } });
-    },
-    onError: (error) => showError(error, "Unable to create automation case.")
+    }
 });
 const createAutomationDialogRef = useDialogFocus<HTMLDivElement>({
     active: isCreateAutomationOpen,

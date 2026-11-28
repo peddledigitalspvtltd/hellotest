@@ -18,6 +18,7 @@ import {LoopFields} from './LoopFields';
 import {TransformFields} from './TransformFields';
 import {ErrorHandlerFields} from './ErrorHandlerFields';
 import {LogFields} from './LogFields';
+import {QualityAgentFields} from './QualityAgentFields';
 export type WorkflowOperationEditorKind=keyof typeof nodeKinds.kinds;
 type EditorDefinition={Fields:ComponentType<WorkflowOperationEditorProps>|null;owner:'operation'|'inspector'};
 /** Concrete kind owners. Shared field/transport primitives do not dispatch kinds. */
@@ -43,6 +44,7 @@ agent:{Fields:null,owner:'inspector'},
 llmAgent:{Fields:null,owner:'inspector'},
 customAI:{Fields:null,owner:'inspector'},
 repositoryAgent:{Fields:null,owner:'inspector'},
+qualityAgent:{Fields:QualityAgentFields,owner:'operation'},
 trigger:{Fields:null,owner:'inspector'},
 output:{Fields:null,owner:'inspector'}
 } satisfies Record<WorkflowOperationEditorKind,EditorDefinition>;

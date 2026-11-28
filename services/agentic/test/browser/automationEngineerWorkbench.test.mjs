@@ -63,11 +63,11 @@ test('Studio opens the shared Automation Engineer and builds a linked manual cas
 
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`, { waitUntil: 'commit' });
     try {
-      await page.getByRole('button', { name: 'Open Automation Engineer', exact: true }).click({ timeout: 30_000 });
+      await page.getByRole('button', { name: 'Open Automation Build Agent', exact: true }).click({ timeout: 30_000 });
     } catch (error) {
       throw new Error(`The Agent Studio library did not open. Browser errors: ${JSON.stringify(errors)}. ${await page.locator('body').innerText()}`, { cause: error });
     }
-    await expect(page.getByRole('heading', { name: 'Automation Engineer', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Automation Build Agent', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start review', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Build from a manual test', exact: true }).click();
     const build = page.getByRole('dialog', { name: 'Set up an automation build' });

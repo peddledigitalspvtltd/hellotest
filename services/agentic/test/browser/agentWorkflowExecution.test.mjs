@@ -75,21 +75,38 @@ test('review workflows expose readiness, actual progress, stop and evidence revi
     const baseUrl = `${process.env.VITE_TEST_URL || 'http://127.0.0.1:5179'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`;
     await page.goto(baseUrl);
     await page.getByRole('button', { name: 'Create Agentic Workflow', exact: true }).click();
+    assert.equal(await page.locator('.studio-node').count(), 0);
+    await page.getByRole('button', { name: 'Add manual trigger', exact: true }).click();
+    for (const id of ['story-architect', 'run-planner']) {
+      await page.getByRole('button', { name: 'Add node', exact: true }).click();
+      await page.getByRole('textbox', { name: 'Search nodes', exact: true }).fill('Workspace specialist');
+      await page.locator('.studio-library-list').getByRole('button', { name: /^Workspace specialist/ }).click();
+      await page.getByLabel('Specialist', { exact: true }).selectOption(id);
+      await page.getByLabel('Node name', { exact: true }).fill(id === 'story-architect' ? 'Review Story' : 'Plan Test Run');
+    }
+    await page.getByRole('button', { name: 'Add node', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search nodes', exact: true }).fill('output');
+    await page.locator('.studio-library-list').getByRole('button', { name: /^Output Publish/ }).click();
+    await page.locator('.studio-node[data-kind="trigger"]').click();
     await page.getByRole('button', { name: 'Execute workflow', exact: true }).waitFor();
     assert.equal(requests.length, 0, 'readiness checks do not execute models');
     await page.getByRole('button', { name: 'Readiness', exact: true }).click();
     await page.getByRole('button', { name: 'Create Workflow', exact: true }).click();
     await page.getByText('Ready to execute a review', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Execute workflow', exact: true }).isEnabled(), true);
+    const dismiss = page.getByRole('button', { name: 'Dismiss message', exact: true });
+    if (await dismiss.isVisible()) await dismiss.click();
     await page.screenshot({ path: screenshots + '/01-workflow-readiness-desktop.png', fullPage: true });
     await page.getByLabel('Step kind', { exact: true }).selectOption('condition');
     assert.equal(requests.length, 0, 'invalid definitions do not execute models');
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await page.getByText('Resolve these steps before execution', { exact: true }).waitFor();
+    if (await dismiss.isVisible()) await dismiss.click();
     assert.equal(requests.length, 0, 'invalid definitions do not execute models');
     await page.getByLabel('Step kind', { exact: true }).selectOption('trigger');
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await page.getByText('Ready to execute a review', { exact: true }).waitFor();
+    if (await dismiss.isVisible()) await dismiss.click();
     await page.getByRole('button', { name: 'Execute workflow', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'Temporary worker outage' }).waitFor();
     await page.getByRole('button', { name: 'Execute workflow', exact: true }).click();

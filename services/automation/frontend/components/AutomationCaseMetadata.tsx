@@ -17,6 +17,7 @@ export const emptyAutomationMetadata: AutomationMetadata = {
   title: "", description: "", automationCaseType: "", status: "active", priority: "3", manualCaseIds: [], requirementIds: [], moduleIds: [], suiteIds: [], dataSetId: ""
 };
 type LinkOption = { id: string; title: string; detail?: string };
+type MetadataFields = { value: AutomationMetadata; onChange: (change: Partial<AutomationMetadata>) => void; disabled?: boolean };
 
 function RecordLinks({ label, options, value, onChange, disabled }: { label: string; options: LinkOption[]; value: string[]; onChange: (value: string[]) => void; disabled?: boolean }) {
   const [search, setSearch] = useState("");
@@ -35,16 +36,37 @@ function RecordLinks({ label, options, value, onChange, disabled }: { label: str
   </details>;
 }
 
-export function AutomationCaseMetadata({ value, onChange, manualCases, requirements, modules, suites, dataSets, disabled = false, compact = false }: {
-  value: AutomationMetadata; onChange: (change: Partial<AutomationMetadata>) => void;
-  manualCases: LinkOption[]; requirements: LinkOption[]; modules: LinkOption[]; suites: LinkOption[]; dataSets: LinkOption[]; disabled?: boolean; compact?: boolean;
+export function AutomationCaseIdentityFields({ value, onChange, disabled, create = false }: MetadataFields & { create?: boolean }) {
+  return <>
+    <label className="form-field">
+      <span>{create ? "Case name" : "Automation case name"}</span>
+      <input aria-label="Automation case name" autoComplete="off" data-autofocus={create || undefined} disabled={disabled}
+        onChange={event => onChange({ title: event.target.value })} placeholder="e.g. Customer completes checkout" required value={value.title} />
+    </label>
+    <label className="form-field">
+      <span>{create ? "Case type" : "Automation case type"}</span>
+      <select aria-label="Automation case type" required disabled={disabled} value={value.automationCaseType}
+        onChange={event => onChange({ automationCaseType: event.target.value as AutomationCaseType })}>
+        <option disabled value="">Select a case type</option>
+        {AUTOMATION_CASE_TYPES.map(item => <option key={item.value} value={item.value}>{item.value === "unified" ? "Unified (mixed)" : item.label}</option>)}
+      </select>
+    </label>
+  </>;
+}
+
+export function AutomationCaseManualLinks({ value, onChange, disabled, options, create = false }: MetadataFields & { options: LinkOption[]; create?: boolean }) {
+  return <RecordLinks disabled={disabled} label={create ? "Manual test cases" : "Test cases"} onChange={manualCaseIds => onChange({ manualCaseIds })} options={options} value={value.manualCaseIds} />;
+}
+
+export function AutomationCaseMetadata({ value, onChange, manualCases, requirements, modules, suites, dataSets, disabled = false, layout = "full" }: MetadataFields & {
+  manualCases: LinkOption[]; requirements: LinkOption[]; modules: LinkOption[]; suites: LinkOption[]; dataSets: LinkOption[]; layout?: "full" | "details";
 }) {
   const id = useId();
   const statuses = useDomainOptions("test_cases.statuses", ["active", "draft", "ready", "retired"].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), [value.status]);
   const advanced = <>
       <div className="automation-metadata-enums">
-        <label className="form-field"><span>Status</span><select disabled={disabled} onChange={(event) => onChange({ status: event.target.value })} value={value.status}>{statuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label className="form-field"><span>Priority</span><select disabled={disabled} onChange={(event) => onChange({ priority: event.target.value })} value={value.priority}>{[1, 2, 3, 4, 5].map((priority) => <option key={priority} value={priority}>P{priority}</option>)}</select></label>
+        <label className="form-field"><span>Status</span><select aria-label="Status" disabled={disabled} onChange={(event) => onChange({ status: event.target.value })} value={value.status}>{statuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="form-field"><span>Priority</span><select aria-label="Priority" disabled={disabled} onChange={(event) => onChange({ priority: event.target.value })} value={value.priority}>{[1, 2, 3, 4, 5].map((priority) => <option key={priority} value={priority}>P{priority}</option>)}</select></label>
       </div>
       <div className="automation-metadata-links" aria-label="Automation case links">
         <RecordLinks disabled={disabled} label="Stories" onChange={(requirementIds) => onChange({ requirementIds })} options={requirements} value={value.requirementIds} />
@@ -53,14 +75,11 @@ export function AutomationCaseMetadata({ value, onChange, manualCases, requireme
       </div>
       <label className="form-field"><span>Linked data set</span><select disabled={disabled} onChange={(event) => onChange({ dataSetId: event.target.value })} value={value.dataSetId}><option value="">No linked data set</option>{dataSets.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
     </>;
-  return <div className={`automation-metadata-form${compact ? " automation-metadata-form--compact" : ""}`}>
-    <div className="automation-metadata-primary">
-      <label className="form-field"><span>Automation case name</span><input autoComplete="off" disabled={disabled} onChange={(event) => onChange({ title: event.target.value })} placeholder="e.g. Customer completes checkout" required value={value.title} /></label>
-    </div>
-    <label className="form-field"><span>Automation case type <span aria-hidden="true">*</span></span><select aria-label="Automation case type" required disabled={disabled} onChange={event => onChange({automationCaseType: event.target.value as AutomationCaseType})} value={value.automationCaseType}><option disabled value="">Select a case type</option>{AUTOMATION_CASE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select>{value.automationCaseType ? <small className="muted">{AUTOMATION_CASE_TYPES.find(type => type.value === value.automationCaseType)?.description}</small> : null}</label>
+  return <div className="automation-metadata-form">
+    {layout === "full" ? <div className="automation-metadata-primary"><AutomationCaseIdentityFields value={value} onChange={onChange} disabled={disabled} /></div> : null}
     <div className="form-field"><label htmlFor={`${id}-description`}>Description</label><RichTextEditor aria-label="Automation case description" appearance="canonical" disabled={disabled} id={`${id}-description`} onChange={(description) => onChange({ description })} placeholder="What should this automation verify?" rows={2} value={value.description} /></div>
-    <RecordLinks disabled={disabled} label="Test cases" onChange={(manualCaseIds) => onChange({ manualCaseIds })} options={manualCases} value={value.manualCaseIds} />
-    {compact ? <details className="automation-metadata-advanced"><summary>Coverage, status & test data</summary>{advanced}</details> : advanced}
+    {layout === "full" ? <AutomationCaseManualLinks value={value} onChange={onChange} disabled={disabled} options={manualCases} /> : null}
+    {advanced}
   </div>;
 }
 
@@ -73,16 +92,19 @@ export function AutomationDraftPlan({ value, onChange, availableParameters, para
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const update = (id: string, change: Partial<AutomationDraftBehavior>) => onChange(value.map((step) => step.id === id ? { ...step, ...change } : step));
   return <div className="automation-draft-plan">
-    {[true, false].map((precondition) => <section key={String(precondition)}>
-      <header><strong>{precondition ? "Preconditions" : "Steps"}</strong><span>{value.filter((step) => step.precondition === precondition).length}</span></header>
-      {value.filter((step) => step.precondition === precondition).map((step, index) => <details className="automation-draft-behavior" key={step.id} onToggle={(event) => {
+    {[true, false].map((precondition) => {
+      const steps = value.filter(step => step.precondition === precondition);
+      return <section key={String(precondition)}>
+      {steps.length ? <header><strong>{precondition ? "Preconditions" : "Steps"}</strong><span>{steps.length}</span></header> : null}
+      {steps.map((step, index) => <details className="automation-draft-behavior" key={step.id} onToggle={(event) => {
         const open = event.currentTarget.open;
         setExpanded((current) => current[step.id] === open ? current : { ...current, [step.id]: open });
-      }} open={expanded[step.id] ?? true}>
+      }} open={expanded[step.id] ?? !step.api_request}>
         <summary><span>{index + 1}</span><strong><StepParameterizedText text={step.action} values={parameterValues} fallback={precondition ? "New precondition" : "New step"} /></strong><small>{step.step_type.toUpperCase()}</small></summary>
         <div className="automation-draft-behavior-fields"><label className="form-field"><span>Action</span><GherkinStepTextField availableParameters={availableParameters} parameterValues={parameterValues} ariaLabel={`Draft ${precondition ? "precondition" : "step"} ${index + 1} action`} onChange={(action) => update(step.id, { action })} value={step.action} /></label><label className="form-field"><span>Expected result</span><GherkinStepTextField availableParameters={availableParameters} parameterValues={parameterValues} ariaLabel={`Draft ${precondition ? "precondition" : "step"} ${index + 1} expected result`} onChange={(expected_result) => update(step.id, { expected_result })} value={step.expected_result} /></label>{step.api_request ? <details><summary>Request contract · {step.api_request.method} {step.api_request.url}</summary><pre className="automation-code-block">{JSON.stringify(step.api_request, null, 2)}</pre>{!step.api_request.validations?.length ? <small>No assertions were supplied. Review the expected outcome and add checks before relying on this case.</small> : null}</details> : null}<div className="action-row"><select aria-label={`Draft step ${index + 1} type`} onChange={(event) => update(step.id, { step_type: event.target.value as TestStepType, ...(event.target.value !== "api" ? {api_request: undefined} : {}) })} value={step.step_type}>{Array.from(new Set([...allowedStepTypes, step.step_type])).map((type) => <option key={type} value={type} disabled={!allowedStepTypes.includes(type)}>{type === "ios" ? "iOS" : type === "api" ? "API" : type[0].toUpperCase() + type.slice(1)}</option>)}</select><button aria-label={`Remove draft step ${index + 1}`} className="ghost-button compact" onClick={() => onChange(value.filter((item) => item.id !== step.id))} type="button"><TrashIcon size={14} />Remove</button></div></div>
       </details>)}
       <button className="ghost-button compact" disabled={!allowedStepTypes.length} onClick={() => onChange([...value, { id: crypto.randomUUID(), action: "", expected_result: "", step_type: allowedStepTypes.includes(defaultStepType) ? defaultStepType : allowedStepTypes[0] || "web", precondition }])} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add step"}</button>
-    </section>)}
+    </section>;
+    })}
   </div>;
 }

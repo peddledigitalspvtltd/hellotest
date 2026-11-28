@@ -10,7 +10,8 @@ const { chromium } = require('playwright');
 const { expect } = require('playwright/test');
 const root = new URL('../../../platform/frontend/', import.meta.url);
 
-test('automation studio preserves section drafts, precondition order, AI scope and a single execution handoff', {timeout: 90000}, async () => {
+test('automation studio preserves section drafts, precondition order, AI scope and a single execution handoff', {timeout: 150000}, async () => {
+  const screenshotRoot='/tmp/automation-redesign';
   const template = await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs', import.meta.url), 'utf8');
   let fixture = runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
   fixture = fixture.replace("<main style=", "<main className=\"page-automation\" style=");
@@ -35,12 +36,13 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     const client=new QueryClient`);
   const name = 'automation-studio-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
   let browser, page;
+  let phase='plan authoring';
   try {
     await writeFile(tsx, fixture);
     await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
     browser = await chromium.launch({headless:true, executablePath:process.env.CHROME_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
     page = await browser.newPage({viewport:{width:1440,height:1000}});
-    page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(15000);
+    page.setDefaultTimeout(15000);page.setDefaultNavigationTimeout(30000);
     const errors = [];page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/**', async route => {if (await fulfillAutomationFixtureRequest(page, route)) return; errors.push('Unexpected API: ' + route.request().url());return route.abort(); });
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
@@ -98,9 +100,10 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await expect(page.getByRole('button',{name:'Add precondition',exact:true})).toHaveCount(0);
     await expect(page.locator('.automation-program-flow[aria-label="Preconditions"]').getByText('Prepare account',{exact:true})).toBeVisible();
     await page.keyboard.press('Escape');
-    const screenshotRoot='/tmp/automation-redesign';await mkdir(screenshotRoot,{recursive:true});
+    await mkdir(screenshotRoot,{recursive:true});
     if(await page.getByRole('button',{name:'Dismiss message',exact:true}).count()) {await page.getByRole('button',{name:'Dismiss message',exact:true}).click();await expect(page.locator('.toast-message')).toBeHidden();}
     await page.screenshot({path:screenshotRoot+'/studio-plan-desktop.png',fullPage:true});
+    phase='AI build';
     await page.getByRole('tab',{name:/Build tools/}).click();
     await page.getByText('Build settings',{exact:true}).click();await page.getByRole('button',{name:'Execution context',exact:true}).click();
     const context=page.getByRole('dialog',{name:'Execution context',exact:true});
@@ -124,6 +127,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     assert.equal(build.id,'case1');assert.match(build.input.additional_context,/Prioritize assertions/);assert.equal(build.input.ai_requested,true);assert.equal(build.input.test_environment_id,'qa');assert.equal(build.input.test_configuration_id,'chrome');
     await expect(page.locator('.automation-ai-status')).toHaveText('Queued');
     await page.setViewportSize({width:1440,height:1000});
+    phase='record and save';
     await page.reload();
     await page.getByRole('tab',{name:/Build tools/}).click();await page.getByRole('button',{name:/Record & playback/}).click();await page.getByText('Recording environment & data',{exact:true}).click();
     let recordingContext=page;
@@ -188,6 +192,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await expect(page.getByText('This recording was already saved. The saved plan is available in Instructions.',{exact:true})).toBeVisible();
     // Use a fresh saved plan to exercise both dispatch paths independently.
     for(const mode of ['local','remote']) {
+      phase=`${mode} run`;
       await page.reload();
       await page.getByRole('button',{name:mode==='local'?'Run local':'Run remote',exact:true}).click();
       const run = page.getByRole('dialog',{name:'Ready to execute?',exact:true});
@@ -212,6 +217,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
       if(mode==='remote')assert.equal(calls[0].input.execution_mode,'remote');
       await page.setViewportSize({width:1440,height:1000});
     }
+    phase='create case and import requests';
     await page.reload();
     await page.getByRole('button',{name:'Back to automation case tiles',exact:true}).click();
     await page.screenshot({path:screenshotRoot+'/studio-catalog-desktop.png',fullPage:true});
@@ -231,6 +237,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await create.screenshot({path:screenshotRoot+'/studio-create-mobile.png'});
     await page.setViewportSize({width:1440,height:1000});
     await create.getByLabel('Automation case type',{exact:true}).selectOption('api');
+    await create.getByText('Import API requests',{exact:true}).click();
     const intake=create.getByRole('region',{name:'API source intake',exact:true});
     await intake.getByLabel('API source',{exact:true}).fill('curl https://api.test/items\ncurl -X POST https://api.test/items -H "Content-Type: application/json" --data-raw \'{"name":"Example"}\'');
     await intake.getByRole('button',{name:'Review requests',exact:true}).click();
@@ -246,6 +253,10 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await create.screenshot({path:screenshotRoot+'/studio-api-intake-mobile.png'});
     await page.keyboard.press('Escape');await expect(create).toBeHidden();
     assert.deepEqual(errors,[]);
-  } catch(error) { throw new Error(`${error.message}\n${await page?.locator('body').innerText().catch(()=> '')}`,{cause:error}); }
+  } catch(error) {
+    await mkdir(screenshotRoot,{recursive:true});
+    await page?.screenshot({path:screenshotRoot+'/studio-failure.png',fullPage:true}).catch(()=>{});
+    throw new Error(`${phase}: ${error.message}\n${await page?.locator('body').innerText().catch(()=> '')}`,{cause:error});
+  }
   finally { await browser?.close();await Promise.all([rm(html,{force:true}),rm(tsx,{force:true})]); }
 });

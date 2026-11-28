@@ -13,8 +13,24 @@ test('independent Cases creation preserves ordered imported API steps and naviga
  try{await writeFile(new URL(name+'.tsx',root),fixture);await writeFile(new URL(name+'.html',root),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});const page=await browser.newPage({viewport:{width:1600,height:1050}});page.setDefaultTimeout(15000);page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API '+route.request().url());return route.abort();});
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);
-  const dialog=page.getByRole('dialog',{name:'Create automation case',exact:true});await expect(dialog).toBeVisible();await dialog.getByLabel('Automation case name',{exact:true}).fill('Imported project API flow');await dialog.getByLabel('Automation case type',{exact:true}).selectOption('api');
-  await dialog.getByLabel('API source',{exact:true}).fill('curl https://api.example.test/health\ncurl https://api.example.test/projects');await dialog.getByRole('button',{name:'Review requests',exact:true}).click();await dialog.getByRole('button',{name:/^(Add|Use) 2 API request steps$/}).click();
+  const dialog=page.getByRole('dialog',{name:'Create automation case',exact:true});
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Automation case name',{exact:true}).fill('Imported project API flow');
+  const caseType=dialog.getByLabel('Automation case type',{exact:true});
+  const apiSource=dialog.getByLabel('API source',{exact:true});
+  const importRequests=dialog.getByText('Import API requests',{exact:true});
+  await caseType.selectOption('unified');
+  await expect(apiSource).toBeHidden();
+  await importRequests.click();
+  await expect(apiSource).toBeVisible();
+  await importRequests.click();
+  await caseType.selectOption('api');
+  await expect(apiSource).toBeHidden();
+  await importRequests.click();
+  await expect(apiSource).toBeVisible();
+  await apiSource.fill('curl https://api.example.test/health\ncurl https://api.example.test/projects');await dialog.getByRole('button',{name:'Review requests',exact:true}).click();await dialog.getByRole('button',{name:/^(Add|Use) 2 API request steps$/}).click();
+  await expect(apiSource).toBeHidden();
+  await expect(importRequests).toBeFocused();
   await dialog.getByRole('button',{name:'Create API case',exact:true}).click();await expect(page.getByText('Saved case workspace',{exact:true})).toBeVisible();
   const receipt=await page.evaluate(()=>({created:window.createdCases,builds:window.buildAdmissions,location:window.caseRouter.state.location}));assert.equal(receipt.created.length,1);assert.equal(receipt.builds,0);assert.equal(receipt.created[0].title,'Imported project API flow');assert.equal(receipt.created[0].automation_case_type,'api');assert.deepEqual(receipt.created[0].steps.map(step=>step.api_request.url),['https://api.example.test/health','https://api.example.test/projects']);assert.deepEqual(receipt.created[0].steps.map(step=>step.step_order),[1,2]);assert.ok(receipt.created[0].steps.every(step=>step.expected_result===''));assert.equal(new URLSearchParams(receipt.location.search).get('case'),'saved-api');assert.equal(new URLSearchParams(receipt.location.search).get('tab'),'steps');assert.match(receipt.location.state.automationNotice.message,/created with its step plan/);assert.deepEqual(errors,[]);
  }catch(error){error.message+='\nBrowser errors: '+JSON.stringify(errors);throw error;}finally{await browser?.close();await Promise.all([rm(new URL(name+'.tsx',root),{force:true}),rm(new URL(name+'.html',root),{force:true})]);}

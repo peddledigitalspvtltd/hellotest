@@ -41,14 +41,30 @@ function authoredInputValueReferences(action){
  return [...required];
 }
 
-/** A narrow source audit for explicit parameterized text-entry commands. It
- * neither infers targets nor produces actions. Only an unconditional awaited
- * Playwright text-write argument can satisfy an authored input reference. */
+function authoredOptionValueReferences(action){
+ const command=/^(?:(?:given|when|then|and|i|the user|user)\s+)*(?:select|choose)\s+([\s\S]+)$/i.exec(action);
+ if(!command)return [];
+ const parts=parameterTemplateParts(command[1]);
+ if(!parts)return [];
+ // Keep the parameter syntax opaque while identifying the option/control
+ // separator. A label parameter to its right identifies a control, not data.
+ const prose=parts.map(part=>part.key?'x'.repeat(part.reference.length):part.literal).join('');
+ const separator=/\s+(?:from|in|on|for)\s+[^,;.]*\b(?:drop[ -]?down|combo[ -]?box|select field|list[ -]?box)\b/i.exec(prose);
+ if(!separator)return [];
+ return [...new Set((parameterTemplateParts(command[1].slice(0,separator.index))||[]).flatMap(part=>part.key?[part.key]:[]))];
+}
+
+/** Prove explicit, parameterized text/option writes from unconditional
+ * awaited native Playwright statements. Assertions cannot establish writes. */
 function auditAuthoredInputWrites({step = {}, source = ';'} = {}) {
   const action = String(step.action || '').replace(/<[^>]*>/g, ' ').trim();
-  const required = authoredInputValueReferences(action);
-  const result = {required_parameter_references: required.map(tokenFor), missing_parameter_references: [], text_write_count: 0};
-  if (!required.length) return result;
+ const textReferences = authoredInputValueReferences(action);
+ const optionReferences = authoredOptionValueReferences(action);
+ const result = {
+  required_parameter_references: [...textReferences, ...optionReferences].map(tokenFor),
+  missing_parameter_references: [], text_write_count: 0, option_write_count: 0
+ };
+ if (!result.required_parameter_references.length) return result;
   const tree = parseNativeSourceAliases(source);
   const member = node => node?.type === 'MemberExpression' ? node.computed ? node.property?.value : node.property?.name : null;
   const root = node => node?.type === 'Identifier' ? node.name : node?.type === 'CallExpression' ? root(node.callee)
@@ -64,27 +80,54 @@ function auditAuthoredInputWrites({step = {}, source = ';'} = {}) {
   for (let pass = 0; pass < declarations.length + 1; pass++) {
     for (const declaration of declarations) if (declaration.id?.type === 'Identifier' && playwrightNames.has(root(declaration.init))) playwrightNames.add(declaration.id.name);
   }
-  const methods = new Set(['fill', 'type', 'pressSequentially', 'insertText']);
-  const isWrite = node => node?.type === 'CallExpression' && methods.has(member(node.callee)) && playwrightNames.has(root(node.callee));
+ const textMethods = new Set(['fill', 'type', 'pressSequentially', 'insertText']);
+ const choiceName = locator => {
+  if (locator?.type !== 'CallExpression') return null;
+  if (member(locator.callee) === 'getByRole' && locator.arguments[0]?.value === 'option') {
+   return locator.arguments[1]?.properties?.find(property => !property.computed && (property.key?.name ?? property.key?.value) === 'name')?.value;
+  }
+  return choiceName(locator.callee.object);
+ };
+ const writeType = node => {
+  if (node?.type !== 'CallExpression' || !playwrightNames.has(root(node.callee))) return null;
+  const method = member(node.callee);
+  if (textMethods.has(method)) return 'text';
+  if (method === 'selectOption' || method === 'click' && choiceName(node.callee.object)) return 'option';
+  return null;
+ };
   // Count every emitted write, including an unsupported conditional/computed
   // shape. Missing proof after any such write must stop instead of replaying it.
-  walk(tree, node => {if (isWrite(node)) result.text_write_count++;});
-  const written = new Set();
+ walk(tree, node => {
+  const type = writeType(node);
+  if (type) result[`${type}_write_count`]++;
+ });
+ const written = {text:new Set(),option:new Set()};
+ const optionValues = value => {
+  if(value?.type==='ArrayExpression')return value.elements.flatMap(optionValues);
+  if(value?.type==='ObjectExpression')return value.properties.filter(property=>!property.computed&&['label','value'].includes(property.key?.name??property.key?.value)).map(property=>property.value);
+  return [value];
+ };
   for (const statement of tree.body) {
     const call = statement.type === 'ExpressionStatement' && statement.expression?.type === 'AwaitExpression' ? statement.expression.argument : null;
-    if (!isWrite(call)) continue;
-    const direct = ['page', 'playwrightPage'].includes(call.callee.object?.name) && ['fill', 'type'].includes(member(call.callee));
-    const value = call.arguments[direct ? 1 : 0];
-    walk(value, node => {
-      if (node.type === 'Literal' && typeof node.value === 'string') for (const part of parameterTemplateParts(node.value) || []) if (part.key) written.add(part.key);
+    const type = writeType(call);
+    if (!type) continue;
+    const method = member(call.callee);
+    const direct = ['page', 'playwrightPage'].includes(call.callee.object?.name) && ['fill', 'type', 'selectOption'].includes(method);
+    const value = method === 'click' ? choiceName(call.callee.object) : call.arguments[direct ? 1 : 0];
+    for(const input of type==='option'?optionValues(value):[value])walk(input, node => {
+      if (node.type === 'Literal' && typeof node.value === 'string') for (const part of parameterTemplateParts(node.value) || []) if (part.key) written[type].add(part.key);
       if (node.type === 'MemberExpression' && node.object?.type === 'Identifier' && node.object.name === 'params') {
         const key = normalizeParameterKey(node.computed ? node.property?.value : node.property?.name, 't');
-        if (key) written.add(key);
+        if (key) written[type].add(key);
       }
     });
   }
-  result.missing_parameter_references = required.filter(key => !written.has(key)).map(tokenFor);
+ result.missing_parameter_references = [
+  ...textReferences.filter(key => !written.text.has(key)),
+  ...optionReferences.filter(key => !written.option.has(key))
+ ].map(tokenFor);
+ if(optionReferences.length)result.input_kind='option';
   return result;
 }
 
-module.exports = {auditAuthoredInputWrites,authoredInputValueReferences};
+module.exports = {auditAuthoredInputWrites,authoredInputValueReferences,authoredOptionValueReferences};

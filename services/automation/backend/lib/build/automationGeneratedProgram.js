@@ -231,8 +231,46 @@ function joinGeneratedAssertions(input,{runtime='web'}={}){
   return {source:positions.length?result:input,joined:positions.length};
 }
 
+function fixtureOnly(node, bindings, depth = 0) {
+  if (!node || depth > 25) return false;
+  const isFixture = child => fixtureOnly(child, bindings, depth + 1);
+  switch (node.type) {
+    case 'Literal': return true;
+    case 'Identifier': return node.name === 'undefined' || bindings.has(node.name);
+    case 'MemberExpression': return node.object?.name === 'params' && (!node.computed || isFixture(node.property));
+    case 'TemplateLiteral': return node.expressions.every(isFixture);
+    case 'ArrayExpression': return node.elements.every(isFixture);
+    case 'ObjectExpression': return node.properties.every(property => property.type === 'Property'
+      && property.kind === 'init' && (!property.computed || isFixture(property.key)) && isFixture(property.value));
+    case 'UnaryExpression': return ['!', '+', '-', '~', 'typeof', 'void'].includes(node.operator) && isFixture(node.argument);
+    case 'LogicalExpression':
+    case 'BinaryExpression': return isFixture(node.left) && isFixture(node.right);
+    case 'ConditionalExpression': return isFixture(node.test) && isFixture(node.consequent) && isFixture(node.alternate);
+    case 'CallExpression': return ['String', 'Number', 'Boolean'].includes(node.callee?.name) && node.arguments.every(isFixture);
+    default: return false;
+  }
+}
+
+function hasNonFixtureOracle(call, bindings) {
+  const name = member(call.callee);
+  const helper = call.callee.object?.name === 'expect';
+  let expectation = call.callee.object;
+  if (member(expectation) === 'not') expectation = expectation.object;
+  let subject = helper ? call.arguments[0] : expectation?.arguments?.[0];
+  const expected = helper ? call.arguments.slice(1) : call.arguments;
+  if (pollingExpectation(call)) {
+    const body = subject.body;
+    subject = body.type === 'BlockStatement' && body.body.length === 1 && body.body[0].type === 'ReturnStatement'
+      ? body.body[0].argument : body;
+  }
+  if (!subject || fixtureOnly(subject, bindings) && expected.every(argument => fixtureOnly(argument, bindings))) return false;
+  if (['equal', 'toBe', 'toEqual', 'toStrictEqual'].includes(name) && subject.type === 'Identifier'
+    && expected[0]?.type === 'Identifier' && expected[0].name === subject.name) return false;
+  return true;
+}
+
 /** A saved expected result needs a real executable check, rather than a check
- * present only in the development tool calls or an unused helper declaration. */
+ * present only in development calls, fixture constants or suppressed errors. */
 function hasExecutableAssertion(source) {
   let tree,normalized;try{normalized=normalizeGeneratedProgram(source);tree=parseProgram(normalized);}catch{return false;}
   // Reuse atomic lowering for linear const-locator aliases rather than
@@ -244,36 +282,98 @@ function hasExecutableAssertion(source) {
     if(node.type==='VariableDeclaration')for(const item of node.declarations)if(item.id?.type==='Identifier'&&isFunction(item.init))helpers.set(item.id.name,item.init);
   }
   const synchronous=new Set(['toBe','toEqual','toStrictEqual','toContain','toMatch','toBeTruthy','toBeFalsy','toBeDefined','toBeNull','toHaveLength']);
-  const visit=(node,joined=false,returnJoined=true)=>{
+  const visit=(node,joined=false,returnJoined=true,fixtures=new Set())=>{
     if(found||!node||typeof node!=='object'||isFunction(node))return;
     if(node.type==='Program'||node.type==='BlockStatement'){
-      for(const statement of node.body){visit(statement,false,returnJoined);if(['ReturnStatement','ThrowStatement'].includes(statement.type))break;}
+      const scope = new Set(fixtures);
+      for (const statement of node.body) {
+        visit(statement, false, returnJoined, scope);
+        if (statement.type === 'VariableDeclaration') for (const item of statement.declarations) {
+          if (item.id.type !== 'Identifier') continue;
+          if (statement.kind === 'const' && !['ArrayExpression', 'ObjectExpression'].includes(item.init?.type)
+            && fixtureOnly(item.init, scope)) scope.add(item.id.name);
+          else scope.delete(item.id.name);
+        }
+        if (['ReturnStatement', 'ThrowStatement'].includes(statement.type)) break;
+      }
       return;
     }
-    if(node.type==='AwaitExpression'){visit(node.argument,true,returnJoined);return;}
-    if(node.type==='ReturnStatement'){visit(node.argument,returnJoined,returnJoined);return;}
-    if(node.type==='IfStatement'&&node.test?.type==='Literal'&&typeof node.test.value==='boolean'){visit(node.test.value?node.consequent:node.alternate,joined,returnJoined);return;}
-    if(['WhileStatement','ForStatement'].includes(node.type)&&node.test?.type==='Literal'&&node.test.value===false){if(node.init)visit(node.init,false,returnJoined);return;}
+    if(node.type==='AwaitExpression'){visit(node.argument,true,returnJoined,fixtures);return;}
+    if(node.type==='ReturnStatement'){visit(node.argument,returnJoined,returnJoined,fixtures);return;}
+    if(['IfStatement','ConditionalExpression'].includes(node.type)&&node.test?.type==='Literal'&&typeof node.test.value==='boolean'){visit(node.test.value?node.consequent:node.alternate,joined,returnJoined,fixtures);return;}
+    if(node.type==='LogicalExpression'&&node.left?.type==='Literal'){
+      const value=node.left.value;
+      if(node.operator==='&&'&&value||node.operator==='||'&&!value||node.operator==='??'&&value==null)visit(node.right,joined,returnJoined,fixtures);
+      return;
+    }
+    if(['WhileStatement','ForStatement'].includes(node.type)&&node.test?.type==='Literal'&&node.test.value===false){if(node.init)visit(node.init,false,returnJoined,fixtures);return;}
+    if (node.type === 'TryStatement') {
+      const handler = node.handler;
+      const rethrow = handler?.body.body[0];
+      const propagates = !handler || (handler.param?.type === 'Identifier' && handler.body.body.length === 1
+        && rethrow?.type === 'ThrowStatement' && rethrow.argument?.type === 'Identifier' && rethrow.argument.name === handler.param.name);
+      const returnsFromFinally = node.finalizer?.body.some(statement => statement.type === 'ReturnStatement');
+      if (propagates && !returnsFromFinally) visit(node.block, joined, returnJoined, fixtures);
+      visit(node.finalizer, joined, returnJoined, fixtures);
+      return;
+    }
     if(node.type==='CallExpression'){
-      const root=rootName(node.callee),name=member(node.callee);
+      const name=member(node.callee);
       if(joined&&visibilityWaitCondition(node,new Map(),{allowCustomTimeout:true}))found=true;
-      if(nativeExpectation(node)&&(locatorMatchers.has(name)||synchronous.has(name))&&(joined||!pollingExpectation(node)&&synchronous.has(name)))found=true;
+      if(nativeExpectation(node)&&(locatorMatchers.has(name)||synchronous.has(name))&&(joined||!pollingExpectation(node)&&synchronous.has(name))&&hasNonFixtureOracle(node,fixtures))found=true;
       if(node.callee.object?.name==='web'&&/^expect(?:Text|Visible|Hidden|Enabled|Url|Value)$/.test(name||'')&&joined)found=true;
-      if(node.callee.object?.name==='expect'&&['equal','contains','truthy'].includes(name))found=true;
+      if(node.callee.object?.name==='expect'&&['equal','contains','truthy'].includes(name)&&hasNonFixtureOracle(node,fixtures))found=true;
       const helper=isFunction(node.callee)?node.callee:node.callee?.type==='Identifier'?helpers.get(node.callee.name):isNamedStep(node)?node.arguments.at(-1):null;
       if(helper&&(joined||!helper.async)){
         const modes=visited.get(helper)||new Set();
         if(!modes.has(joined)){modes.add(joined);visited.set(helper,modes);visit(helper.body,false,joined);}
       }
       if(joined&&node.callee.object?.name==='Promise'&&name==='all'&&node.arguments.length===1&&node.arguments[0]?.type==='ArrayExpression'){
-        node.arguments[0].elements.forEach(item=>visit(item,true,returnJoined));
+        node.arguments[0].elements.forEach(item=>visit(item,true,returnJoined,fixtures));
       }
       // Awaiting an unrelated call does not join assertion promises passed as
       // its arguments. Only an explicit Promise.all preserves that contract.
-      visit(node.callee,false,returnJoined);node.arguments.forEach(item=>visit(item,false,returnJoined));return;
+      visit(node.callee,false,returnJoined,fixtures);node.arguments.forEach(item=>visit(item,false,returnJoined,fixtures));return;
     }
-    for(const value of Object.values(node))if(Array.isArray(value))value.forEach(item=>visit(item,false,returnJoined));else if(value&&typeof value==='object')visit(value,false,returnJoined);
+    for(const value of Object.values(node))if(Array.isArray(value))value.forEach(item=>visit(item,false,returnJoined,fixtures));else if(value&&typeof value==='object')visit(value,false,returnJoined,fixtures);
   };
   visit(tree);return found;
 }
-module.exports={normalizeGeneratedProgram,preserveGeneratedAssertions,assertionContracts,hasExecutableAssertion,joinGeneratedAssertions};
+
+/** Lint newly generated browser source. Historical and explicitly authored
+ * steps keep their existing runtime contract. */
+function assertGeneratedBrowserSourceQuality(source, { expectedResult = '' } = {}) {
+  const failQuality = message => { throw Object.assign(new Error(message), { code: 'AUTOMATION_GENERATED_SOURCE_QUALITY', statusCode: 422 }); };
+  const comments = [];
+  const tree = parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: true, onComment: comments });
+  const directives = comments.filter(comment => comment.end <= tree.body[0]?.start && /^\s*@hellotest-options\b/i.test(comment.value));
+  if (directives.some(comment => /\b(?:skip|optional)\b/i.test(comment.value))) {
+    failQuality('Generated sections must run and propagate assertion failures. Remove the skip or optional execution directive.');
+  }
+  const forcedActions = new Set(['click', 'dblclick', 'fill', 'check', 'uncheck', 'setChecked', 'selectOption', 'hover', 'dragTo']);
+  const navigation = new Set(['goto', 'reload', 'goBack', 'goForward', 'waitForURL', 'setContent']);
+  const transitions = new Set([...forcedActions, 'goto', 'reload', 'goBack', 'goForward', 'press', 'type', 'pressSequentially', 'setInputFiles', 'switchTab']);
+  const hasOption = (args, name, value) => args.some(argument => argument.type === 'ObjectExpression'
+    && argument.properties.some(option => (option.key?.name ?? option.key?.value) === name && option.value?.value === value));
+  walk(tree, node => {
+    if (node.type !== 'CallExpression') return;
+    const method = member(node.callee);
+    if (method === 'waitForTimeout') failQuality('Replace the fixed sleep with a bounded wait for the observed application state.');
+    if (method === 'waitForLoadState' && node.arguments[0]?.value === 'networkidle'
+      || navigation.has(method) && hasOption(node.arguments, 'waitUntil', 'networkidle')) {
+      failQuality('Use a specific response, locator or route condition for readiness instead of networkidle.');
+    }
+    if (forcedActions.has(method) && hasOption(node.arguments, 'force', true)) {
+      failQuality('Preserve normal Playwright actionability. Use the observed actionable target or report the blocker.');
+    }
+  });
+  if (typeof expectedResult === 'string' && expectedResult.trim()) {
+    const finalTransition = tree.body.findLast(statement => statement.type === 'ExpressionStatement'
+      && statement.expression.type === 'AwaitExpression' && statement.expression.argument.type === 'CallExpression'
+      && transitions.has(member(statement.expression.argument.callee)));
+    if (finalTransition && !hasExecutableAssertion(source.slice(finalTransition.end))) {
+      failQuality('Keep the expected-result assertion after the final action. An earlier check proves only the earlier application state.');
+    }
+  }
+}
+module.exports={normalizeGeneratedProgram,preserveGeneratedAssertions,assertionContracts,hasExecutableAssertion,joinGeneratedAssertions,assertGeneratedBrowserSourceQuality};

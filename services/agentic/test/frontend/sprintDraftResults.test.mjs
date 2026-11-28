@@ -110,19 +110,19 @@ test('a generator Review action resolves only matching downstream Library receip
   assert.deepEqual(savedSprintCaseIds(run,{},'missing'),[]);
 });
 
-test('whole-case progress preserves completed drafts and separates failed cases from missing input',()=>{
+test('a terminal partial result preserves completed drafts and separates failed cases from missing input',()=>{
   const failure={case_index:1,client_id:'case-failed',message:'The generated source did not preserve the amount assertion.',code:'AUTOMATION_GENERATED_SOURCE_INVALID'};
   const progress={completed:1,failed:1,needs_input:0,processed:2,total:2};
   const data=[{...story('a'),automation:[{client_id:'case-good',case_index:0,executable:{code:'validated complete source'}},null],automation_failures:[failure],automation_progress:progress}];
   const run={node_results:[stage('generate',[{...story('a'),cases:[draft('good'),draft('failed')]}]),
     stage('assess',[{...story('a'),case_assurance:[assessment('good'),{...assessment('failed'),case_index:1}]}]),
-    {node_id:'build',node_type:'artifactTask',status:'running',progress:{completed_items:data,automation_checkpoint:{stories:[{cases:[draft('private-checkpoint')]}]}}}]};
+    {node_id:'build',node_type:'artifactTask',status:'failed',output:{data,partial:true},progress:{automation_checkpoint:{stories:[{cases:[draft('private-checkpoint')]}]}}}]};
   const result=collectSprintDrafts(run)[0];
   assert.equal(result.packet.automation[0].executable.code,'validated complete source');
   assert.deepEqual(result.packet.automation_failures.filter(Boolean),[failure]);assert.deepEqual(result.packet.automation_progress,progress);
   assert.deepEqual(result.packet.automation_input_required,[]);
   assert.deepEqual(result.manualTargets[0],{nodeId:'assess',storyIndex:0});
-  assert.equal(result.automationTargets[0],undefined,'An active progress record does not become a completed acceptance target');
+  assert.equal(result.automationTargets[0],undefined,'A terminal partial outcome does not become a completed acceptance target');
   assert.deepEqual(result.packet.cases.map(item=>item.client_id),['case-good','case-failed']);
 });
 
@@ -162,7 +162,7 @@ test('v4 case-scoped assurance and prepared data are visible before automation s
   assert.deepEqual(result.manualTargets,[0,1].map(index=>({nodeId:'assess',storyIndex:0,iterationPath:['each-story',0,'each-test-case',index]})));
 });
 
-test('a failed later case retains saved cases, completed assessments, prepared data and active build progress',()=>{
+test('a failed later case retains completed outputs and excludes active case progress',()=>{
   const cases=[draft('one'),draft('two')];
   const scoped=(index,fields)=>({...story('a'),case_index:index,client_id:cases[index].client_id,...fields});
   const receipt={id:'saved-one',kind:'manual',saved:true,story_id:'a',case_index:0,client_id:'case-one'};
@@ -180,9 +180,9 @@ test('a failed later case retains saved cases, completed assessments, prepared d
   assert.equal(result.packet.case_assurance[0].verification.status,'passed');
   assert.equal(result.packet.case_assurance_failures[1].code,'AI_OUTPUT_TRUNCATED');
   assert.equal(result.packet.test_data[0].parameter_values['t.product_code'],'9000017248');
-  assert.equal(result.packet.test_data[1].message,'Review this case before preparing data.');
+  assert.equal(result.packet.test_data[1],undefined);
   assert.equal(result.packet.automation[0].executable.code,'validated source');
-  assert.deepEqual(result.packet.automation_progress,{completed:1,failed:0,needs_input:0,processed:1,total:2,active_case_index:1,active_phase:'automation.agent.case.started',active_message:'Generating second case'});
+  assert.deepEqual(result.packet.automation_progress,{completed:1,failed:0,needs_input:0,processed:1,total:2});
   assert.deepEqual(result.automationTargets[0],{nodeId:'build',storyIndex:0},'Active progress does not become a new acceptance checkpoint');
 });
 
@@ -223,14 +223,13 @@ test('case-scoped automation retries clear stale outcomes and preserve other cas
 test('terminal automation failure uses its exact public case identity and retains manual publication and prepared data',()=>{
   const message='AI context exceeds this feature’s input budget.';
   const path=['each-story',0,'each-test-case',0];
-  const row={...story('a'),case_index:0,client_id:'case-one',automation_progress:{processed:0,total:1,active_case_index:0,active_phase:'automation.agent.browser.failed'}};
   const run={node_results:[{...stage('generate',[{...story('a'),cases:[draft('one')]}]),output:{data:[{...story('a'),cases:[draft('one')]}],
     library_publication:{receipts:[{id:'saved-manual',kind:'manual',saved:true,story_id:'a',case_index:0,client_id:'case-one'}]}}},
     stage('prepare',[{...story('a'),case_index:0,client_id:'case-one',test_data:{status:'ready',source:'synthetic',existing_parameter_count:11,model_calls_attempted:0,parameter_values:{}}}]),
-    {node_id:'build',node_type:'artifactTask',status:'failed',error:message,iteration_path:path,progress:{completed_items:[row]},logs:[{
-      event:'node_failed',origin:{node_id:'build',iteration_path:path},code:'AI_INPUT_BUDGET_EXCEEDED',message,
+    {node_id:'build',node_type:'artifactTask',status:'failed',error:message,iteration_path:path,error_details:{
+      artifact:{artifact_task:'automation-engineer',story_id:'a',case_index:0,case_client_id:'case-one'},code:'AI_INPUT_BUDGET_EXCEEDED',message,
       outcome_unknown:true,reconciliation_required:true,model_candidate:'Private provider body must stay private'
-    }]}
+    }}
   ]};
   const packet=collectSprintDrafts(run)[0].packet;
   assert.deepEqual(packet.automation_failures,[{case_index:0,client_id:'case-one',message,code:'AI_INPUT_BUDGET_EXCEEDED',outcome_unknown:true,reconciliation_required:true}]);

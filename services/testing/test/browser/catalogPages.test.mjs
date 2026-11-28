@@ -46,12 +46,13 @@ api.settings.getLocalization=async()=>({strings:{}});
 api.settings.getWorkspacePreferences=async()=>({preferences:{}});
 api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});
 const statuses=[{value:'open',label:'Open',category_key:'new'},{value:'closed',label:'Closed',category_key:'done'}];
+window.fixtureLongAssignee='Mira Jayaseelan, Enterprise Quality Engineering and Release Operations';
 api.metadata.domain=async()=>({issues:{default_status:'open',statuses},jira:{sprints:[],versions:[]}});
 const bugs=Array.from({length:60},(_,index)=>{
  const n=index+1;
  return {id:'bug-'+n,display_id:'BUG-'+n,jira_bug_key:'EXT-'+n,project_id:'catalog-project',user_id:'reviewer',user_name:'QA Reviewer',user_email:'reviewer@example.test',
   title:n===60?'Boundary failure beyond the first pages':'Checkout bug '+String(n).padStart(2,'0'),message:'Observed checkout behavior for fixture '+n,
-  status:n%4===0?'closed':'open',priority:n%3===0?'High':'Medium',severity:'medium',assignee_id:n%2===0?null:'reviewer',assignee_name:n%2===0?null:'QA Reviewer',
+  status:n%4===0?'closed':'open',priority:n%3===0?'High':'Medium',severity:'medium',assignee_id:n===60?'long-assignee':n%2===0?null:'reviewer',assignee_name:n===60?window.fixtureLongAssignee:n%2===0?null:'QA Reviewer',
   steps_to_reproduce:'Open checkout and submit',expected_result:'Order completes',actual_result:'An error appears',
   linked_test_case_ids:[],linked_test_suite_ids:[],linked_module_ids:[],linked_requirement_ids:[],labels:[],has_converted_test_cases:n===60,
   created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T10:00:00Z'};
@@ -81,7 +82,7 @@ api.issues.get=async(id,input)=>{
  if(!item)throw new Error('Bug not found');
  return structuredClone(item);
 };
-api.issues.editMetadata=async()=>({fields:[],core_fields:[],required_fields:[],current_values:{},workflow_statuses:{statuses,default_status:'open'}});
+api.issues.editMetadata=async()=>({fields:[],core_fields:[],required_fields:[],current_values:{},workflow_statuses:{statuses:statuses.map(item=>item.value==='closed'?{...item,current:true}:item),default_status:'open'}});
 api.issues.history=async()=>[];
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
 const router=createMemoryRouter([{path:'/issues',element:<IssuesPage/>},{path:'/away',element:<h1>Away from Bugs</h1>}],{initialEntries:['/issues']});
@@ -179,6 +180,30 @@ test('Bugs fetch 25 records independently from complete metrics, append on scrol
     calls=await page.evaluate(()=>window.calls);
     assert.deepEqual({catalog:calls.catalog.length,metrics:calls.metrics.length},beforeDetail,'Deep links do not drain or refetch the catalog');
     assert.deepEqual(calls.detail.map(call=>call.id),['EXT-60']);
+    const fields = [['Status','Closed · current'],['Severity','Medium'],['Priority','High'],['Assignee',await page.evaluate(()=>window.fixtureLongAssignee)]];
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({width,height:900});
+      for (const [label,value] of fields) {
+        const trigger = page.getByRole('button',{name:`${label}: ${value}`,exact:true});
+        const field = page.locator('.issue-form-classification-grid > .form-field').filter({has:trigger});
+        await field.locator('.form-field-label').getByText(label,{exact:true}).waitFor();
+        assert.equal(await trigger.innerText(),value);
+        assert.ok(await trigger.locator('.context-select-value').evaluate(node=>node.scrollWidth<=node.clientWidth+1 && node.scrollHeight<=node.clientHeight+1),`${label} is completely visible at ${width}px`);
+      }
+    }
+    for (const [label,value] of fields) {
+      await page.getByRole('button',{name:`${label}: ${value}`,exact:true}).click();
+      const option = page.getByRole('listbox',{name:label,exact:true}).getByRole('option',{name:value,exact:true});
+      assert.equal(await option.getAttribute('aria-selected'),'true');
+      await page.keyboard.press('Escape');
+    }
+    await page.getByRole('button',{name:'Severity: Medium',exact:true}).click();
+    await page.getByRole('combobox',{name:'Search Severity',exact:true}).fill('High');
+    await page.keyboard.press('Enter');
+    await page.getByRole('button',{name:'Severity: High',exact:true}).waitFor();
+    assert.equal(await page.locator('.bug-field-severity select').inputValue(),'high');
+    await page.setViewportSize({width:1440,height:900});
+    await page.locator('.issue-form-classification-grid').scrollIntoViewIfNeeded();
     await page.screenshot({path:artifacts+'/bugs-off-page-detail.png'});
     assert.deepEqual(errors,[]);
     assert.deepEqual(unexpectedRequests,[],'All requests are isolated from the real backend');

@@ -49,6 +49,13 @@ test('selecting CLI bounded repair passes its exact choice through the existing 
  assert.equal(selected, 'verify_repair_cli');
 });
 
+test('paired browser offers native verification and renders a stale CLI selection as save only', () => {
+ const markup = renderToStaticMarkup(AutomationBuildVerificationSettings(settings({ mode: 'verify_cli', browserLocation: 'local' })));
+ assert.doesNotMatch(markup, /Playwright Test CLI/);
+ assert.match(markup, /value="generate_only" selected="">Save instructions only/);
+ assert.match(markup, /value="verify">Run generated test/);
+});
+
 test('Automation Engineer requests CLI verification with MCP authoring and respects execution permissions', () => {
  const options = { mode: 'verify_repair_cli', driver: 'mcp', canVerify: true, interactive: true };
  const request = pipeline.automationBuildPipelineRequest(options);

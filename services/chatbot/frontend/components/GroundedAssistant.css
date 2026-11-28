@@ -78,14 +78,6 @@
 .grounded-assistant-starters strong { color: var(--chat-text); font-size: 12px; font-weight: 600; }
 .grounded-assistant-starters small { font-size: 11px; font-weight: 400; }
 .grounded-assistant-message { margin-bottom: 26px; min-width: 0; }
-.grounded-assistant-active-answer { padding: 13px; border: 1px solid var(--chat-border); border-radius: 12px; background: var(--chat-surface); }
-.grounded-assistant-answer-delivery-status { margin-left: auto; color: var(--chat-secondary); font-weight: 500; }
-.grounded-assistant-active-evidence { display: grid; gap: 6px; margin: 0 0 12px; padding: 10px; border: 1px solid var(--chat-border); border-radius: 9px; background: var(--chat-muted); }
-.grounded-assistant-active-evidence > strong { color: var(--chat-secondary); font-size: 10px; }
-.grounded-assistant-active-evidence ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.grounded-assistant-active-evidence li :is(a, span) { display: inline-flex; max-width: 100%; padding: 5px 8px; overflow-wrap: anywhere; border: 1px solid var(--chat-border); border-radius: 6px; color: var(--chat-text); font-size: 10px; text-decoration: none; }
-.grounded-assistant-active-evidence a:hover { border-color: var(--chat-accent); color: var(--chat-accent); }
-.grounded-assistant-active-answer-note { display: block; margin-top: 10px; color: var(--chat-secondary); font-size: 10px; }
 .grounded-assistant-message-label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 22px; margin-bottom: 9px; color: var(--chat-secondary); font-size: 11px; font-weight: 600; }
 .grounded-assistant-message-label > svg { color: var(--chat-accent); }
 .grounded-assistant-message-content { color: var(--chat-text); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }

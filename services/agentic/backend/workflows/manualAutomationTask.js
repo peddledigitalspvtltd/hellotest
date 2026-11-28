@@ -3,7 +3,9 @@ const scopes = require('@hellotest/testing/backend/services/testCaseScope.servic
 const steps = require('@hellotest/testing/backend/services/testStep.service');
 const { fail } = require('./connections');
 const inputs = require('./automationNodeInputs');
+const testData = require('./testDataGenerator');
 const { failureInfo } = require('./runtimeEvents');
+const { needsExecutionReview } = require('./automationResult');
 
 async function loadSource({run,node,user,access,automationSteps}) {
   await access(user, run.project_id, ['testcase.view', 'automation.ai', 'automation.build', 'automation.code.view']);
@@ -31,17 +33,28 @@ async function loadSource({run,node,user,access,automationSteps}) {
   return {source,draft,appTypeKind,...runtime};
 }
 
-async function execute({run,node,user,signal,onProgress,access,automationSteps,fingerprint,taskGuidance,draftParameterInputGap,generateCase,manualAutomationBuildIssue}) {
+async function prepareInputs({run,node,user,access,draft,resolved,signal}) {
+  const configured = testData.configuredInputs(resolved);
+  const selectedData = await testData.prepareSelectedCase({ run,node,user,access,draft,steps:draft.steps,configured,signal });
+  const preparedData = selectedData || testData.analyzeCase({draft,steps:draft.steps,configured});
+  const bound = testData.automationDraftWithData(draft,preparedData);
+  const supplied = inputs.caseInputs(bound,bound.steps,resolved);
+  return { preparedData, supplied, availableNames:[...supplied.availableParameterNames,...Object.values(preparedData.parameter_bindings || {})] };
+}
+
+async function execute({run,node,user,signal,onProgress,access,automationSteps,fingerprint,taskGuidance,dataPreparationGap,draftParameterInputGap,generateCase,manualAutomationBuildIssue,agentPresentation}) {
   const loaded = await loadSource({run,node,user,access,automationSteps});
-  const {source,draft,appTypeKind,nativeSteps,inspectBrowser,interactive,verificationMode} = loaded;
+  const {source,draft,appTypeKind,nativeSteps,inspectBrowser,interactive,verificationMode,verificationDriver,requestedVerification} = loaded;
   const sourceFingerprint = fingerprint(draft);
   const manualCase = {id:source.id, display_id:source.display_id, title:source.title, revision:source.revision, source_fingerprint:sourceFingerprint};
   const resolved = await inputs.resolveNodeInputs({run,node,user,access,startUrlFallback:source.automation_start_url});
-  const supplied = inputs.caseInputs(draft,draft.steps,resolved);
-  const inputGap = draft.test_data_set_ids.length ? null : draftParameterInputGap(supplied.inputDraft,supplied.draft.steps,source.id,0,supplied.availableParameterNames);
+  const { preparedData, supplied, availableNames } = await prepareInputs({run,node,user,access,draft,resolved,signal});
+  const inputGap = dataPreparationGap(preparedData,draft,source.id,0)
+    || draftParameterInputGap(supplied.inputDraft,supplied.draft.steps,source.id,0,availableNames);
   const wrap = (data, status) => {
     const output = {artifact_task:'automation-engineer',generation_mode:'native',publication_status:'proposal',requires_human_review:true,
-      processed:1,verification:{status,limitation:'Build validation checks the generated source. Application execution has its own verification receipt.'},data:{manual_case:manualCase,...data}};
+      processed:1,verification:{status,limitation:'Build validation checks the generated source. Application execution has its own verification receipt.'},
+      data:{manual_case:manualCase,test_data:preparedData,...data}};
     return {__workflow_result:{output,context:output}};
   };
   if (inputGap) return wrap({automation_input_required:inputGap},'needs_input');
@@ -52,16 +65,20 @@ async function execute({run,node,user,signal,onProgress,access,automationSteps,f
     await onProgress({current_item:1,total_items:1,percent:Number.isInteger(completed) ? Math.min(99,Math.round(completed * 100 / nativeSteps.length)) : 0,
       ...(event.phase==='automation.agent.browser.startup_retry' ? {automation_startup_retry:true} : {}),
       automation_progress:{total:1,processed:0,total_sections:nativeSteps.length,completed_sections:completed,active_step_order:active?.step_order,
-        active_message:event.message?.replace('Previously saved sections remain in Plan.','The manual Test Case remains in the library.')}});
+        active_message:typeof event.message === 'string' ? supplied.project(event.message).slice(0, 500)
+          .replace('Previously saved sections remain in Plan.','The manual Test Case remains in the library.') : undefined}});
   };
   let generated;
   try {
-    generated = await generateCase({run,node,user,signal,interactive,identity:{manual_test_case_id:source.id,source_fingerprint:sourceFingerprint,browser_mode:resolved.browserMode},
+    generated = await generateCase({run,node,user,signal,interactive,requestedVerification,identity:{manual_test_case_id:source.id,source_fingerprint:sourceFingerprint,browser_mode:resolved.browserMode,
+      ...(preparedData.test_data_set_revision ? {test_data_set_revision:preparedData.test_data_set_revision} : {})},
       iterationPath:['manual_case',source.id],supplied,builderInput:{
         project_id:run.project_id,app_type_id:run.app_type_id,app_type_kind:appTypeKind,user_id:user.id,
         integration_id:node.data.llmIntegrationId || run.input_payload.integration_id || undefined,
-        inspect_browser:inspectBrowser,allow_browser_actions:interactive,verification_mode:verificationMode,
-        test_environment_id:resolved.testEnvironmentId || undefined,additional_context:taskGuidance(node),onProgress:progress
+        inspect_browser:inspectBrowser,allow_browser_actions:interactive,verification_mode:verificationMode,verification_driver:verificationDriver,
+        test_environment_id:resolved.testEnvironmentId || undefined,test_data_set_id:preparedData.test_data_set_id,
+        expected_test_data_set_revision:preparedData.test_data_set_revision,additional_context:taskGuidance(node),
+        onProgress:agentPresentation?.progress === false ? undefined : progress
       }});
   } catch (error) {
     if (error.systemic_failure || error.outcome_unknown || error.transactionOutcomeUnknown || signal?.aborted
@@ -78,8 +95,8 @@ async function execute({run,node,user,signal,onProgress,access,automationSteps,f
     throw Object.assign(fail('The manual Test Case changed during generation. Inspect the earlier browser execution before building its current revision.', 409), {code:'AUTOMATION_MANUAL_CASE_CHANGED'});
   }
   await onProgress({percent:100,current_item:1,total_items:1,automation_progress:{completed:1,total:1,processed:1}});
-  const needsReview = generated.live_validation?.status === 'blocked' || (generated.verification && generated.verification.status !== 'passed');
+  const needsReview = needsExecutionReview(generated);
   return wrap({automation:generated},needsReview ? 'needs_input' : 'passed');
 }
 
-module.exports = {loadSource,execute};
+module.exports = {loadSource,prepareInputs,execute};

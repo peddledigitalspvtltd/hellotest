@@ -860,8 +860,19 @@ exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environment
     browser.projectPrivateText=browserParameters.projectPrivateText;
     const catalog=new Map(browser.tools.map(tool=>[tool.name,tool]));
     browser.call=async(name,args,options)=>{
-      await guard(args);const resolved=resolveSecretReferences(name,args,bindings.references,bindings.secrets,bindings.parameterValues);
-      validateRequest({name,arguments:resolved},catalog,{interactive:allowBrowserActions===true,startUrl:url});
+      let resolved;
+      try{
+        await guard(args);
+        signal?.throwIfAborted();
+        resolved=resolveSecretReferences(name,args,bindings.references,bindings.secrets,bindings.parameterValues);
+        validateRequest({name,arguments:resolved},catalog,{interactive:allowBrowserActions===true,startUrl:url});
+      }catch(error){
+        // Abort reasons can be shared with other operations. Annotate this
+        // pre-dispatch failure without mutating that shared reason.
+        if(signal?.aborted&&error===signal.reason)throw Object.assign(new Error(error?.message||'The browser request was cancelled before dispatch.',{cause:error}),{name:error?.name||'AbortError',code:error?.code,action_outcome:'not_attempted'});
+        if(Object.isExtensible(error))error.action_outcome='not_attempted';
+        throw error;
+      }
       try{return browserParameters.redactResult(await nativeCall(name,resolved,options));}catch(error){throw browserParameters.redactError(error);}
     };
     let navigated=false;

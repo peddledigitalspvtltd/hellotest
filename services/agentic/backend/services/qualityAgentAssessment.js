@@ -89,13 +89,13 @@ async function assessQualityRun(request,user,engine,trace = {}) {
     await trace.onProgress?.({phase:'assessing',message:revision?'Correcting the final assessment against retained evidence.':'Assessing the observed findings, measurements and artifacts.',revision});
     await trace.onEvent?.('model_start',{call_id,stage:'assessment',kind:request.kind,revision});
     let response;
-    try { response = await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({ project_id:request.project_id,actor_id:user.id,session_id:trace.session_id },()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(endpoint,{
+    try { response = await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({ ...trace.workflowTrace,project_id:request.project_id,actor_id:user.id,session_id:trace.session_id },()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(endpoint,{
       method:'POST',signal:trace.signal,headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},
       body:JSON.stringify({model:integration.model,max_tokens:4096,response_format:{type:'json_object'},messages:validation?envelope.repairMessages(messages,{candidate:priorCandidate,issues:validation}):messages}),
     },{integration,featureKey,operation:`agentic-quality.assess.${request.kind}`,timeoutMs:Math.max(1000,deadline-Date.now()),maxOutputTokens:4096,maxAttempts:1,contextFallback:false,
       outputSchema,providerOutputSchema:require('./browserMissionDecisionContract').providerSchema(outputSchema),outputSchemaName:'quality_agent_assessment',contextRetrievalQuery:request.goal,...(visual?.requestOptions||{}),
       beforeDispatch:meta=>trace.beforeDispatch?.({...meta,call_id,phase:'assessment',revision}),
-      onTextDelta:(text,meta)=>trace.onEvent?.('text',{call_id,stage:'assessment',kind:request.kind,revision,text,...meta}),
+      ...(trace.onEvent ? { onTextDelta: (text,meta)=>trace.onEvent('text',{call_id,stage:'assessment',kind:request.kind,revision,text,...meta}) } : {}),
       mcpContextFilters:{agent_id:`browser-${request.kind}`,app_type_id:request.app_type_id,requested_scopes:request.context_scopes,evidence_scope:request.evidence_scope,source_ids:request.smart_context?.source_ids,source_kinds:request.smart_context?.source_kinds},
     })); } catch(failure) {
       if(revision<maxRevisions&&!trace.signal?.aborted&&Date.now()<deadline-1000&&['AI_INVALID_JSON','AI_OUTPUT_SCHEMA_VIOLATION'].includes(failure.code)&&typeof failure.model_candidate==='string') {

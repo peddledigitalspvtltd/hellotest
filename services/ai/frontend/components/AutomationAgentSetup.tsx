@@ -6,9 +6,9 @@ import type { ReactNode } from "react";
 import type { TestStepType } from "@hellotest/platform/frontend/src/types";
 export type AutomationAgentSelection = { scopes: string[]; inputs: Record<string,string>; smart: SmartContextSelection | null; integrationId: string };
 export const automationAgentSelection = (): AutomationAgentSelection => ({scopes:["automation","test-cases","stories","runs","knowledge"],inputs:{},smart:null,integrationId:""});
-export function AutomationAgentSetup({agentId,projectId,appTypeId,testCaseId,prompt,onPromptChange,value,onChange,onSubmit,disabled,submitDisabled,running,submitLabel,options,caseBuildRuntimes,integrations=[]}: {
+export function AutomationAgentSetup({agentId,projectId,appTypeId,testCaseId,prompt,onPromptChange,value,onChange,onSubmit,disabled,submitDisabled,running,submitLabel,options,secondaryAction,caseBuildRuntimes,integrations=[]}: {
  agentId:"automation-engineer"|"automation-repair";projectId:string;appTypeId?:string;testCaseId?:string;prompt:string;onPromptChange:(value:string)=>void;
- value:AutomationAgentSelection;onChange:(value:AutomationAgentSelection)=>void;onSubmit:()=>void;disabled?:boolean;submitDisabled?:boolean;running?:boolean;submitLabel:string;options?:ReactNode;
+ value:AutomationAgentSelection;onChange:(value:AutomationAgentSelection)=>void;onSubmit:()=>void;disabled?:boolean;submitDisabled?:boolean;running?:boolean;submitLabel:string;options?:ReactNode;secondaryAction?:ReactNode;
  integrations?: Array<{id:string;name:string;model?:string|null;is_active?:boolean;type?:string}>;
  caseBuildRuntimes?: readonly TestStepType[];
 }) {
@@ -16,8 +16,9 @@ export function AutomationAgentSetup({agentId,projectId,appTypeId,testCaseId,pro
  const agents = HELLOTEST_AGENT_CATALOG.filter(agent => agent.id === agentId).map(agent => caseBuildRuntimes ? { ...agent, name: "Automation Build Agent" } : agent);
  const buildsWeb = caseBuildRuntimes?.includes("web");
  const buildsApi = caseBuildRuntimes?.includes("api");
+ const buildsNative = caseBuildRuntimes?.some(runtime=>runtime==="android" || runtime==="ios");
  const identityDescription = caseBuildRuntimes
-  ? [buildsWeb ? "Web · Playwright MCP" : "", buildsApi ? "API · HTTP requests and assertions" : ""].filter(Boolean).join(" / ") || "Native · Appium instructions"
+  ? [buildsWeb ? "Web · Playwright MCP" : "", buildsApi ? "API · HTTP requests and assertions" : "", buildsNative ? "Native · Appium instructions" : ""].filter(Boolean).join(" / ")
   : agentId === "automation-engineer" ? "Manual case or prompt · Playwright MCP" : "Saved case and run evidence · Playwright MCP";
  return <div className="automation-agent-setup"><AgenticCommandComposer agents={agents} agentId={agentId} onAgentChange={()=>undefined}
   projectId={projectId} appTypeId={appTypeId} contextScopes={value.scopes} onContextScopesChange={scopes=>onChange({...value,scopes,smart:null})}
@@ -25,8 +26,8 @@ export function AutomationAgentSetup({agentId,projectId,appTypeId,testCaseId,pro
   integrationId={value.integrationId} integrations={integrations} onIntegrationChange={integrationId=>onChange({...value,integrationId})}
   smartContext={value.smart} onSmartContextChange={smart=>onChange({...value,smart,scopes:value.scopes.includes("knowledge")?value.scopes:[...value.scopes,"knowledge"]})}
   prompt={prompt} promptLabel={agentId==="automation-engineer"?"Build instructions (optional)":"Repair instructions (optional)"} onPromptChange={onPromptChange}
-  identityDescription={identityDescription} allowEmptyPrompt submitLabel={submitLabel} onSubmit={onSubmit} disabled={disabled} submitDisabled={submitDisabled} running={running} optionsContent={options}/>
-  <p className="muted">{agentId==="automation-engineer"?"Linked manual tests and saved steps are included automatically. Describe a new flow or add only missing setup and constraints.":"The case and saved sections are included. Select the failed run in Evidence scope and add repair priorities."} Context sources add accessible evidence. {!caseBuildRuntimes || buildsWeb ? "Playwright MCP grounds web automation in live observations. " : null}Run the saved case to verify it.</p>
+  identityDescription={identityDescription} allowEmptyPrompt submitLabel={submitLabel} onSubmit={onSubmit} disabled={disabled} submitDisabled={submitDisabled} running={running} optionsContent={options} secondaryAction={secondaryAction} showReviewCue={!caseBuildRuntimes}/>
+  {!caseBuildRuntimes ? <p className="muted">{agentId==="automation-engineer"?"Linked manual tests and saved steps are included automatically. Describe a new flow or add only missing setup and constraints.":"The case and saved sections are included. Select the failed run in Evidence scope and add repair priorities."} Context sources add accessible evidence. Playwright MCP grounds web automation in live observations. Run the saved case to verify it.</p> : null}
  </div>;
 }
 export function automationAgentRequest(value:AutomationAgentSelection) {

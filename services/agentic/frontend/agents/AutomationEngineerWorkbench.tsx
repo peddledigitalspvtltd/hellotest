@@ -5,7 +5,7 @@ import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "@hellotest/
 import type { WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 
 const AutomationWorkspace = capabilityView<{ initialView: "engineer" }>(
-  "automation", "AutomationPage", () => import("@hellotest/automation/frontend/pages/AutomationPage"), "Automation Engineer"
+  "automation", "AutomationPage", () => import("@hellotest/automation/frontend/pages/AutomationPage"), "Automation Build Agent"
 );
 
 export function clearAutomationWorkbenchRoute(params: URLSearchParams) {
@@ -22,11 +22,11 @@ export function AutomationEngineerWorkbench({ projectId, appTypeId, reviews, onB
 }) {
   const { can, snapshot } = useCapabilityAccess(projectId);
   const allowed = can("automation.view") && areFeatureFlagsEnabled(snapshot, requiredFeatureFlagsForPath("/automation"));
-  return <section className="agent-specialist-workspace" aria-label="Automation Engineer workspace">
+  return <section className="agent-specialist-workspace" aria-label="Automation Build Agent workspace">
     <div className="agent-specialist-heading">
       <div>
         <button aria-label="Back to all AI Agents" className="ghost-button" type="button" onClick={onBack}><IconArrowLeft size={16} /><span>Back</span></button>
-        <span className="agent-specialist-mode"><IconShieldCheck size={16} aria-hidden="true" />Browser automation</span>
+        <span className="agent-specialist-mode"><IconShieldCheck size={16} aria-hidden="true" />Web and API automation</span>
       </div>
     </div>
     {!projectId || !appTypeId ? <p className="agent-specialist-ready">Select a project and application to build automation.</p>

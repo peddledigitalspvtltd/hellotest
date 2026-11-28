@@ -38,7 +38,7 @@ function failureCode(failure) {
   if (failure.code === 'DEADLINE_EXCEEDED') return 'WORKFLOW_DEADLINE';
   if (failure.code === 'NODE_TIMEOUT') return 'NODE_TIMEOUT';
   if (failure.name === 'AbortError' || failure.statusCode === 499) return 'WORKFLOW_CANCELLED';
-  if (/^(?:AGENT|MCP|AI|LLM|MODEL|WORKFLOW|AUTOMATION|TEST_CASE|KNOWLEDGE|CORS)_[A-Z0-9_]{1,90}$/.test(failure.code || '')) return failure.code;
+  if (/^(?:AGENT|MCP|AI|LLM|MODEL|WORKFLOW|AUTOMATION|TEST_CASE|KNOWLEDGE|QUALITY_AGENT|CORS)_[A-Z0-9_]{1,90}$/.test(failure.code || '')) return failure.code;
   return failure.statusCode === 403 ? 'ACCESS_DENIED' : 'NODE_EXECUTION_FAILED';
 }
 function providerInfo(value) {

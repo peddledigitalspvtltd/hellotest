@@ -165,8 +165,7 @@ async function accept(app, req, run) {
     return receipt;
   })();
 }
-const automaticPublication = run => run?.workflow_snapshot?.settings?.template_id === 'sprint-automator'
-  && run.workflow_snapshot.settings.library_publication_mode === 'automatic';
+const automaticPublication = run => require('./sprintPipeline').isAutomaticSprintPublication(run?.workflow_snapshot?.settings);
 const publicationCancelled = () => Object.assign(new Error('Automatic Library publication stopped. Saved cases remain in the Library with review pending.'), {
   name: 'AbortError', code: 'WORKFLOW_CANCELLED', statusCode: 499, retryable: false, nonRetryable: true,
   publicMessage: 'Automatic Library publication stopped. Saved cases remain in the Library with review pending.'

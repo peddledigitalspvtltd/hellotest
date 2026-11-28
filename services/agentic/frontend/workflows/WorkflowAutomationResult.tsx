@@ -4,11 +4,13 @@ import { useCapabilityAccess } from '@hellotest/platform/frontend/src/platform/h
 import { agenticApi } from '../api.client';
 import { WorkflowAutomationSections } from './WorkflowAutomationSections';
 import { WorkflowFailureResolution } from './WorkflowFailureDetails';
-import { automationVerificationId, type SprintAutomation, type SprintAutomationRow } from './sprintDraftResults';
+import { automationExecutionIssue, automationVerificationId, type SprintAutomation, type SprintAutomationRow, type SprintTestData } from './sprintDraftResults';
+import { WorkflowTestDataDetails } from './WorkflowTestDataResult';
 
 type CaseResult = {
   manual_case?: {id?: string; display_id?: string; title?: string; revision?: number};
   automation?: SprintAutomation;
+  test_data?: SprintTestData;
   saved_automation_case_id?: string;
   automation_input_required?: {message?: string; required_context?: string[]; required_parameters?: string[];
     blocked_steps?: Array<{reason?: string}>; review_prior_actions?: boolean};
@@ -17,9 +19,17 @@ type CaseResult = {
 
 function AutomationVerificationStatus({draft}:{draft:SprintAutomation}) {
   const receipt = automationVerificationId(draft);
-  return <p role="status" title={receipt ? `Verification receipt ${receipt}` : undefined}>
-    {receipt ? 'Verified in an isolated browser check' : 'Generated, unverified'}
-  </p>;
+  const issue = automationExecutionIssue(draft);
+  const failure = receipt ? undefined : draft.verification?.failure;
+  const failedSection = failure?.step_id ? draft.steps?.find(step => step.id === failure.step_id)?.step_order : undefined;
+  return <>
+    <p role="status" title={receipt ? `Verification receipt ${receipt}` : undefined}>
+      {receipt ? (draft.verification?.repair_count
+        ? 'Verified after locator recovery'
+        : 'Verified in an isolated browser check') : `Generated, unverified${issue ? ` · ${issue}` : ''}`}
+    </p>
+    {failedSection ? <p>Verification stopped in section {failedSection}{failure?.operation_index ? ` at operation ${failure.operation_index}` : ''}.</p> : null}
+  </>;
 }
 
 export function WorkflowAutomationResult({value,runId,nodeId,projectId,iterationPath,canAccept}:{
@@ -45,6 +55,10 @@ export function WorkflowAutomationResult({value,runId,nodeId,projectId,iteration
   return <section aria-label="Manual Test Case automation">
     <h4>{result.manual_case.title || result.manual_case.display_id || 'Manual Test Case'}</h4>
     {result.manual_case.id && <a href={`/test-cases?case=${encodeURIComponent(result.manual_case.id)}`}>Open manual Test Case</a>}
+    {result.test_data && <details>
+      <summary>Test data · {result.test_data.status === 'ready' ? 'Ready' : 'Needs input'}</summary>
+      <WorkflowTestDataDetails data={result.test_data} />
+    </details>}
     {input?.message && <div role="status"><p>{input.message}</p>
       {[...new Set(input.blocked_steps?.map(step=>step.reason))].filter(reason=>reason && reason!==input.message).map(reason=><p key={reason}>{reason}</p>)}
       {Boolean(input.required_context?.length) && <ul>{input.required_context?.map(context=><li key={context}>{context}</li>)}</ul>}

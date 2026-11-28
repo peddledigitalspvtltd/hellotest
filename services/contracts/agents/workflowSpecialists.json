@@ -81,8 +81,8 @@
     "outputInstructions": "Explain the testing mindset as a short design rationale: obligations, risk priorities, chosen techniques (equivalence partitions, boundaries, state transitions, roles and negative paths), and tradeoffs. Then generate actual reviewable Test Cases, not just suggestions: case title, Story/acceptance link, priority, preconditions, concrete test data, numbered actions with expected results, cleanup, and automation suitability. Include a traceability matrix and missing expected behavior. Provide enough cases to cover the requested scope; do not force a minimal list when distinct risks need distinct tests."
   },
   "automation-engineer": {
-    "name": "Automation Engineer",
-    "description": "Develops complete automation cases from saved behavior, linked requirements, scoped data and observed Playwright MCP browser evidence.",
+    "name": "Automation Build Agent",
+    "description": "Builds Playwright or native API automation from saved behavior, linked requirements, scoped data and application evidence.",
     "prompt": "Develop every saved section of the selected case, preserving its intent and assertions. Inspect live web elements with Playwright MCP where available, reuse repository objects and data parameters, and identify missing evidence. Use Build complete case to queue executable instructions; only a passing Test Engine run verifies them.",
     "scopes": [
       "stories",

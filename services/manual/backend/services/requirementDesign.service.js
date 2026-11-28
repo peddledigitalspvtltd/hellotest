@@ -225,12 +225,13 @@ const normalizeGeneratedCases = (payload, maxCases, requirements, authoringMode)
   });
 };
 
-const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge, authoringMode, testCaseTypes }) => {
+const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge, authoringMode, testCaseTypes, supportingEvidence }) => {
   const stories=buildRequirementReferenceMap(requirements);
   const items=Array.isArray(knowledge)?knowledge:Array.isArray(knowledge?.knowledge)?knowledge.knowledge:[];
   return JSON.stringify({
     application_contract:{output_schema:caseOutputSchema(authoringMode,{count:maxCases,refs:stories.map(item=>item.ref),testCaseTypes}),max_cases:maxCases,authoring_mode:authoringMode},
     generation_request:splitGenerationContext(additionalContext),
+    ...(supportingEvidence ? { supporting_evidence: supportingEvidence } : {}),
     application:{id:appType.id,name:appType.name,type:appType.type},
     stories,
     knowledge:items.slice(0,6).map(item=>({title:boundedText(item.title,180),content:boundedText(item.content||item.description,1200),
@@ -328,6 +329,7 @@ const requestGeneratedCases = async ({
   knowledge,
   authoringMode,
   testCaseTypes,
+  supportingEvidence,
   contextState,
   signal,
   onProgress
@@ -342,6 +344,7 @@ const requestGeneratedCases = async ({
     knowledge,
     authoringMode,
     testCaseTypes,
+    supportingEvidence,
     contextState,
     signal
   });
@@ -414,6 +417,7 @@ exports.previewRequirementsTestCases = lifecycle.withLifecycle("case-design", as
   user_id,
   max_cases,
   additional_context,
+  supporting_evidence,
   external_links,
   images,
   authoring_mode,
@@ -434,6 +438,10 @@ exports.previewRequirementsTestCases = lifecycle.withLifecycle("case-design", as
   const additionalContext = boundedText(additional_context, 18000);
   const externalLinks = boundedList(external_links, 10, 500);
   const normalizedImages = normalizeImageAssets(images);
+  // Only internal workflow callers supply this pre-scoped document. Its
+  // budget stays independent from the user's authoring instructions.
+  const supportingEvidence = supporting_evidence && typeof supporting_evidence === 'object'
+    && Buffer.byteLength(JSON.stringify(supporting_evidence), 'utf8') <= 12 * 1024 ? supporting_evidence : undefined;
   const authoringMode = normalizeAuthoringMode(authoring_mode);
   await onProgress("context", "Preparing scoped Stories, reviewed inputs and active Case types.");
   const typeField = await dropdownCatalog.getField('test_cases.types');
@@ -473,6 +481,7 @@ exports.previewRequirementsTestCases = lifecycle.withLifecycle("case-design", as
     knowledge,
     authoringMode,
     testCaseTypes,
+    supportingEvidence,
     contextState,
     signal,
     onProgress

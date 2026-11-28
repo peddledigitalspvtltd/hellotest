@@ -1,9 +1,10 @@
 const graph = require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph');
 const { readPath } = require('./nodes/shared/values');
 const { generationOptions } = require('./generationNodeOptions');
+const { isSprintDraftPipeline } = require('./sprintPipeline');
 
 const LIMITS = require('./workflowLoopLimits');
-const isLoop = node => node?.data?.kind === 'loop' && node.data.loopAction === 'workflow';
+const isLoop = node => node?.data?.disabled !== true && node?.data?.kind === 'loop' && node.data.loopAction === 'workflow';
 const sourcePath = node => String(node.data.loopSourceKey || 'input.items').replace(/^\$/, '');
 
 // The native generator bounds its case collection before the case loop exists.
@@ -17,7 +18,7 @@ function generatedCaseCount(loop, nodes, edges, input) {
     const incoming = edges.filter(edge => edge.target === current.id && edge.targetHandle !== 'continue');
     if (incoming.length !== 1) return null;
     current = nodes.find(node => node.id === incoming[0].source);
-    if (current?.data?.kind !== 'artifactTask') return null;
+    if (current?.data?.kind !== 'artifactTask' || current.data.disabled === true) return null;
     if (current.data.artifactTask === 'test-case-generation') return generationOptions(current.data, input).maxCases;
     if (current.data.artifactTask !== 'test-case-assurance') return null;
   }
@@ -61,7 +62,7 @@ function estimate({ workflow, node, items, context, used = { batches: 0, node_ex
 }
 
 function sprintCapacity(workflow, input = {}) {
-  if (workflow.settings?.template_id !== 'sprint-automator') return null;
+  if (!isSprintDraftPipeline(workflow?.settings)) return null;
   const bodies = graph.loopBodies(workflow.nodes, workflow.edges);
   const bodyIds = new Set(Object.values(bodies).flat());
   const outer = workflow.nodes.find(node => isLoop(node) && !bodyIds.has(node.id)

@@ -5,6 +5,7 @@ const artifacts = require("./agentArtifacts");
 const presentation = require("./agentOutcomePresentation");
 const responseContract = require("./agentResponseContract");
 const agentRegistry = require("../agents/agentRegistry.service");
+const agentInvocation = require("../agents/agentInvocation");
 const agentContract = require("../agents/agentDefinition");
 const agentGuardrails = require("../agents/agentGuardrails");
 const agentDescriptors = require("../agents/agentDescriptors.service");
@@ -501,6 +502,7 @@ const requestLlmResult=(...args)=>(specialistModelBoundary ||= require("./specia
 
 const appendEvent = async (transactionId, input) => {
   execution.assertActive();
+  if (execution.current()?.agentPresentation?.progress === false) return;
   const saved = await workspaceTransactionService.appendTransactionEvent(transactionId, input);
   execution.current()?.onProgress?.({contract_type:"AgentProgress",contract_version:"1.0",session_id:transactionId,
     phase:input.phase,message:input.message,progress:input.details?.progress ?? input.metadata?.progress});
@@ -796,7 +798,16 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   require("@hellotest/platform/backend/src/utils/llmTraceContext").update({ session_id: transactionId });
 
   try {
-    const integration = await agentRegistry.resolveModel(projectId, user?.id, integration_id || definition?.integration_id, agent.configurationKey);
+    const featureProfile = customProfile?.[1] || (!registered && !policy.custom_task ? specialistProfiles[normalizedAgentId] : null);
+    if (runtimeInputs.test_case_id && (normalizedAgentId === 'automation-engineer' || ['F06', 'F18'].includes(featureProfile?.featureId))) {
+      await assertPinnedCaseScope({projectId,appTypeId,evidenceScope});
+    }
+    const repairService = !trial && featureProfile?.featureId === "F18" ? require("@hellotest/automation/repair") : null;
+    const repairContext = repairService ? policy.allowed_tools.includes("project_evidence") && requestedScopes.includes("automation") && requestedScopes.includes("test-cases") && requestedScopes.includes("runs")
+      ? await repairService.prepare({projectId,appTypeId,user,input:runtimeInputs}) : {status:"needs_evidence",detail:"Enable Automation, Test Cases and Runs as evidence scopes."} : null;
+    const repairTriage = !definition && repairContext?.status === "triaged" ? repairContext.triage : null;
+    if (repairContext?.projection) for (const permission of repairService.permissions) if (!evidencePermissions.includes(permission)) evidencePermissions.push(permission);
+    const integration = repairTriage ? null : await agentRegistry.resolveModel(projectId, user?.id, integration_id || definition?.integration_id, agent.configurationKey);
     await appendEvent(transactionId, {
       phase: "intake",
       message: `${agent.name} accepted the ${normalizedMode === "chat" ? "question" : "delegated task"}.`,
@@ -823,7 +834,10 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       evidenceScope,
       sourceKinds: smartContext?.source_ids?.length ? [] : smartContext?.source_kinds
     };
-    const settled = await Promise.allSettled([
+    const settled = repairTriage ? [
+      {status:"fulfilled",value:{context:{},knowledgeRetrieval:{status:"not_required"}}},
+      {status:"fulfilled",value:{hits:[],counts:{}}}
+    ] : await Promise.allSettled([
       execution.bounded(() => loadWorkspaceContext(contextInputs), { timeoutMs: CONTEXT_TIMEOUT_MS }),
       workflow_policy && !contextRoute.requires_live_context ? Promise.resolve({ hits: [], counts: {} })
         : execution.bounded(() => (async () => {
@@ -890,11 +904,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         citation: { id: "K-task-context", label: "Supplied domain context (unverified)", source_kind: "task_context" } }];
     }
     let qualityAssessment = null;
-    const featureProfile = customProfile?.[1] || (!registered && !policy.custom_task ? specialistProfiles[normalizedAgentId] : null);
-    if (runtimeInputs.test_case_id && (normalizedAgentId === 'automation-engineer' || ['F06', 'F18'].includes(featureProfile?.featureId))) {
-      await assertPinnedCaseScope({projectId,appTypeId,evidenceScope});
-    }
-    if (governedContext.mode !== 'none' && policy.allowed_tools.includes('project_evidence') && requestedScopes.includes('test-cases')) {
+    if (!repairTriage && governedContext.mode !== 'none' && policy.allowed_tools.includes('project_evidence') && requestedScopes.includes('test-cases')) {
       const runSelection = await require('./agentRunSelectionEvidence').loadRunSelectionEvidence({ agentId: normalizedAgentId, featureId: featureProfile?.featureId, inputs: runtimeInputs, user, projectId, appTypeId, sourceIds: smartContext.source_ids,
         proposalCandidates: outcomeContract.findings_require_proposals && requestedScopes.includes('runs') });
       if (runSelection) context.run_selection = [runSelection];
@@ -913,12 +923,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       context.quality_checks = [{ id: "K-quality-checks", title: "Code-computed quality checks", content: JSON.stringify(assessment.projection),
         citation: { id: "K-quality-checks", label: "Code-computed quality checks", source_kind: "verified_calculation" } }];
     }
-    const repairService = !trial && featureProfile?.featureId === "F18" ? require("@hellotest/automation/repair") : null;
-    const repairContext = repairService ? policy.allowed_tools.includes("project_evidence") && requestedScopes.includes("automation") && requestedScopes.includes("test-cases") && requestedScopes.includes("runs")
-      ? await repairService.prepare({projectId,appTypeId,user,input:runtimeInputs}) : {status:"needs_evidence",detail:"Enable Automation, Test Cases and Runs as evidence scopes."} : null;
     if (repairContext) context.automation_repair = [{id:"K-automation-repair",title:"Pinned automation repair contract",content:JSON.stringify(repairContext.projection || repairContext),citation:{id:"K-automation-repair",label:"Pinned automation repair contract",source_kind:"authoritative_live_automation"}}];
     const isAutomationSpecialist = !trial && (normalizedAgentId === "automation-engineer" || featureProfile?.featureId === "F18");
-    if (governedContext.mode !== "none" && isAutomationSpecialist && runtimeInputs.test_case_id && requestedScopes.includes("automation") && requestedScopes.includes("test-cases")) {
+    if (!repairTriage && governedContext.mode !== "none" && isAutomationSpecialist && runtimeInputs.test_case_id && requestedScopes.includes("automation") && requestedScopes.includes("test-cases")) {
       const builder=require("@hellotest/automation/build");
       const pinned=await builder.loadAutomationAgentCaseContext({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id});
       for (const permission of pinned.evidence_permissions || ['testcase.view', 'automation.view', 'automation.code.view']) if ((permission !== 'requirement.view' || requestedScopes.includes('stories')) && !evidencePermissions.includes(permission)) evidencePermissions.push(permission);
@@ -926,11 +933,11 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       // The repair projection already pins every section's complete intent
       // and the one failed source. Repeating all saved programs here wastes
       // context and can displace the actual failed section on small models.
-      if(repairContext?.status === "eligible") delete pinned.sections;
+      if(repairContext?.projection) delete pinned.sections;
       context.automation_case=[{id:"K-automation-case",title:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation",content:JSON.stringify(pinned),citation:{id:"K-automation-case",label:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation"}}];
-      if (repairContext?.projection?.focus?.runtime !== 'api') try {
-        const session=await builder.connectCaseBrowser({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id,environmentId:repairContext?.base?.environment_id || runtimeInputs.environment_id,
-          startUrl:runtimeInputs.start_url,allowBrowserActions:!repairService && runtimeInputs.allow_browser_actions === true,signal:execution.current()?.signal});
+      if (!repairService) try {
+        const session=await builder.connectCaseBrowser({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id,environmentId:runtimeInputs.environment_id,
+          startUrl:runtimeInputs.start_url,allowBrowserActions:runtimeInputs.allow_browser_actions === true,signal:execution.current()?.signal});
         automationBrowser=session.browser;
         const observations=[];
         for(const [name,args] of [["browser_navigate",{url:session.startUrl}],["browser_snapshot",{}]]) {
@@ -977,14 +984,13 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       details: { guardrails, enabled_tools: policy.allowed_tools, progress: 48 }
     });
 
-    // A deterministic baseline is used only for validation/readiness diagnostics.
-    // Missing models, failed requests and invalid outputs must fail the run.
     const baseline = buildFallbackResult({ agent, agentId: normalizedAgentId, mode: normalizedMode, prompt: normalizedPrompt,
       context, contextCounts, liveCounts: liveProjectEvidence.counts, citations, contextRoute });
-    await appendEvent(transactionId, { phase: "specialist", message: `${agent.name} is requesting a review from the configured model.`,
+    if (repairTriage) await appendEvent(transactionId, { phase: "automation.repair.triage", message: "Classified the recorded automation failure.", details: { route: repairTriage.route, progress: 68 } });
+    else await appendEvent(transactionId, { phase: "specialist", message: `${agent.name} is requesting a review from the configured model.`,
       details: { provider: integration.name, model: integration.model, decision_summary: agent.objective, progress: 68 } });
     const deadline = Math.min(Date.now() + MODEL_TIMEOUT_MS, startedAt + agent.limits.timeout_ms);
-    const budget = policy.model_budget || { used: 0, max: agent.limits.max_model_calls };
+    const budget = repairTriage ? { used: 0, max: 0 } : policy.model_budget || { used: 0, max: agent.limits.max_model_calls };
     budget.max = Math.min(budget.max, agent.limits.max_model_calls);
     budget.onCall = async record => {
       modelCallRecords.push(record);
@@ -1001,7 +1007,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
       return testCaseTypes;
     };
-    if (requestedScopes.includes('test-cases') || outcomeContract.artifact_kinds.some(kind => ['test_case', 'automation'].includes(kind))) boundedPayload.application_contract = { test_case_types: await loadCaseTypes() };
+    if (!repairTriage && (requestedScopes.includes('test-cases') || outcomeContract.artifact_kinds.some(kind => ['test_case', 'automation'].includes(kind)))) boundedPayload.application_contract = { test_case_types: await loadCaseTypes() };
     const suppliedIds = new Set(Object.values(boundedPayload.bounded_workspace_context).flat().map(item => item.citation?.id || item.id));
     let suppliedCitations = citations.filter(citation => suppliedIds.has(citation.id));
     boundedPayload.citation_contract = boundedPayload.citation_contract.filter(citation => suppliedIds.has(citation.id));
@@ -1028,7 +1034,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         phase: 'outcome.preview', message, progress,
         outcome_preview: Object.fromEntries(['headline', 'executive_summary', 'findings', 'artifacts', 'sections', 'tables', 'charts'].map(key => [key, currentResult[key]])) });
     };
-    const toolSession=!automationBrowser ? require('./specialistTools').createSpecialistTools({user,projectId,appTypeId,context,requestedScopes,
+    const toolSession=!repairTriage && !automationBrowser ? require('./specialistTools').createSpecialistTools({user,projectId,appTypeId,context,requestedScopes,
       policy: definition ? { ...policy, explicit_tool_selection: true } : policy,smartContext,evidenceScope,deadline,signal:execution.current()?.signal,maxCalls:4,
       assertAccess:assertOutcomeEvidenceAccess,onEvent:event=>appendEvent(transactionId,event),
       onEvidence:async item=>{
@@ -1045,7 +1051,14 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     let result = baseline, modelObservation = null, repairPatch = null, contextReductionUsed = false;
     let revisionRound = 0, outcomeRevisionRounds = 0, previousRejectedHash = null, lastOutputIssues = [], lastOutputFailure = null;
     const rejectedHashes = new Set();
-    while (budget.used < budget.max && Date.now() < deadline && revisionRound <= executionPolicy.max_revision_rounds) {
+    if (repairTriage) {
+      const location = `step ${repairTriage.step_order}${repairTriage.line ? `, line ${repairTriage.line}` : ''}`;
+      result = normalizeResult({ headline:"Automation failure diagnosis", executive_summary:repairTriage.classification,
+        response:`${repairTriage.classification} at ${location}. ${repairTriage.next_action}`,
+        activity_summary:"Read the recorded first failure and classified the evidence.", evidence_gaps:[], citation_ids:["K-automation-repair"] }, baseline, suppliedCitations);
+      if (result !== baseline) result.evaluation = { ...baseline.evaluation, rationale: "The selected Run’s first-failure report supports the diagnosis and follow-up." };
+    }
+    while (!repairTriage && budget.used < budget.max && Date.now() < deadline && revisionRound <= executionPolicy.max_revision_rounds) {
       const repair = revisionRound > 0;
       let issues = [], candidate;
       try {
@@ -1096,13 +1109,13 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       if (lastOutputFailure?.generation_received === true) Object.assign(failure, { generation_received: true, retryable: false, nonRetryable: true });
       throw failure;
     }
-    const followupPlan = ((!trial && (registered || !policy.custom_task)) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result, {refineExisting:outcomeContract.refine_existing_proposals}) : []).slice(0, executionPolicy.max_followups);
+    const followupPlan = ((!repairTriage && !trial && (registered || !policy.custom_task)) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result, {refineExisting:outcomeContract.refine_existing_proposals}) : []).slice(0, executionPolicy.max_followups);
     result.outcome_contract = outcomeContract;
     result.evidence_scope = evidenceScope;
     const primaryReview = {agent_id:normalizedAgentId,summary:result.executive_summary,findings:result.findings,recommendations:result.recommendations,evidence_gaps:result.evidence_gaps};
     result.primary_review = primaryReview;
     result.agent_chain = [{agent_id:normalizedAgentId,name:agent.name,status:"completed",evidence_scope:evidenceScope,trace_id:modelObservation?.trace_id||null}];
-    await emitOutcomePreview(result, `${agent.name} produced a validated draft. Outcome review is still in progress.`, 76);
+    if (!repairTriage) await emitOutcomePreview(result, `${agent.name} produced a validated draft. Outcome review is still in progress.`, 76);
     const authoredRecommendations = [], completedKinds = [], overflowOutcomeNotes = [];
     const retainEvidenceGaps = (current, additions) => {
       const combined = [...new Set([...(current || []), ...(additions || [])])];
@@ -1243,11 +1256,13 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     }
     result.recommendations = artifacts.remainingRecommendations(primaryReview.recommendations, authoredRecommendations, completedKinds, {onOverflow:notes=>overflowOutcomeNotes.push(...notes.map(note=>`Additional follow-up consideration: ${note}`))});
     execution.assertActive();
-    const generationMode = "llm", providerError = null;
+    const generationMode = repairTriage ? "deterministic" : "llm", providerError = null;
     const limitations = [...contextLimitations, ...overflowOutcomeNotes, ...(contextReductionUsed ? ["The provider required a reduced context packet; the model used only retained excerpts. Omitted source content remains unknown."] : [])];
-    result.readiness = buildEvidenceReadiness({ context, contextRoute, limitations });
+    result.readiness = repairTriage ? {status:"ready_for_review",evidence_count:1,task_evidence_count:1,missing_scopes:[],limitations:[]}
+      : buildEvidenceReadiness({ context, contextRoute, limitations });
     result.evidence_gaps = retainEvidenceGaps(result.evidence_gaps,result.readiness.limitations);
     result.verification = agentContract.verify(result, suppliedCitations, agent.acceptance);
+    if (repairTriage) result.verification.checks.find(check => check.id === "response").label = "Recorded failure diagnosis is present";
     const ruleChecks = agentGuardrails.checks(result, definition?.guardrail_rules);
     const finalOutcomeContract = {...outcomeContract, supplemental_artifact_kinds: [...new Set(completedKinds)]};
     const outcomeIssues = artifacts.outcomeIssues(result, finalOutcomeContract);
@@ -1269,10 +1284,16 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     if (repairContext) {
       result.automation_repair = await repairService.save(projectId,user,transactionId,repairContext,
         result.verification.status === "passed" && ruleChecks.every(check => check.passed) ? repairPatch : null);
-      result.execution_status = "completed"; result.publication_status = "proposal";
+      result.execution_status = "completed";
       const typed = Boolean(result.automation_repair.id);
-      result.verification.checks.push({id:"typed_repair",passed:typed,label:typed?"The repair preserves the authored assertions and is ready for runner verification.":"No supported typed repair was produced. Supply current failure evidence or author the unsupported change."});
-      if (!typed) { result.readiness.status="insufficient_evidence"; result.verification.status="needs_input"; }
+      const triaged = result.automation_repair.status === "triaged";
+      result.publication_status = triaged ? "assessment" : "proposal";
+      if (triaged) {
+        result.verification.checks.push({ id: "repair_triage", passed: true, label: "Failure classified from the selected Run’s first-failure report." });
+      } else {
+        result.verification.checks.push({id:"typed_repair",passed:typed,label:typed?"The repair preserves the authored assertions and is ready for runner verification.":"No supported typed repair was produced. Supply current failure evidence or author the unsupported change."});
+        if (!typed) { result.readiness.status="insufficient_evidence"; result.verification.status="needs_input"; }
+      }
     }
     result.verification.checks.push(...ruleChecks);
     if (ruleChecks.some(check => !check.passed)) {
@@ -1285,7 +1306,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     result.agent_chain[0].verification = result.verification;
     if (result.verification.status !== 'passed') result.agent_chain[0].status = 'needs_input';
     result.model_execution = { ...modelObservation, ...aggregateUsage(modelCallRecords), context_reduced: contextReductionUsed, model_calls: budget.used, max_model_calls: budget.max, max_output_tokens: agent.limits.max_output_tokens, revision_rounds: outcomeRevisionRounds, execution_policy: executionPolicy,
-      agent_version: registered?.version || 1, agent_definition_hash: registered?.definition_hash || fingerprint(specialistProfiles[normalizedAgentId] || {}), prompt_template_version: modelObservation?.prompt_template_version || "specialist-system/1", verifier_version: featureProfile?.verifier || "agent-contract/2", generation_mode: "llm" };
+      agent_version: registered?.version || 1, agent_definition_hash: registered?.definition_hash || fingerprint(specialistProfiles[normalizedAgentId] || {}), prompt_template_version: repairTriage ? null : modelObservation?.prompt_template_version || "specialist-system/1", verifier_version: featureProfile?.verifier || "agent-contract/2", generation_mode: generationMode };
     if (!result.readiness.task_evidence_count) result.grounding_status = "insufficient_context";
 
     await appendEvent(transactionId, {
@@ -1330,7 +1351,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         requires_human_review: true
       }
     });
-    const events = await workspaceTransactionService.listTransactionEvents(transactionId);
+    const events = execution.current()?.agentPresentation?.progress === false ? [] : await workspaceTransactionService.listTransactionEvents(transactionId);
     const contextPacket = knowledgeRetrieval.context_packet;
     if (!trial && contextPacket?.retrieval?.context_graph?.status === 'recorded') {
       result.context_graph_outcome = await require('@hellotest/mcp/backend/contextTraceTools').rememberDecision({
@@ -1371,7 +1392,8 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   }, { timeoutMs: (definition?.limits.timeout_ms || SESSION_TIMEOUT_MS) - (Date.now() - startedAt) }));
 };
 
-exports.respond = (input = {}) => execution.run({onProgress: typeof input.onProgress === "function" ? input.onProgress : undefined}, () => execution.bounded(() => require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
+exports.respond = (input = {}) => execution.run({agentPresentation: input.agentPresentation || agentInvocation.interactive,
+  onProgress: input.agentPresentation?.stream !== false && typeof input.onProgress === "function" ? input.onProgress : undefined}, () => execution.bounded(() => require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
   { project_id: input.project_id, actor_id: input.user?.id }, () => respond(input)), { timeoutMs: SESSION_TIMEOUT_MS, signal: input.signal }).catch((error) => {
   if (error?.code === "DEADLINE_EXCEEDED") throw agentContract.fail("The review reached its configured time limit. Retry with a narrower scope or check the model connection.", "AGENT_DEADLINE", 504);
   throw error;

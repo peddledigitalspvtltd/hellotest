@@ -101,8 +101,11 @@ async function previewRetainedSource({transactionId,input={},user,signal},ports=
  // Reuse the complete protected phase packet, including its already bounded
  // snapshot and sanitized Story/guidance. Re-authoring must not lose evidence
  // merely because the last native verifier returned only a status receipt.
+ // The source proposal is a user-reviewed draft. Changes to an existing
+ // assertion still require an explicit write by the authorized editor.
  const update=await generateUpstreamSectionSource({step:authored,emitted:packet.native_emitted_code,brief:packet.brief||'',taskContext:packet.task_context,
   authoringOnly:packet.authoring_only===true&&packet.live_validation?.status==='blocked',
+  retainSavedAssertions:false,
   sourceContext:{latest_observation:packet.final_observation,current_page_snapshot:packet.current_page_snapshot,observations:packet.observations,delivery:packet.observation_delivery,live_validation:packet.live_validation},sourceBindings,privateScope,completed,interactive:true,guard:assertCurrent,signal:proposalSignal,validate:ports.validate,
   complete:async({prompt,phase})=>{await assertCurrent();if(Date.now()>=deadline)throw fail('The source-only proposal model allowance ended.');return ports.complete({projectId:target.project_id,userId:user.id,integrationId:input.integration_id,prompt,phase,caseId:input.test_case_id,sectionId:step.id,signal:proposalSignal,timeoutMs:Math.min(90000,deadline-Date.now()),beforeDispatch:assertCurrent,sessionId:target.id});}});
  await assertCurrent();

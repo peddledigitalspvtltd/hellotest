@@ -21,6 +21,12 @@
 .sprint-automator-setup .sprint-setup-error { flex-basis:100%; color:var(--danger-color,var(--ui-red-text)); }
 .sprint-automation-guidance { flex-basis:100%; }
 .sprint-automation-guidance button { border:0; padding:0; background:transparent; color:var(--accent-color,var(--ui-blue-text)); font:inherit; text-decoration:underline; cursor:pointer; }
+.sprint-repository-setup { flex-basis:100%; border-top:1px solid var(--border-color,var(--ui-border)); padding-top:8px; }
+.sprint-repository-setup summary { width:fit-content; cursor:pointer; font-size:12px; font-weight:600; }
+.sprint-repository-setup summary span { margin-inline-start:5px; color:var(--text-secondary,var(--ui-text-muted)); font-weight:400; }
+.sprint-repository-setup fieldset { display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; border:0; margin:8px 0; padding:0; min-width:0; }
+.sprint-repository-setup fieldset .form-field { min-width:0; }
 :root[data-theme=dark] .sprint-combobox-control,:root[data-theme=dark] .sprint-combobox-menu { background:var(--ui-inverse-surface); color:var(--ui-on-solid); border-color:var(--ui-border-emphasis); }
 :root[data-theme=dark] .sprint-combobox-menu [role=option].is-active { background:var(--ui-inverse-surface); }
 @media(max-width:600px) { .sprint-automator-setup { padding:10px 12px; gap:8px; } .sprint-scope-label { flex-direction:row; align-items:center; flex-wrap:wrap; gap:8px; } .sprint-combobox { flex-basis:100%; } }
+@media(max-width:720px) { .sprint-repository-setup fieldset { grid-template-columns:minmax(0,1fr); } }

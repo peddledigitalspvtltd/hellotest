@@ -46,7 +46,7 @@ import { WorkflowTriggerSettings } from "./WorkflowTriggerSettings";
 import { WorkflowConnections } from "./WorkflowConnections";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import { WorkflowFailureResolution } from "./WorkflowFailureDetails";
-import { automationAgentDefaults, automationAgentPresets } from "./nativeTaskProfiles";
+import { automationAgentDefaults, automationAgentPresets, nativeTaskDefaults } from "./nativeTaskProfiles";
 
 import type { ProjectAgent } from "../agents/agentDefinitions";
 
@@ -134,7 +134,8 @@ export function WorkflowStudio(props: Props) {
     const entries = available.flatMap(kind => {
       const entry = { kind, label: nodeKindLabels[kind], description: nodeKindDescriptions[kind], defaults: undefined as AgenticWorkflowNodeData | undefined };
       if (kind !== 'artifactTask') return [entry];
-      return [entry, ...automationAgentPresets.map(preset => ({
+      const build = nativeTaskDefaults("automation-engineer");
+      return [entry, { kind, label: String(build.label), description: String(build.summary), defaults: build }, ...automationAgentPresets.map(preset => ({
         kind, label: preset.label, description: preset.description, defaults: automationAgentDefaults(preset),
       }))];
     }).filter(({ label, description }) => `${label} ${description}`.toLowerCase().includes(search));

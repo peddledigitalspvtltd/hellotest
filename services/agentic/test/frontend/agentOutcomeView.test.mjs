@@ -33,6 +33,7 @@ test('all builtin output contracts choose honest review actions from actual outp
     assert.equal(agentOutcomeReviewState(result({ outcome_contract: contract, artifacts: [draft] }), citations).label, 'Review & approve', id);
   }
   assert.equal(agentOutcomeReviewState(result({ automation_repair: { status: 'proposal' } })).label, 'Review repair');
+  assert.equal(agentOutcomeReviewState(result({ automation_repair: { status: 'triaged' } })).label, 'Review failure diagnosis');
   assert.equal(agentOutcomeReviewState(result({ outcome_contract: { mode: 'author' }, no_changes_required: true, verification: { status: 'passed' } })).label, 'Review conclusions');
 });
 
@@ -51,6 +52,7 @@ test('outcome presentation distinguishes native drafts, clean assessments, incom
   assert.equal(agentOutcomeResult(result({outcome_contract:{mode:'author'}})).kind,'incomplete');
   assert.equal(agentOutcomeResult(result({outcome_contract:{mode:'author'},no_changes_required:true,verification:{status:'passed'}})).kind,'assessment');
   assert.equal(agentOutcomeResult(result({automation_repair:{status:'proposal'}})).kind,'repair');
+  assert.equal(agentOutcomeResult(result({automation_repair:{status:'triaged'}})).title,'Failure diagnosis');
 });
 
 test('acceptance requires resolved source references and completion checks', () => {

@@ -11,6 +11,9 @@ const {field, select}=workflowFieldInputs(data,onChange);
 const automation=data.artifactTask==='automation-engineer';
 const apiAutomation=automation && data.automationRuntime==='api';
 const manualSource=automation && data.automationSource==='manual_case';
+const browserMode=String(data.automationBrowserMode || (data.inspectBrowser === false ? "offline" : "read_only"));
+const canVerifyWeb=browserMode === "perform_steps" && Boolean(data.testEnvironmentId);
+const verifiesAfterBuild = ["verify", "verify_cli", "verify_repair"].includes(String(data.automationVerificationMode));
 const [caseSearch,setCaseSearch]=useState('');
 const manualCases=useQuery({
     queryKey:['workflow-manual-test-cases',projectId,appTypeId,caseSearch],
@@ -33,21 +36,25 @@ const testEnvironments = useQuery({
     staleTime: 30000,
   });
 const selectedEnvironment = testEnvironments.data?.find(item => item.id === data.testEnvironmentId);
+const guidance = <>
+  {field("task", "Task", true)}
+  {field("instructions", "Instructions", true)}
+  {field("guardrails", "Guardrails", true)}
+  <button type="button" className="ghost-button" onClick={() => onChange(nativeTaskResetPatch(String(data.artifactTask || "story-assurance")))}>Restore task defaults</button>
+</>;
 return (<>
         <label><span>Native task</span><select aria-label="Native task" value={String(data.artifactTask || "story-assurance")} onChange={event => onChange({ ...nativeTaskDefaults(event.target.value), prompt: "" })}>
           {Object.entries(nativeTaskProfiles).map(([value, profile]) => <option key={value} value={value}>{profile.label}</option>)}
         </select></label>
-        <div className="studio-parameter-group">
-          {field("task", "Task", true)}
-          {field("instructions", "Instructions", true)}
-          {field("guardrails", "Guardrails", true)}
-          <button type="button" className="ghost-button" onClick={() => onChange(nativeTaskResetPatch(String(data.artifactTask || "story-assurance")))}>Restore task defaults</button>
-          <p className="studio-caption">This saved node owns its instructions, guardrails and model settings. Admin AI Controls do not change this task. Project access, source traceability and native output validation are always enforced.</p>
-        </div>
+        {!automation && <div className="studio-parameter-group">{guidance}</div>}
         {automation && <div className="studio-parameter-group">
-          <h4>Manual script</h4>
-          {select('automationRuntime', 'Automation Agent', [['auto', 'Automation Engineer (automatic runtime)'], ...automationAgentPresets.map(preset => [preset.runtime, preset.label] as [string, string])], 'auto')}
-          {apiAutomation && <p className="studio-caption">Builds native requests and assertions from API steps. Use Test Runs to execute the saved requests.</p>}
+          <h4>Test Case and runtime</h4>
+          {select('automationRuntime', 'Automation Agent', [['auto', 'Automatic (Web, API or mixed)'], ...automationAgentPresets.map(preset => [preset.runtime, preset.label] as [string, string])], 'auto')}
+          <p className="studio-caption">{apiAutomation
+            ? "Builds HTTP requests, response assertions and captures from the API contract. Verify them in Test Runs."
+            : data.automationRuntime === "web"
+              ? "Builds Playwright source and mapped instructions from the case’s browser steps."
+              : "Uses the case’s saved steps to build Playwright source, API requests, or both."}</p>
           {select('automationSource','Test Case source', [['manual_case','Saved manual Test Case'],['sprint','Upstream Sprint Test Case']], 'sprint')}
           {manualSource && <>
             <label><span>Find a manual Test Case</span><input type="search" aria-label="Find a manual Test Case" value={caseSearch} onChange={event=>setCaseSearch(event.target.value)}/></label>
@@ -57,7 +64,6 @@ return (<>
               {manualCases.data?.items.map(item=><option key={item.id} value={item.id}>{item.display_id ? `${item.display_id} · ` : ''}{item.title}</option>)}
             </select></label>
             {manualCases.isError && <p role="alert">Manual Test Cases could not be loaded. Check your application and Test Case access.</p>}
-            <p className="studio-caption">Workflow output shows the automation built from the case’s actions and expected results.</p>
           </>}
         </div>}
         {data.artifactTask === "test-case-generation" && <div className="studio-parameter-group">
@@ -85,8 +91,11 @@ return (<>
         </div>}
         {automation && <div className="studio-parameter-group">
           <h4>Test environment</h4>
-          <label><span>Test Environment</span><select aria-label="Test Environment" value={String(data.testEnvironmentId || "")} onChange={event => onChange({ testEnvironmentId: event.target.value })}>
-            <option value="">Choose a Test Environment</option>
+          <label><span>Test Environment</span><select aria-label="Test Environment" value={String(data.testEnvironmentId || "")} onChange={event => {
+            const testEnvironmentId = event.target.value;
+            onChange({ testEnvironmentId, ...(!testEnvironmentId && !apiAutomation && verifiesAfterBuild ? { automationVerificationMode: "generate_only" } : {}) });
+          }}>
+            <option value="">No Test Environment selected</option>
             {data.testEnvironmentId && !selectedEnvironment ? <option value={String(data.testEnvironmentId)}>Unavailable environment · choose another</option> : null}
             {(testEnvironments.data || []).map(item => <option key={item.id} value={item.id}>{item.name}{item.base_url ? ` · ${item.base_url}` : item.app_type_id ? " · application" : " · shared"}</option>)}
           </select></label>
@@ -94,18 +103,40 @@ return (<>
           {testEnvironments.isError ? <p role="alert">Test Environments could not be loaded. Refresh to retry.</p> : !testEnvironments.isFetching && !testEnvironments.data?.length ? <p role="status">No Test Environments are available for this project and application.</p> : null}
           {selectedEnvironment ? <p className="studio-caption">{selectedEnvironment.base_url || "No base URL configured"}{selectedEnvironment.variables?.length ? ` · ${selectedEnvironment.variables.length} variables, including protected values` : " · no environment variables"}</p> : null}
           {field('automationStartUrl',apiAutomation ? 'Base URL for relative API requests' : 'Start URL (optional fallback)',false,'https://test.example.com/')}
-          <p className="studio-caption">Environment variables use scoped references such as @r.username and @r.password. The environment base URL takes precedence over the fallback.</p>
+          <p className="studio-caption">The environment provides the primary URL and protected values through references such as @r.username.</p>
         </div>}
-        {automation && !apiAutomation && <>
-          {select("automationBrowserMode", "Browser generation", [["perform_steps", "Perform the test steps"], ["read_only", "Inspect the starting page only"], ["offline", "Generate without a browser"]], data.inspectBrowser === false ? "offline" : "read_only")}
-          <p className="studio-caption">Performing steps uses a background browser to carry out this case, including its form submissions, and returns the finished script. Use a test environment and test data. Inspection and offline modes produce unverified drafts. API-only cases use their contracts directly.</p>
-          <p className="studio-caption">A temporary Playwright connection failure gets one retry before the application opens. Browser actions with unconfirmed outcomes require review.</p>
-          {select('automationVerificationMode','After generating',[['generate_only','Generate source'],['verify','Run generated web test']],'generate_only')}
-          {data.automationVerificationMode === 'verify' && <p className="studio-caption">Requires Perform the test steps and a selected Test Environment. Verification executes the generated web test in a fresh browser, including its authored submissions. API and device cases require a configured Test Run.</p>}
-        </>}
+        {automation && !apiAutomation && <div className="studio-parameter-group">
+          <h4>Browser and verification</h4>
+          <label><span>Browser generation</span><select aria-label="Browser generation" value={browserMode} onChange={event => {
+            const mode = event.target.value;
+            onChange({ automationBrowserMode: mode, ...(mode !== "perform_steps" && verifiesAfterBuild ? { automationVerificationMode: "generate_only" } : {}) });
+          }}>
+            <option value="read_only">Inspect the starting page only</option>
+            <option value="perform_steps">Perform the test steps</option>
+            <option value="offline">Generate without a browser</option>
+          </select></label>
+          <p className="studio-caption">{browserMode === "perform_steps"
+            ? "Playwright runs the authored actions, including submissions, against the test application. An uncertain action stops the build for review."
+            : browserMode === "offline"
+              ? "Use the supplied evidence and produce a draft for review."
+              : "Inspect the starting page and produce a draft for review."}</p>
+          <label><span>After generating</span><select aria-label="After generating" value={String(data.automationVerificationMode || "generate_only")}
+            onChange={event => onChange({ automationVerificationMode: event.target.value })}>
+            <option value="generate_only">Generate source</option>
+            <option value="verify" disabled={!canVerifyWeb}>Run generated web test</option>
+            <option value="verify_repair" disabled={!canVerifyWeb}>Run with locator recovery</option>
+            <option value="verify_cli" disabled={!canVerifyWeb}>Run with Playwright Test CLI</option>
+          </select></label>
+          {canVerifyWeb && verifiesAfterBuild && <p className="studio-caption">Runs the generated web test in fresh Chromium with the same data. Authored actions run again.</p>}
+          {canVerifyWeb && data.automationVerificationMode === "verify_repair" && <p className="studio-caption">If a locator fails before any interaction, the agent can propose one correction from the failure snapshot and keep it only after a passing replay.</p>}
+          {!canVerifyWeb && <p className="studio-caption">Web verification requires Perform the test steps and a Test Environment.</p>}
+        </div>}
         {automation && !manualSource && <>
-          {select("readinessPolicy", "Readiness handling", [["verify-inputs", "Automation Engineer verifies inputs"], ["require-ready", "Require a ready assurance assessment"]], "verify-inputs")}
-          <p className="studio-caption">Verify inputs checks earlier findings against the Story. Require-ready skips cases whose quality assessment did not establish automation readiness.</p>
+          {select("readinessPolicy", "Readiness handling", [["verify-inputs", "Build Agent verifies inputs"], ["require-ready", "Require a ready assurance assessment"]], "verify-inputs")}
         </>}
+        {automation && <details className="studio-parameter-group">
+          <summary>Build instructions and guardrails</summary>
+          <div className="studio-build-guidance">{guidance}</div>
+        </details>}
       </>);
 }

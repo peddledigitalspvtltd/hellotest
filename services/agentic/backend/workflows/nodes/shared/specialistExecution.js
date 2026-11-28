@@ -1,5 +1,6 @@
 const execution=require('@hellotest/knowledge/backend/services/knowledgeExecution.service');
 const agentContract=require('../../../agents/agentDefinition');
+const agentInvocation=require('../../../agents/agentInvocation');
 const {contextFor}=require('./values');
 const text=value=>typeof value==='string'?value.trim():'';
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
@@ -9,7 +10,11 @@ const assistant=require('../../../services/agenticAssistant.service');
 const {policy:specialistPolicy}=require('../../specialistPolicy');
 const events=require('../../runtimeEvents');
 const {collectReviews,specialistPrompt}=require('./reviewContext');
-async function execute({run,node,sources,user,signal,onAttempt,onEvent,requireRunAccess}){const data=node.data||{},kind=data.kind||node.type;
+async function execute({run,node,sources,user,signal,onAttempt,onEvent,requireRunAccess,agentPresentation=agentInvocation.workflow}){const data=node.data||{},kind=data.kind||node.type;
+  const optionalCuration = data.agentId === 'repository-curator' && data.repositoryOptional === true;
+  if (optionalCuration && !sources.some(source => source.status === 'completed' && source.output?.repository_agent_type === 'object_repository'
+      && ['completed', 'partial'].includes(source.output.status) && source.output.repository_run_id))
+    return { specialist_id: data.agentId, status: 'not_supplied' };
 const deadline = Date.now() + (Number(data.timeoutMs) || 150_000);
   const retries = kind === "loop" && data.loopAction === "customAI" ? 0 : Number(data.retryCount) || 0;
   const policy = specialistPolicy(data);
@@ -27,10 +32,12 @@ const deadline = Date.now() + (Number(data.timeoutMs) || 150_000);
           provenance:{request:'user_supplied_task_data',input:'unverified_connected_node_data',...(collectReviews(sources).length?{upstream_reviews:'untrusted_model_analysis_not_source_evidence'}:{})} } }, prompt: specialistPrompt(run, node, sources), context_scopes: scopes,
         integration_id: text(data.llmIntegrationId) || undefined,
         smart_context: { query: text(data.knowledgeQuery) || text(data.prompt), source_ids: array(data.knowledgeSourceIds), source_kinds: array(data.knowledgeSourceKinds) },
-        signal: nodeSignal
+        signal: nodeSignal, agentPresentation
       }), { timeoutMs: deadline - Date.now(), signal });
       if (review.provenance?.generation_mode !== "llm") throw agentContract.fail("The AI node did not return a model-generated review.", "AGENT_OUTPUT_INVALID");
-      return { session_id: review.transaction.id, specialist_id: data.agentId, ...review.result, provenance: review.provenance };
+      const output = agentPresentation.diagnostics ? { ...review.result } : agentInvocation.finalReview(review.result);
+      if (optionalCuration && output.readiness?.status === 'insufficient_evidence') output.readiness = { ...output.readiness, status: 'limited_evidence' };
+      return { session_id: review.transaction.id, specialist_id: data.agentId, ...output, provenance: review.provenance };
     } catch (failure) {
       lastError = failure;
       if (signal.aborted || modelBudget.used >= modelBudget.max || !events.retryable(failure) || attempt >= retries || Date.now() >= deadline) throw failure;

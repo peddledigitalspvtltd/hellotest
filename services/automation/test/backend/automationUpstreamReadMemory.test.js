@@ -86,9 +86,12 @@ test('ambiguous native verifiers recover through observed model-row evidence wit
   if(request.phase==='upstream_browser_actor'){
    turn++;assert.match(packet.native_verification_contract,/substring matching/);
    if(turn===1)return {tool:{name:'browser_click',arguments:{target:'f1e1592'}}};
-   if(turn<=3)return {tool:{name:'browser_verify_element_visible',arguments:{role:'heading',accessibleName:'Product information'}}};
-   if(turn===4){assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_READ_REPEATED');assert.match(packet.host_feedback.returned_native_code,/Product summary presents key/);return {tool:{name:'browser_find',arguments:{regex:'rowheader "Model Number"'}}};}
-   if(turn===5){assert.match(textOf(packet.latest_observation),/f1e1615/);return {tool:{name:'browser_generate_locator',arguments:{target:'f1e1615'}}};}
+   if(turn<=4){
+    if(turn===4)assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_READ_REPEATED');
+    return {tool:{name:'browser_verify_element_visible',arguments:{role:'heading',accessibleName:'Product information'}}};
+   }
+   if(turn===5){assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_READ_REPEATED');assert.match(packet.host_feedback.returned_native_code,/Product summary presents key/);assert.match(packet.host_feedback.message,/No additional native read was dispatched/);return {tool:{name:'browser_find',arguments:{regex:'rowheader "Model Number"'}}};}
+   if(turn===6){assert.match(textOf(packet.latest_observation),/f1e1615/);return {tool:{name:'browser_generate_locator',arguments:{target:'f1e1615'}}};}
    assert.match(textOf(packet.recent_section_observations),/f1e1615/);return {done:true};
   }
   if(request.phase==='upstream_source'){assert.match(textOf(packet.observations),/f1e1615/);return {automation_code:source};}

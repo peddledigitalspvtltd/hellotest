@@ -3,8 +3,8 @@ export type AutomationBuildVerificationChoice = AutomationBuildVerificationMode 
 export type AutomationBuildVerificationDriver = "native" | "playwright_test_cli";
 export type AutomationBuildBrowserDriver = "mcp";
 
-export function resolveBuildVerificationChoice(mode: AutomationBuildVerificationChoice, canRun: boolean, hasEnvironment: boolean) {
-  if (!canRun) return "generate_only";
+export function resolveBuildVerificationChoice(mode: AutomationBuildVerificationChoice, canRun: boolean, hasEnvironment: boolean, browserLocation: "local" | "remote" = "remote") {
+  if (!canRun || (browserLocation === "local" && (mode === "verify_cli" || mode === "verify_repair_cli"))) return "generate_only";
   return mode === "auto" ? hasEnvironment ? "verify" : "generate_only" : mode;
 }
 
@@ -21,7 +21,13 @@ export function automationBuildPipelineRequest({ mode, driver, canVerify, intera
 export function automationBuildRuntimeRequest(runtimes: readonly string[], browserLocation: "local" | "remote", interactive: boolean, pipeline: ReturnType<typeof automationBuildPipelineRequest>) {
   if (!runtimes.includes("web")) return {};
   const browser = { browser_location: browserLocation, allow_browser_actions: interactive };
-  return runtimes.every(runtime => runtime === "web") ? { ...browser, ...pipeline } : {
+  if (runtimes.every(runtime => runtime === "web")) {
+    const options = browserLocation === "local" && pipeline.verification_driver === "playwright_test_cli"
+      ? { ...pipeline, verification_mode: "generate_only" as const, verification_driver: "native" as const }
+      : pipeline;
+    return { ...browser, ...options };
+  }
+  return {
     ...browser, browser_driver: pipeline.browser_driver, verification_mode: "generate_only" as const
   };
 }

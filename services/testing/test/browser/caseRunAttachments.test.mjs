@@ -6,6 +6,7 @@ import test from "node:test";
 
 const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const documentMimes = require("@hellotest/platform/shared/attachmentDocuments.json");
 const root = new URL("../../../platform/frontend/", import.meta.url);
 const fixture = `
 import React, { useState } from "react";
@@ -132,6 +133,13 @@ test("case attachment preparation preserves animations and uploads files into a 
     await page.evaluate(() => window.fixtureState.failUpload = false);
     await page.getByLabel("Choose case attachments").setInputFiles({ name: "retry.txt", mimeType: "text/plain", buffer: Buffer.from("retry evidence") });
     await page.getByRole("button", { name: "Download retry.txt", exact: true }).waitFor();
+    const officeEvidence = Object.keys(documentMimes).map(extension => ({
+      name: `review.${extension}`, mimeType: "application/octet-stream", buffer: Buffer.from("review evidence")
+    }));
+    await page.getByLabel("Choose case attachments").setInputFiles(officeEvidence);
+    await page.getByRole("status").filter({ hasText: "5 attachments saved" }).waitFor();
+    for (const file of officeEvidence) await page.getByRole("button", { name: `Download ${file.name}`, exact: true }).waitFor();
+    assert.deepEqual(await page.evaluate(() => Object.fromEntries(window.fixtureState.uploads.filter(file => file.name.startsWith("review.")).map(file => [file.name.split(".").pop(), file.mime]))), documentMimes);
     await page.getByRole("button", { name: "Toggle attachment permissions", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: "Browse files", exact: true }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "Delete retry.txt", exact: true }).count(), 0);

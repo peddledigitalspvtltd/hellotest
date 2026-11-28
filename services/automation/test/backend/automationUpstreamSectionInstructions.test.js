@@ -1,6 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {deterministicSectionInstructions,mapGeneratedSectionInstructions}=require("../../backend/lib/upstream/automationUpstreamSectionSource");
+const {deterministicSectionInstructions,generateUpstreamSectionSource,mapGeneratedSectionInstructions}=require("../../backend/lib/upstream/automationUpstreamSectionSource");
+const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
 const {validSavedInstructionMapping,prepareSteps,RESPONSE_SCHEMA}=require("../../backend/lib/build/automationInstructionMapping");
 const step={id:'entry',step_order:1,step_type:'web',action:'Enter the configured name and verify the result',expected_result:'The authored input state is retained.'};
 
@@ -58,4 +59,25 @@ test('an unavailable display mapper preserves each validated source operation as
  assert.ok(validSavedInstructionMapping(result.automation_instructions,{source,stepId:step.id}));
  assert.equal(result.automation_instructions.instructions.length,prepareSteps([{...step,automation_code:source}])[0].operations.length);
  assert.ok(result.automation_instructions.instructions.every(row=>row.label==='Run custom code'));
+});
+
+test('upstream rebuild retries source but retains the saved expected value without repeating the confirmed action', async () => {
+ const action = 'await page.getByRole("button",{name:"Submit"}).click();';
+ const check = 'await expect(page.getByRole("status")).toHaveText("Saved");';
+ const incumbent = { ...step, action:'Submit the form', expected_result:'Saved is shown', automation_code:`${action}\n${check}` };
+ const prompts = [];
+ const update = await generateUpstreamSectionSource({
+  step:incumbent, emitted:action, sourceContext:{}, sourceBindings:{ parameterValues:{}, secretBindings:{} },
+  privateScope:{assertSource(){},references:{},availability:{}}, validate:inspectExecutablePlan,
+  complete:async ({ phase, prompt }) => {
+   assert.equal(phase,'upstream_source');
+   prompts.push(JSON.parse(prompt));
+   return { automation_code:`${action}\n${prompts.length === 1 ? check.replace('"Saved"','"Failed"') : check}` };
+  }
+ });
+ assert.equal(prompts.length,2);
+ assert.match(prompts[0].retained_assertions[0], /Saved/);
+ assert.match(prompts[1].feedback,/removed or weakened/);
+ assert.match(update.automation_code,/toHaveText\("Saved"\)/);
+ assert.equal(update.automation_code.match(/\.click\(\)/g).length,1);
 });

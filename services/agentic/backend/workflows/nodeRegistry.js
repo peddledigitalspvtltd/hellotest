@@ -7,6 +7,7 @@ const registry = {
   customAI: require('./nodes/customAI'),
   mcpTool: require('./nodes/mcpTool'),
   repositoryAgent: require('./nodes/repositoryAgent'),
+  qualityAgent: require('./nodes/qualityAgent'),
   trigger: require('./nodes/trigger'),
   agent: require('./nodes/agent'),
   llmAgent: require('./nodes/llmAgent'),

@@ -110,11 +110,11 @@ const buildResponse = ({ prompt, fieldContext, values, summary, integration, fal
   };
 };
 
-exports.preview = async ({ projectId, appTypeId, prompt, fieldContext, sampleCount, promptInstruction, integrationId, additionalContext, userId, signal } = {}) => {
+exports.preview = async ({ projectId, appTypeId, prompt, fieldContext, sampleCount, singleValue = false, promptInstruction, integrationId, additionalContext, userId, signal } = {}) => {
   signal?.throwIfAborted();
   const normalizedPrompt = normalizeText(prompt, 2_000);
-  const normalizedFieldContext = normalizeText(fieldContext, 1_000);
-  const count = Math.max(2, Math.min(12, Math.round(Number(sampleCount || 6))));
+  const normalizedFieldContext = sanitizeAiText(normalizeText(fieldContext, 1_000)).text;
+  const count = singleValue ? 1 : Math.max(2, Math.min(12, Math.round(Number(sampleCount || 6))));
   const contextSafety = sanitizeAiText(normalizeText(additionalContext, 12_000));
   const instructionSafety = sanitizeAiText(normalizeText(promptInstruction, 4_000));
   let integration = null;

@@ -87,7 +87,9 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
           // assurance service must retain its review while marking it unknown.
         }
       } else throw new Error('The local provider received an unsupported model operation.');
-      calls.push({kind,model:request.model,text,json_mode:request.response_format?.type==='json_object',
+      const supportingEvidenceLine = contents.flatMap(content => content.split('\n')).find(line => line.startsWith('{"workflow_sources":'));
+      const supportingEvidence = design?.supporting_evidence || (supportingEvidenceLine ? JSON.parse(supportingEvidenceLine) : null);
+      calls.push({kind,model:request.model,text,supportingEvidence,json_mode:request.response_format?.type==='json_object',
         trusted_json_guidance:(request.messages||[]).some(message=>['system','developer'].includes(message.role)&&typeof message.content==='string'&&/\bjson\b/i.test(message.content))});
       res.setHeader('content-type','application/json');
       res.end(JSON.stringify({id:`fixture-${calls.length}`,model:request.model,choices:[{message:{role:'assistant',content:JSON.stringify(result)},finish_reason:'stop'}],usage:{prompt_tokens:100,completion_tokens:100,total_tokens:200}}));
@@ -326,7 +328,8 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.match(connectedRun.output_payload.summary,/Saved 2 manual Test Cases/);
     assert.match(connectedRun.output_payload.summary,/Saved 2 automation Test Cases/);
     const firstAutomationIteration=connectedRun.node_results.find(row=>row.node_id==='automation-engineer').iterations
-      .find(iteration=>iteration.output?.data?.[0]?.story_id===storyIds[0]);
+      .find(iteration=>iteration.iteration_path?.[1]===0);
+    assert.ok(storyIds.includes(firstAutomationIteration.output?.data?.[0]?.story_id));
     assert.deepEqual(firstAutomationIteration.iteration_path,['each-story',0,'each-test-case',0]);
     const acceptedHistory=await app.inject({method:'POST',url:`/agentic-workflow-runs/${connectedStart.id}/drafts/accept`,headers,
       payload:{node_id:'automation-engineer',story_index:0,case_index:0,kind:'manual',iteration_path:firstAutomationIteration.iteration_path}});
@@ -338,6 +341,95 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     const connectedCalls=calls.length;
     assert.equal((await runtime.start(connectedWorkflow,connectedInput,user)).id,connectedStart.id);
     assert.equal(calls.length,connectedCalls);
+    // SpecToScript uses a native workspace Sprint read and waits for the two
+    // independent source analyses before entering the existing nested loops.
+    connectedGenerated = 0;
+    const specCallStart = calls.length;
+    const specWorkflow = { ...connectedWorkflow, id: randomUUID(),
+      settings: { ...connectedWorkflow.settings, template_id: 'spec-to-script', template_version: 1,
+        processing_mode: 'parallel', max_parallel_nodes: 3, source_evidence_nodes: { objects: 'repository-objects', api: 'repository-api', curator: 'repository-curator' } },
+      nodes: [
+        ...connectedWorkflow.nodes.map(step => step.id === 'sprint-stories'
+          ? { ...step, data: { ...step.data, apiResource: 'workspaceSprintStories', connectionId: '' } }
+          : step.id === 'each-story' ? { ...step, data: { ...step.data, loopSourceKey: 'input.0.items' } } : step),
+        node('repository-objects', 'repositoryAgent', { repositoryAgentType: 'object_repository', repositoryOptional: true }),
+        node('repository-api', 'repositoryAgent', { repositoryAgentType: 'api_tests', repositoryOptional: true }),
+        node('repository-curator', 'agent', { agentId: 'repository-curator', repositoryOptional: true, prompt: 'Review scoped Invoice bindings.' }),
+        node('repository-context', 'aggregator', { mergeMode: 'waitAllAppend' }),
+        node('source-barrier', 'aggregator', { mergeMode: 'chooseInput', mergeChooseInput: '1' })
+      ],
+      edges: [...connectedWorkflow.edges.filter(edge => !(edge.source === 'sprint-stories' && edge.target === 'each-story')),
+        { source: 'request', target: 'repository-objects' }, { source: 'request', target: 'repository-api' },
+        { source: 'repository-objects', target: 'repository-curator' },
+        { source: 'repository-curator', target: 'repository-context', targetHandle: 'input-1' },
+        { source: 'repository-api', target: 'repository-context', targetHandle: 'input-2' },
+        { source: 'sprint-stories', target: 'source-barrier', targetHandle: 'input-1' },
+        { source: 'repository-context', target: 'source-barrier', targetHandle: 'input-2' },
+        { source: 'source-barrier', target: 'each-story' }]
+    };
+    const workers = require('../../../../agentic/backend/agents/repositoryAgents.service');
+    const assistant = require('../../../../agentic/backend/services/agenticAssistant.service');
+    const sprints = require('../../../../manual/backend/services/requirementIteration.service');
+    const original = { createRun: workers.createRun, getRun: workers.getRun, respond: assistant.respond, sprint: sprints.getIterationSummary };
+    const scans = [];
+    const entered = new Set();
+    let releaseSources;
+    const allSourcesStarted = new Promise(resolve => { releaseSources = resolve; });
+    const startSource = async id => {
+      entered.add(id);
+      if (entered.size === 3) releaseSources();
+      const timeout = AbortSignal.timeout(3000);
+      await Promise.race([allSourcesStarted, new Promise((_, reject) => timeout.addEventListener('abort',
+        () => reject(new Error('The Sprint read and both source branches must start together.')), { once: true }))]);
+    };
+    sprints.getIterationSummary = async id => {
+      await startSource('sprint');
+      return original.sprint(id);
+    };
+    workers.createRun = async ({agent_type}, _user, {requestKey}) => {
+      scans.push({ type: agent_type, requestKey });
+      await startSource(agent_type);
+      return { id: agent_type + '-receipt' };
+    };
+    workers.getRun = async id => ({ status: 'completed', result: { findings: id.startsWith('api_tests') ? {
+      test_cases: ['red','blue'].map(color => ({ id: color, title: `Read ${color} invoice`, method: 'GET',
+        path: `/pipeline-${color}`, expected_status: 200, evidence: [{ path: 'invoice-routes.js', line: 1 }] }))
+    } : { objects: [{ id: 'invoice', screen_name: 'Invoices', object_name: 'Invoice heading', locator: '#invoice',
+      locator_kind: 'css', evidence: [{ path: 'invoice-page.tsx', line: 5 }] }] } } });
+    assistant.respond = async args => args.agent_id === 'repository-curator'
+      ? { transaction: { id: 'curator-session' }, provenance: { generation_mode: 'llm' },
+          result: { response: 'Review invoice binding candidates.', readiness: { status: 'ready_for_review' } } }
+      : original.respond(args);
+    try {
+      const specStart = await runtime.start(specWorkflow, { ...input, request_id: randomUUID(),
+        input_payload: { ...input.input_payload, source: { type: 'github', repository_url: 'https://github.com/example/ordinary-qa-fixture' } } }, user);
+      runningId = specStart.id;
+      await runtime._internals.active.get(specStart.id)?.promise;
+      const specRun = await runtime._internals.store.get(specStart.id);
+      assert.equal(specRun.status, 'completed', JSON.stringify({ failures, nodeErrors: specRun.node_results.filter(item => item.error).map(item => item.error) }));
+      assert.deepEqual([...entered].sort(), ['api_tests','object_repository','sprint']);
+      assert.deepEqual(scans.map(item => item.type).sort(), ['api_tests', 'object_repository']);
+      assert.ok(scans.every(item => item.requestKey.includes(specStart.id)));
+      assert.equal(specRun.node_results.find(row => row.node_id === 'each-story').output.total_batches, 2);
+      assert.equal(specRun.node_results.find(row => row.node_id === 'automation-engineer').iterations.length, 2);
+      const caseCalls = calls.slice(specCallStart).filter(call => ['test-case-generation','automation'].includes(call.kind));
+      assert.deepEqual(caseCalls.map(call => call.kind), ['test-case-generation','automation','test-case-generation','automation']);
+      const loopPackets = specRun.node_results.find(row => row.node_id === 'each-story').output.data;
+      for (const [index, packet] of loopPackets.entries()) {
+        const color = packet.story?.title?.includes('red') ? 'red' : 'blue';
+        for (const call of caseCalls.slice(index * 2, index * 2 + 2)) {
+          assert.equal(call.supportingEvidence?.workflow_sources?.api?.attachment.id, 'api_tests-receipt');
+          assert.deepEqual(call.supportingEvidence.workflow_sources.api.candidates.map(item => item.path), [`/pipeline-${color}`]);
+        }
+      }
+      assert.equal((await db.prepare('SELECT COUNT(*)::integer AS count FROM test_cases WHERE source_idempotency_key LIKE ?')
+        .get(`workflow-draft:${specStart.id}:%`)).count, 4);
+    } finally {
+      workers.createRun = original.createRun;
+      workers.getRun = original.getRun;
+      assistant.respond = original.respond;
+      sprints.getIterationSummary = original.sprint;
+    }
     // Exercise the reported failure through the real node, gateway, provider,
     // connected loop and persisted output, rather than mocking native assurance.
     assuranceFailureMode='repair-once';connectedGenerated=0;
@@ -348,9 +440,9 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.equal(repairedRun.status,'completed',JSON.stringify(repairedRun.node_results.filter(row=>row.error).map(row=>row.error_details)));
     const repairedAssurance=repairedRun.node_results.find(row=>row.node_id==='test-case-assurance');
     assert.equal(repairedAssurance.iterations.length,2);
-    assert.ok(repairedAssurance.iterations.every(row=>row.output.data[0].case_assurance[0].response_repaired===true));
+    assert.ok(repairedAssurance.iterations.every(row=>row.output.data[0].case_assurance.response_repaired===true));
     assert.equal(calls.slice(repairCallStart).filter(call=>call.kind==='test-case-assurance').length,4,'Each Story case receives exactly one bounded format repair.');
-    assert.ok(repairedAssurance.iterations.every(row=>row.output.data[0].case_assurance[0].assurance_review.insights[0].kind==='artifact_quality'));
+    assert.ok(repairedAssurance.iterations.every(row=>row.output.data[0].case_assurance.assurance_review.insights[0].kind==='artifact_quality'));
     assuranceFailureMode='persistent';connectedGenerated=0;
     const failureInput={...input,request_id:randomUUID()},failureCallStart=calls.length;
     const failureStart=await runtime.start(connectedWorkflow,failureInput,user);runningId=failureStart.id;
@@ -361,8 +453,8 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.equal(failedAssurance.status,'completed');
     const failedAssurancePackets=failedAssurance.iterations.flatMap(iteration=>iteration.output.data);
     assert.equal(failedAssurancePackets.length,2);
-    assert.ok(failedAssurancePackets.every(packet=>packet.case_assurance_failures[0].code==='AI_OUTPUT_SCHEMA_VIOLATION'
-      && packet.case_assurance[0].verification.status==='needs_input'));
+    assert.ok(failedAssurancePackets.every(packet=>packet.case_assurance.failure.code==='AI_OUTPUT_SCHEMA_VIOLATION'
+      && packet.case_assurance.verification.status==='needs_input'));
     assert.doesNotMatch(JSON.stringify(failedAssurancePackets),/model_candidate|Name the exact amount field/);
     const unavailableData=failedRun.node_results.find(row=>row.node_id==='test-data-generator').iterations.flatMap(iteration=>iteration.output.data);
     assert.equal(unavailableData.length,2);

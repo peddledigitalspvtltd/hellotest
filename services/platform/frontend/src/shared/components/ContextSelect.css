@@ -6,6 +6,8 @@
 .context-select-icon { display: inline-flex; }
 .context-select-label { color: var(--app-text-muted, #5d6f79); }
 .context-select-value { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-select--field .context-select-trigger { width: 100%; min-height: 40px; padding: 7px 10px; font-size: 13px; text-align: start; }
+.context-select--field .context-select-value { flex: 1; min-width: 0; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
 .context-select-popover { box-sizing: border-box; position: fixed; z-index: 2100; display: flex; flex-direction: column; overflow: hidden; padding: 5px; border: 1px solid var(--app-border, #dce5e8); border-radius: 12px; background: var(--app-surface, #fff); color: var(--app-text, #182b35); box-shadow: 0 12px 38px #122e3b24; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
 .context-select-search { display: flex; align-items: center; gap: 8px; padding: 6px 8px 10px; flex: 0 0 auto; border-bottom: 1px solid var(--app-border, #dce5e8); color: var(--app-text-muted, #5d6f79); }
 .context-select-popover .context-select-search input { width: 100%; min-width: 0; min-height: 28px; margin: 0; padding: 4px 0; border: 0; border-radius: 0; background: transparent; color: var(--app-text, #182b35); font: inherit; outline: 0; box-shadow: none; }
@@ -16,6 +18,7 @@
 .context-select-options button[aria-selected=true] { color: var(--app-accent, #087e83); }
 .context-select-options button:disabled { opacity: .45; cursor: not-allowed; }
 .context-select-options button > span { display: grid; min-width: 0; gap: 5px; overflow-wrap: anywhere; }
+.context-select-options button > svg { flex: none; }
 .context-select-options small { color: var(--app-text-muted, #5d6f79); font-size: 10px; }
 .context-select-empty { padding: 12px 8px; color: var(--app-text-muted, #5d6f79); }
 .authoring-property-field > .form-field-label { position: absolute !important; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }

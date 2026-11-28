@@ -40,6 +40,8 @@ test('automation data links, shared overrides, inherited parameter reset and ful
     await expect(metrics).toBeHidden();
     await expect(page.locator('.page-content--automation')).toHaveClass(/page-content--workspace-focus/);
     await expect(page.locator('.sidebar')).toBeHidden();
+    await expect(page.getByRole('heading',{name:'Checkout @r.title',exact:true})).toBeVisible();
+    await expect(page.locator('.automation-case-heading-meta')).toContainText('Web');
     assert.equal((await page.evaluate(()=>window.metricQueries))[0].automated,'yes');
     assert.equal(await page.getByText('Saved plan',{exact:true}).count(),0);
     await page.screenshot({path:'/tmp/qaira-automation-workspace-plan.png',fullPage:true});
@@ -56,7 +58,16 @@ test('automation data links, shared overrides, inherited parameter reset and ful
     assert.equal(await page.getByText('Edit section source',{exact:true}).count(),0);
     await page.getByRole('button',{name:'Full source',exact:true}).click();const fullSource=page.getByRole('dialog',{name:/automation code$/});await expect(fullSource.locator('pre')).toContainText("from '@playwright/test'");await expect(fullSource.locator('pre')).toContainText('automation.spec.ts');await expect(fullSource.locator('pre')).toContainText('// #region 1.');await expect(fullSource.locator('pre')).toContainText('sectionRows');await expect(fullSource.locator('pre')).toContainText('Alice');await expect(fullSource.locator('.automation-keyword-map-pane')).toBeHidden();await fullSource.getByRole('button',{name:'Close code preview'}).click();
     const sourcePanel=page.getByRole('region',{name:'Automation source',exact:true});const copyBounds=await sourcePanel.getByRole('button',{name:'Copy full source',exact:true}).boundingBox();const codeBounds=await sourcePanel.locator('pre').first().boundingBox();assert.ok(copyBounds.y<codeBounds.y,'copy action is above source');
-    await page.setViewportSize({width:390,height:844});assert.ok(await sourceSections.evaluate(element=>element.scrollWidth<=element.clientWidth+1),'source sections fit narrow screens');await sourceSections.screenshot({path:'/tmp/qaira-automation-source-mobile.png'});await page.setViewportSize({width:1440,height:1000});
+    await page.setViewportSize({width:390,height:844});
+    assert.ok(await sourceSections.evaluate(element=>element.scrollWidth<=element.clientWidth+1),'source sections fit narrow screens');
+    assert.ok(await sourceSections.locator('.automation-source-section-title').first().evaluate(element=>element.clientWidth>element.parentElement.clientWidth/2),'the source title has room beside narrow-screen actions');
+    await sourceSections.screenshot({path:'/tmp/qaira-automation-source-mobile.png'});
+    await page.getByRole('tab',{name:'Details',exact:true}).click();
+    const details=page.getByRole('region',{name:'Automation case details'});
+    await expect(details.getByLabel('Automation case type')).toHaveValue('web');
+    assert.ok(await details.evaluate(element=>element.scrollWidth<=element.clientWidth+1),'case details fit narrow screens');
+    await page.getByRole('tab',{name:/^Plan/}).click();
+    await page.setViewportSize({width:1440,height:1000});
     await page.getByRole('tab',{name:'Gherkin',exact:true}).click();await expect(page.getByText('Feature:',{exact:true})).toBeVisible();
     await page.getByRole('tab',{name:'Instructions',exact:true}).click();
     await expect(page.locator('.automation-program-flow')).toHaveCount(2);

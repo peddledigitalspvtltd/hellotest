@@ -185,6 +185,18 @@ test('validated draft streams progressively without offering acceptance before t
  assert.ok(previews.every(event=>!Object.hasOwn(event.outcome_preview,'verification')));
  assert.equal(reply.transaction.status,'completed');assert.equal(reply.result.verification.status,'passed');
 });
+test('the same specialist completes verified workflow output without draft or session progress events',async()=>{
+ const f=fixture(),progress=[];
+ const presentation=require('../../backend/agents/agentInvocation').workflow;
+ const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],
+   prompt:'Review and complete checkout.',agentPresentation:presentation,onProgress:event=>progress.push(event)});
+ assert.equal(reply.transaction.status,'completed');
+ assert.equal(reply.result.verification.status,'passed');
+ assert.equal(reply.result.artifacts[0].kind,'story');
+ assert.deepEqual(progress,[]);
+ assert.deepEqual(f.events,[]);
+ assert.deepEqual(reply.events,[]);
+});
 test('a final JSON response rechecks evidence permissions even without a progress subscriber',async()=>{
  const sequence=[],f=fixture({sequence,revokeAfterModel:true});sequence.push({...f.reviewer,findings:[],recommendations:[]});
  await assert.rejects(f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt:'Review checkout.'}),error=>error.statusCode===403);

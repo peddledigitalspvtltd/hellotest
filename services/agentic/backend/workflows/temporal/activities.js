@@ -34,7 +34,7 @@ async function restore(runId, receipts) {
   });
   run.output_payload = { execution_mode: 'review', status: 'running', requires_human_review: true,
     project_changes_applied: run.node_results.some(item => item.output?.library_publication?.receipts?.some(receipt => receipt.saved === true && typeof receipt.id === 'string' && receipt.id.trim())),
-    runtime_contract: run.workflow_snapshot.runtime_contract, total_steps: run.node_results.length,
+    runtime_contract: run.workflow_snapshot.runtime_contract, total_steps: run.output_payload?.total_steps ?? run.node_results.length,
     completed_steps: run.node_results.filter(item => item.status === 'completed').length };
   const bodyIds = new Set(Object.values(require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph').loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges)).flat());
   run.loop_budget = run.node_results.filter(item => !bodyIds.has(item.node_id)).reduce((sum, item) => ({
@@ -117,8 +117,9 @@ async function publishReview({ runId, receipts, status, reason }) {
   const run = await restore(runId,receipts);
   const reviews = runtime().collectReviews(run.node_results.filter(runtime().reviewSource)).map(({response,citation_ids,...review}) => review);
   const target = run.workflow_snapshot.runtime_contract.target_node_id;
+  const { providesOutput } = require('../workflowScheduling');
   const hasOutput = target ? run.node_results.some(item => item.node_id === target && item.status === 'completed')
-    : run.node_results.some(item => item.node_type === 'output' && item.status === 'completed');
+    : run.node_results.some(item => item.node_type === 'output' && providesOutput(item));
   if (status === 'completed' && (!hasOutput || reviews.some(item => item.readiness?.status !== 'ready_for_review') || run.node_results.some(runtime().needsAttention))) status = 'needs_review';
   const unacknowledged = await db.prepare('SELECT node_id FROM workflow_node_receipts WHERE run_id=?').all(runId);
   const bodies = require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph').loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges);
@@ -140,7 +141,7 @@ async function publishReview({ runId, receipts, status, reason }) {
       ...(failedNode.error_details.origin?.node_id && failedNode.error_details.origin.node_id!==failedNode.node_id?{failed_parent_node_id:failedNode.node_id}:{}),error_details:failedNode.error_details}:{}),
     summary: status === 'completed' ? 'Review workflow completed. Results are ready for human review.' : status === 'needs_review' ? 'Review the evidence gaps and recovery results before acting.' : `Review execution ${status}. Completed results are preserved.`,
     reviews,review_session_ids:reviews.map(item=>item.session_id).filter(Boolean),
-    results:run.node_results.filter(item=>item.node_type==='output'&&item.status==='completed').map(item=>({node_id:item.node_id,output:item.output}))};
+    results:run.node_results.filter(item=>item.node_type==='output'&&providesOutput(item)).map(item=>({node_id:item.node_id,output:item.output}))};
   output.summary = runtime().terminalSummary(run,status,run.node_results,output.summary);
   await runtime().store.save(runId,status,run.node_results,output);
   return { status };

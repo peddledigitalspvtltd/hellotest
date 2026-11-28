@@ -19,6 +19,68 @@ function fixture(t, data, { firstSkipped = false, kind = 'aggregator' } = {}) {
 }
 const execute = ({ run, target }) => runtime._internals.runStep(run, target, { id: 'actor' }, new AbortController().signal, async () => {});
 
+test('agent workflow execution publishes its final artifact and saves only durable intermediate state', async t => {
+  const { run, target, result } = fixture(t, { artifactTask: 'automation-engineer' }, { kind: 'artifactTask' });
+  const checkpoint = { schema_version: 1, input_fingerprint: 'pinned-source', stories: [] };
+  const final = { data: [{ story_id: 'completed-story' }] };
+  t.mock.method(artifactTasks, 'execute', async ({ onProgress }) => {
+    await onProgress({ current_item: 1, percent: 20, completed_items: [{ draft: 'temporary' }] });
+    await onProgress({ percent: 50, automation_checkpoint: checkpoint, automation_startup_retry: true });
+    await onProgress({ percent: 90, completed_items: [{ draft: 'another temporary draft' }] });
+    return { __workflow_result: { output: final, context: final } };
+  });
+  const snapshots = [];
+  await runtime._internals.runStep(run, target, { id: 'actor' }, new AbortController().signal,
+    async () => { snapshots.push(structuredClone(result)); });
+  assert.deepEqual(result.output, final);
+  assert.deepEqual(result.progress, { automation_checkpoint: checkpoint });
+  assert.deepEqual(result.logs.map(item => item.event), ['node_started', 'node_completed']);
+  assert.ok(snapshots.some(item => item.status === 'running' && item.progress?.automation_checkpoint));
+  assert.doesNotMatch(JSON.stringify(snapshots), /temporary|automation_startup_retry|completed_items|percent/);
+});
+
+test('native automation uses the Studio timeout default when an imported node omits it', async t => {
+  const guarded = require('@hellotest/knowledge/backend/services/knowledgeExecution.service');
+  const bounded = guarded.bounded;
+  const budgets = [];
+  t.mock.method(guarded, 'bounded', async (task, options) => {
+    budgets.push(options.timeoutMs);
+    return bounded(task, options);
+  });
+  t.mock.method(artifactTasks, 'execute', async () => ({ data: [] }));
+  await execute(fixture(t, { artifactTask: 'automation-engineer' }, { kind: 'artifactTask' }));
+  assert.ok(budgets.includes(1_800_000));
+  budgets.length = 0;
+  await execute(fixture(t, { artifactTask: 'automation-engineer', timeoutMs: '90000' }, { kind: 'artifactTask' }));
+  assert.ok(budgets.includes(90_000));
+  assert.ok(!budgets.includes(1_800_000));
+});
+
+test('a timed-out automation with a dispatched action still requires reconciliation', async t => {
+  const data = fixture(t, { artifactTask: 'automation-engineer' }, { kind: 'artifactTask' });
+  const timedOut = Object.assign(new Error('The test action did not return a receipt.'), {
+    code: 'DEADLINE_EXCEEDED', effect_dispatched: true, outcome_unknown: true, operation_id: 'receipt'
+  });
+  t.mock.method(artifactTasks, 'execute', async () => { throw timedOut; });
+  await assert.rejects(execute(data), { code: 'DEADLINE_EXCEEDED', outcome_unknown: true, operation_id: 'receipt' });
+});
+
+test('failed automation returns a terminal partial outcome for complete drafts', async t => {
+  const data = fixture(t, { artifactTask: 'automation-engineer' }, { kind: 'artifactTask' });
+  const completed = { client_id:'case-one', validation:{status:'passed'}, executable:{code:'complete Playwright source'} };
+  t.mock.method(artifactTasks, 'execute', async ({ onProgress }) => {
+    await onProgress({ automation_checkpoint:{
+      input_fingerprint:'private',stories:[{story_id:'a',story_revision:'revision-a',automation:[completed,null]}]
+    }, completed_items:[{script:'unfinished draft'}] });
+    throw Object.assign(new Error('Next case could not complete.'),{statusCode:502});
+  });
+  await assert.rejects(execute(data),/Next case could not complete/);
+  assert.equal(data.result.output.partial,true);
+  assert.deepEqual(data.result.output.data[0].automation,[completed,null]);
+  assert.doesNotMatch(JSON.stringify(data.result.output),/private|unfinished draft/);
+  assert.equal(data.result.progress.automation_checkpoint.input_fingerprint,'private');
+});
+
 test('Choose Input propagates only its selected input-port native Story checkpoints', async t => {
   const fixtureValue = fixture(t, { mergeMode: 'chooseInput', mergeChooseInput: 1 });
   await execute(fixtureValue);
@@ -51,6 +113,27 @@ test('Wait preserves the exact native Story checkpoint while passing connected d
   await execute(fixtureValue);
   assert.deepEqual(fixtureValue.result.output.data, [{ story_id: 'a' }]);
   assert.deepEqual(fixtureValue.result.execution_context, fixtureValue.run.node_results[0].execution_context);
+});
+
+test('a disabled node passes the exact authorized Story checkpoints to downstream tasks', async t => {
+  const fixtureValue = fixture(t, { disabled: true }, { kind: 'wait' });
+  fixtureValue.run.workflow_snapshot.edges = [{ source: 'a', target: 'target' }];
+  await execute(fixtureValue);
+  assert.equal(fixtureValue.result.status, 'skipped');
+  assert.equal(fixtureValue.result.attempts, 0);
+  assert.deepEqual(fixtureValue.result.output, { data: [{ story_id: 'a' }] });
+  assert.deepEqual(fixtureValue.result.execution_context, fixtureValue.run.node_results[0].execution_context);
+});
+
+test('a disabled join cannot bypass workflow result size limits', async t => {
+  const fixtureValue = fixture(t, { disabled: true });
+  for (const [index, source] of fixtureValue.run.node_results.slice(0, 2).entries()) {
+    fixtureValue.run.workflow_snapshot.nodes[index].data.kind = 'transform';
+    delete source.execution_context;
+    source.output = { data: { [source.node_id]: 'v'.repeat(70 * 1024) } };
+  }
+  await assert.rejects(execute(fixtureValue), /Node output exceeded 128 KB/);
+  assert.equal(fixtureValue.result.output, undefined);
 });
 
 test('each connected loop batch receives its own native Story input, while Done collects all completed checkpoints', async t => {
@@ -145,6 +228,9 @@ test('native graph fields cannot override exclusive effect scheduling', () => {
     assert.equal(scheduling.exclusive({ id: 'effect', exclusive: false, data }), true, data.kind);
   }
   assert.equal(scheduling.exclusive({ id: 'read', exclusive: true, data: { kind: 'apiTool', apiMethod: 'GET' } }), false, 'Native graph concurrency derives from its actual operation.');
+  assert.equal(scheduling.exclusive(node('source', 'repositoryAgent', { repositoryOptional: true, repositoryAgentType: 'api_tests' })), false);
+  assert.equal(scheduling.exclusive(node('source', 'repositoryAgent', { repositoryOptional: true, repositoryAgentType: 'object_repository' })), false);
+  assert.equal(scheduling.exclusive(node('source', 'repositoryAgent', { repositoryAgentType: 'api_tests' })), true);
   assert.equal(scheduling.exclusive({ id: 'effect', kind: 'apiTool', exclusive: true }), true, 'Server-created Temporal metadata preserves the resolved policy.');
 });
 

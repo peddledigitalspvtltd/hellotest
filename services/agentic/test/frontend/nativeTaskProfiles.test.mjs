@@ -50,10 +50,10 @@ test('guidance reset leaves other task settings alone and hydration preserves cu
   for (const key of ['inspectBrowser', 'readinessPolicy', 'automationData']) assert.equal(reset[key], saved[key]);
 });
 
-test('new Automation Engineer nodes explicitly perform steps while saved legacy nodes retain their prior action authority',()=>{
+test('new Automation Build Agent nodes start with inspection and preserve saved browser permissions',()=>{
  const created=native.nativeTaskDefaults('automation-engineer');
- assert.equal(created.automationBrowserMode,'perform_steps');assert.equal(created.inspectBrowser,true);
- assert.equal(native.withNativeTaskDefaults({kind:'artifactTask',...created}).automationBrowserMode,'perform_steps');
+ assert.equal(created.automationBrowserMode,'read_only');assert.equal(created.inspectBrowser,true);
+ assert.equal(native.withNativeTaskDefaults({kind:'artifactTask',...created}).automationBrowserMode,'read_only');
  for(const [stored,mode]of[[{},'read_only'],[{inspectBrowser:true},'read_only'],[{inspectBrowser:false},'offline']]){
   const legacy={kind:'artifactTask',artifactTask:'automation-engineer',...stored},original=structuredClone(legacy);
   const hydrated=native.withNativeTaskDefaults(legacy);

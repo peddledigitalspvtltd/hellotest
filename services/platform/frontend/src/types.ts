@@ -1163,6 +1163,7 @@ export type Integration = {
   username: string | null;
   config: Record<string, unknown> | null;
   is_active: boolean;
+  is_default?: boolean;
   created_at?: string;
   updated_at?: string;
 };
@@ -2811,11 +2812,11 @@ export type ExecutionSchedule = {
 };
 
 export type AgenticWorkflowStatus = "draft" | "active" | "paused" | "archived";
-
 export type AgenticWorkflowTriggerKind = "manual" | "webhook" | "schedule" | "release" | "event";
 
 export type AgenticWorkflowNodeData = {
   label?: string;
+  disabled?: boolean;
   name?: string;
   kind?: "trigger" | "agent" | "tool" | "condition" | "transform" | "output" | string;
   summary?: string;
@@ -2975,7 +2976,20 @@ export type QualityEvidenceReport = {
   };
 };
 
-export type AutomationRepairSummary = {id?:string;project_id?:string;status:string;detail:string;patch?:{kind?:'replace_api_url'|'replace_locator'|'replace_instructions';before:string;after:string;rationale:string;hash:string}};
+export type AutomationRepairSummary = {
+  id?: string;
+  project_id?: string;
+  status: string;
+  detail: string;
+  triage?: {
+    classification: string;
+    next_action: string;
+    step_order: number;
+    line?: number;
+    observed_candidate_count?: number;
+  };
+  patch?: { kind?: 'replace_api_url' | 'replace_locator' | 'replace_instructions'; before: string; after: string; rationale: string; hash: string };
+};
 export type AgentStructuredArtifact = {
   target_id?: string; target_revision?: number; kind: "story" | "test_case" | "defect" | "run" | "automation";
   title: string; description: string; priority: string; citation_ids: string[]; addressed_finding_ids?: string[];
@@ -3547,6 +3561,7 @@ export type KnowledgeAssistantIntegration = {
   scope: "project" | "workspace";
   project_id?: string | null;
   is_default?: boolean;
+  is_automatic_selection?: boolean;
 };
 
 export type KnowledgeAssistantMessage = {

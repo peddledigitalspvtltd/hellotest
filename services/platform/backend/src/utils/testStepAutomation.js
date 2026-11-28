@@ -6,6 +6,7 @@ const API_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "O
 const API_BODY_MODES = new Set(["none", "json", "text", "xml", "form"]);
 const API_VALIDATION_KINDS = new Set(["status", "header", "header_present", "body_contains", "body_not_contains", "json_path", "json_schema", "response_time"]);
 const API_VALIDATION_OPERATORS = new Set(["eq", "ne", "contains", "matches", "exists", "lt", "lte", "gt", "gte"]);
+const API_REQUEST_ROW_FIELDS = ['headers', 'query_params', 'cookies'];
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -158,7 +159,7 @@ function validateApiRequest(value, { stepOrder = 1, existingRequest, expectedRes
   if (!API_METHODS.has(method) || !API_BODY_MODES.has(mode) || request.body != null && typeof request.body !== 'string') fail('Use a supported method and string body.');
   const allowed = new Set(['method','url','headers','query_params','cookies','auth','body_mode','bodyMode','bodyType','body','validations','captures','timeout_ms','follow_redirects']);
   if (Object.keys(request).some(key => !allowed.has(key))) fail('Use the native request fields; unsupported fields would be discarded.');
-  for (const field of ['headers','query_params','cookies']) {
+  for (const field of API_REQUEST_ROW_FIELDS) {
     if (request[field] !== undefined && (!Array.isArray(request[field]) || request[field].some(row => !row || !normalizeText(row.key) || typeof row.value !== 'string'))) fail(`${field} must contain complete key/value strings.`);
   }
   if (request.auth != null) {
@@ -204,6 +205,25 @@ function validateApiRequest(value, { stepOrder = 1, existingRequest, expectedRes
   const existing = normalizeApiRequest(existingRequest);
   const authoredMethod = existing?.url ? existing.method : API_ACTION_METHOD.exec(normalizeStepAction(action))?.[1]?.toUpperCase();
   if (!draft && authoredMethod && method !== authoredMethod) fail(`Preserve the authored HTTP method ${authoredMethod}.`);
+  if (existing) {
+    for (const field of ['url', 'body', 'follow_redirects', 'timeout_ms']) {
+      if (existing[field] != null && existing[field] !== normalized[field]) fail(`Preserve the authored request field ${field}.`);
+    }
+    if (existing.body_mode !== 'none' && existing.body_mode !== normalized.body_mode) fail('Preserve the authored request body mode.');
+    for (const [field, value] of Object.entries(existing.auth || {})) {
+      if (value != null && normalized.auth?.[field] !== value) fail(`Preserve the authored authentication field ${field}.`);
+    }
+    for (const field of API_REQUEST_ROW_FIELDS) {
+      // Repeated rows are valid, especially query parameters. Match each
+      // authored group by key so generation cannot shadow or collapse it.
+      const keyOf = row => field === 'headers' ? row.key.toLowerCase() : row.key;
+      const keys = new Set((existing[field] || []).map(keyOf));
+      for (const key of keys) {
+        const values = rows => (rows || []).filter(row => keyOf(row) === key).map(row => row.value);
+        if (!isDeepStrictEqual(values(existing[field]), values(normalized[field]))) fail(`Preserve authored values and order in ${field}.`);
+      }
+    }
+  }
   for (const key of ['validations','captures']) if (existing?.[key]?.some(item => !normalized[key].some(next => JSON.stringify(next) === JSON.stringify(item)))) throw new Error(`Step ${stepOrder} removed or changed an existing API ${key === 'validations' ? 'assertion' : 'capture'}. Preserve saved behavior and expected values.`);
   return normalized;
 }

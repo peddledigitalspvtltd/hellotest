@@ -24,9 +24,9 @@ export function AutomationBuildParameterDialog({ plan, caseTitle, onContinue, on
     headerContent={<div className="step-parameter-dialog-context-card"><strong>Values for this build</strong>
       <span>Review unset parameters before starting. Blank fields use empty strings for one case. Changed inputs save as automation overrides with accepted sections. The agent and browser use the same resolved data; manual defaults stay linked.</span>
     </div>}
-    footerContent={<><button className="ghost-button" onClick={onClose} type="button">Cancel build</button>
-      <button className="primary-button" onClick={() => onContinue(automationBuildParameterOverrides(plan, edits))} type="button">
-        {blankCount ? `Continue with ${blankCount} blank value${blankCount === 1 ? "" : "s"}` : "Continue build"}
+    renderFooter={({ aiDataPending, hasUnresolvedAiData }) => <><button className="ghost-button" onClick={onClose} type="button">Cancel build</button>
+      <button className="primary-button" disabled={aiDataPending || hasUnresolvedAiData} onClick={() => onContinue(automationBuildParameterOverrides(plan, edits))} type="button">
+        {aiDataPending ? "Generating test data…" : blankCount ? `Continue with ${blankCount} blank value${blankCount === 1 ? "" : "s"}` : "Continue build"}
       </button></>}
   />;
 }

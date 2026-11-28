@@ -57,6 +57,12 @@ function buildWhere(query = {}) {
   return { sql: clauses.join(' AND '), params };
 }
 
+exports.containsSprintStory = async ({ projectId, sprintId, storyId }) => {
+  if (!projectId || !sprintId || sprintId === 'all' || !storyId) return false;
+  const { sql, params } = buildWhere({ project_id: projectId, sprint_id: sprintId });
+  return Boolean(await db.prepare(`SELECT 1 FROM requirements r WHERE ${sql} AND r.id = ?`).get(...params, storyId));
+};
+
 function pageOptions(query, scope) {
   const limit = Math.max(1, Math.min(200, Number.parseInt(String(query.page_size || query.limit || 25), 10) || 25));
   let cursor = null;

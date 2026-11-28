@@ -43,7 +43,6 @@ import { useCurrentAppType, useCurrentProject } from "@hellotest/platform/fronte
 import { useWorkspaceResource } from "@hellotest/platform/frontend/src/platform/hooks/useWorkspaceData";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
-
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/shared/lib/viewPreferences";
@@ -53,7 +52,8 @@ import { SprintAutomatorSetup } from "../workflows/SprintAutomatorSetup";
 import { isSprintAutomator, sprintInputDefaults, restoredSprintInput, migrateSprintConfiguration } from "../workflows/sprintAutomatorInput";
 import { WorkflowStudio } from "../workflows/WorkflowStudio";
 import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
-import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemplates";
+import { draftFromTemplate, type WorkflowTemplate } from "../workflows/workflowTemplates";
+import { WorkflowTemplateGallery } from "../workflows/WorkflowTemplateGallery";
 import { isQualityAgentKind } from "../lib/qualityAgentExperience";
 import { QualityAgentLab } from "../quality/QualityAgentLab";
 import { AgentOutcomePreview } from '../components/AgentOutcomePreview';
@@ -453,7 +453,7 @@ export function AgenticWorkflowsPage() {
       const migrated = migrateSprintConfiguration(nextDraft.nodes, safeJsonParse(nextDraft.initialInput ?? runInput));
       const directLlmNodes = migrated.nodes.map(normalizeWorkflowNodeDirectLlm);
       const settings = isSprintAutomator(directLlmNodes)
-        ? { ...nextDraft.settings, template_id: "sprint-automator", sprint_input_defaults: sprintInputDefaults(safeJsonParse(nextDraft.initialInput ?? runInput)) }
+        ? { ...nextDraft.settings, template_id: nextDraft.settings.template_id || "sprint-automator", sprint_input_defaults: sprintInputDefaults(safeJsonParse(nextDraft.initialInput ?? runInput)) }
         : nextDraft.settings;
       const payload = {
         project_id: projectId,
@@ -895,7 +895,7 @@ export function AgenticWorkflowsPage() {
     if (confirmed && scope === currentWorkspaceScope.current) deleteMutation.mutate({ workflows: selected, scope });
   };
 
-  const createFromTemplate = (template: (typeof WORKFLOW_TEMPLATES)[number]) => {
+  const createFromTemplate = (template: WorkflowTemplate) => {
     if (!projectId || !appTypeId || !canManageAgenticWorkflows || saveMutation.isPending) return;
     const value = draftFromTemplate(template);
     saveMutation.mutate({ ...value.draft, initialInput: value.input || DEFAULT_RUN_INPUT });
@@ -1124,7 +1124,7 @@ export function AgenticWorkflowsPage() {
     <div className="page page-agentic-workflows">
       {!draft && !selectedRun && activeSurface !== "quality" && <PageHeader
         eyebrow={activeSurface === "repository" ? "Repository agents" : activeSurface === "agents" ? "AI specialists" : activeSurface === "workbench" ? "Agent Workbench" : "Agentic automation"}
-        title={activeSurface === "repository" ? selectedRepositoryAgent.name : activeSurface === "agents" ? "AI Agents" : automationWorkbench ? "Automation Engineer" : activeSurface === "workbench" ? selectedAssistantAgent.name : "Workflows"}
+        title={activeSurface === "repository" ? selectedRepositoryAgent.name : activeSurface === "agents" ? "AI Agents" : automationWorkbench ? "Automation Build Agent" : activeSurface === "workbench" ? selectedAssistantAgent.name : "Workflows"}
         description={activeSurface === "agents"
           ? "Turn repository source and project evidence into useful quality work."
           : activeSurface === "repository"
@@ -1176,7 +1176,7 @@ export function AgenticWorkflowsPage() {
       {!draft && !selectedRun && automationWorkbench && !legacyAutomationReview && <AutomationEngineerWorkbench projectId={projectId} appTypeId={appTypeId} reviews={specialistSessions} onBack={openAgentCatalog} onOpenReview={id => openAssistantSession("automation-engineer", id)} formatTimestamp={formatTimestamp} />}
       {!draft && !selectedRun && activeSurface === "workbench" && (!automationWorkbench || legacyAutomationReview) ? (
         <section className="agent-specialist-workspace" aria-label={`${selectedAssistantAgent.name} workspace`}>
-          <div className="agent-specialist-heading"><div><button aria-label={legacyAutomationReview ? "Back to Automation Engineer" : "Back to all AI Agents"} className="ghost-button" type="button" onClick={legacyAutomationReview ? newSpecialistReview : openAgentCatalog}><IconArrowLeft size={16} /><span>Back</span></button><span className="agent-specialist-mode"><IconShieldCheck size={16} aria-hidden="true" />{legacyAutomationReview ? "Earlier planning review" : "Workspace evidence review"}</span></div>{activeAssistantResult && !legacyAutomationReview && <button type="button" className="ghost-button" disabled={assistantMutation.isPending} onClick={newSpecialistReview}>New review</button>}</div>
+          <div className="agent-specialist-heading"><div><button aria-label={legacyAutomationReview ? "Back to Automation Build Agent" : "Back to all AI Agents"} className="ghost-button" type="button" onClick={legacyAutomationReview ? newSpecialistReview : openAgentCatalog}><IconArrowLeft size={16} /><span>Back</span></button><span className="agent-specialist-mode"><IconShieldCheck size={16} aria-hidden="true" />{legacyAutomationReview ? "Earlier planning review" : "Workspace evidence review"}</span></div>{activeAssistantResult && !legacyAutomationReview && <button type="button" className="ghost-button" disabled={assistantMutation.isPending} onClick={newSpecialistReview}>New review</button>}</div>
           <div className="agent-specialist-grid">
             <div className="agent-specialist-main">
               {!legacyAutomationReview && <section className="agent-specialist-brief" aria-labelledby="specialist-task-title"><header><h2 id="specialist-task-title">{activeAssistantResult ? "Task summary" : "Your task"}</h2><span>{selectedAppType?.name || selectedProject?.name || "Select a project"}</span>{activeAssistantResult && <button type="button" className="ghost-button compact" aria-expanded={assistantTaskExpanded} onClick={() => setAssistantTaskExpanded(value => !value)}>{assistantTaskExpanded ? "Hide task setup" : "Review another task"}</button>}</header>
@@ -1212,10 +1212,8 @@ export function AgenticWorkflowsPage() {
           </div>
         </section>
       ) : null}
-      {!draft && !selectedRun && activeSurface === "workflows" && canManageAgenticWorkflows && !emptyScope && <section className="studio-template-gallery" aria-label="Workflow templates">
-        <header><div><span className="studio-caption">START FROM A TEMPLATE</span><h2>A useful workflow in a few steps</h2></div><button className="ghost-button" type="button" onClick={() => { openDraft(); setDraft(current => current ? { ...current, name: "Untitled workflow", description: "", nodes: [], edges: [] } : current); setNodes([]); setEdges([]); setSelectedNodeId(""); }}>Start from scratch</button></header>
-        <div>{WORKFLOW_TEMPLATES.map(template => <button className="studio-template-card" key={template.id} type="button" disabled={emptyScope || saveMutation.isPending} onClick={() => createFromTemplate(template)}><span>{template.category}</span><strong>{template.name}</strong><p>{template.description}</p><small>{saveMutation.isPending ? "Creating…" : "Create Workflow →"}</small></button>)}</div>
-      </section>}
+      {!draft && !selectedRun && activeSurface === "workflows" && canManageAgenticWorkflows && !emptyScope &&
+        <WorkflowTemplateGallery key={workspaceScopeKey} busy={saveMutation.isPending} onCreate={createFromTemplate} onBlank={() => openDraft()} />}
       {!draft && !selectedRun && (activeSurface === "workflows" || activeSurface === "runs") ? renderCatalog(
         <div className={activeSurface === "runs" ? "modal-backdrop workflow-history-backdrop" : "workflow-catalog-container"}><div className={activeSurface === "runs" ? "modal-card workflow-history-dialog page-agentic-workflows" : "workflow-catalog-container"} role={activeSurface === "runs" ? "dialog" : undefined} aria-modal={activeSurface === "runs" ? true : undefined} aria-label={activeSurface === "runs" ? "Workflow executions" : undefined} ref={activeSurface === "runs" ? workflowHistoryRef : undefined} tabIndex={activeSurface === "runs" ? -1 : undefined}>
         {activeSurface === "runs" ? <button className="ghost-button workflow-history-close" aria-label="Close workflow executions" onClick={() => openHubSurface("workflows")} type="button">Close</button> : null}
@@ -1415,6 +1413,7 @@ export function AgenticWorkflowsPage() {
         error={reviewStartError} input={runInput} onInput={setRunInput}
         inputSetup={isSprintAutomator(nodes) ? <SprintAutomatorSetup projectId={projectId} input={runInput} onInput={setRunInput}
           editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows} busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending}
+          repositorySource={draft.settings.template_id === "spec-to-script" ? { canViewConnections: can("integration.view") } : undefined}
           canViewSprints={can("requirement_iteration.view")} onConfigureAutomation={() => { const automation = nodes.find(node => node.data.kind === "artifactTask" && node.data.artifactTask === "automation-engineer"); if (automation) setSelectedNodeId(automation.id); }} /> : undefined}
         onDraft={patch => setDraft(current => current ? { ...current, ...patch } : null)}
         onBack={closeDraft} onSave={() => void checkReviewReadiness()} onPreview={() => void runCurrentDraft()}
@@ -1431,7 +1430,7 @@ export function AgenticWorkflowsPage() {
           onOpenReview: (agent, session) => { closeDraft(); openAssistantSession(agent, session); },
           onOpenSource: (agent, run) => { if (isRepositoryAgentType(agent)) { closeDraft(); openRepositoryAgent(agent, run); } },
           canKnowledge: canUseKnowledge, providers: llmProviderOptions, projectAgents: projectAgents.filter(agent => agent.active_version && !agent.archived),
-          onChange: updateSelectedNodeFields, onDelete: deleteSelectedNode, onTestApi: testSelectedApiAgent, testingApi: Boolean(testingApiNodeId) }}
+          onChange: updateSelectedNodeFields, onDelete: deleteSelectedNode, onTestApi: selectedNode?.data.apiResource === "workspaceSprintStories" ? undefined : testSelectedApiAgent, testingApi: Boolean(testingApiNodeId) }}
       />}
 
       {draft && selectedRunId && !selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog" role="dialog" aria-modal="true" aria-label="Workflow execution details"><p role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? "Execution details could not be loaded." : "Loading execution…"}</p>{selectedRunQuery.isError ? <button className="ghost-button" type="button" onClick={() => void selectedRunQuery.refetch()}>Retry</button> : null}<button className="ghost-button" type="button" onClick={closeRun}>Back to workflow</button></div></div>, document.body)}

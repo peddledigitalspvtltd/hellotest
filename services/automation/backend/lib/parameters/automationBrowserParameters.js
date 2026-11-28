@@ -9,6 +9,7 @@ const {parameterTemplateParts,hasInvalidParameterTemplate}=require("./automation
 const TEXT_PARAMETER=/(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?(\[(?:\\.|[^\]\\\r\n])+\]|[A-Za-z][A-Za-z0-9_-]*)/gi;
 const CODE_PARAMETER=/\bparams\s*\[\s*(["'])(?:\\.|[^\\\r\n])*?\1\s*\]/g;
 const MASK_PLACEHOLDERS=new Set(['[private parameter reference]','[private parameter value]','[redacted]','[redacted_secret]','[redacted_token]']);
+const SENSITIVE_PARAMETER=/password|passwd|secret|token|credential|api.?key|authorization|(?:^|[._ -])(?:auth|cookie|session)(?:$|[._ -])|csrf|xsrf|private.?key|connection.?string|passcode|(?:^|[._ -])pin(?:$|[._ -])|otp|verification.?code|one.?time.?code/i;
 const compositeAssertion=(name,args)=>name==='browser_assert'&&['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(args?.assertion);
 function parameterReference(key){
  const match=/^([tsr])\.(.+)$/i.exec(key);
@@ -83,7 +84,7 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
   for(const key of parameterNames(authored))if(!Object.hasOwn(values,key)){values[key]='';defaultedCaseValues[key]='';}
  };
  fillMissing(steps);
- const sensitiveNames=new Set(Object.keys(values).filter(key=>/password|secret|token|credential|api.?key|passcode|(?:^|[._ -])pin(?:$|[._ -])|otp|verification.?code|one.?time.?code/i.test(key)));
+ const sensitiveNames=new Set(Object.keys(values).filter(key=>SENSITIVE_PARAMETER.test(key)));
  for(const name of [...(options.private_parameter_names||[]),...privateParameterNames,...suitePrivateParameterNames]){const key=normalizeParameterKey(name,'t');if(key)sensitiveNames.add(key);}
  for(const row of [...(environmentSnapshot?.variables||[]),...(configurationSnapshot?.variables||[])])if(row.is_secret)sensitiveNames.add(normalizeParameterKey(row.key));
  for(const key of composed.snapshot?.sensitive_names||[])sensitiveNames.add(normalizeParameterKey(key));
@@ -144,7 +145,7 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
   }
   fillMissing(sourceSteps);
   for(const [key,value]of Object.entries(defaultedCaseValues)){
-   if(/password|secret|token|credential|api.?key|passcode|(?:^|[._ -])pin(?:$|[._ -])|otp|verification.?code|one.?time.?code/i.test(key))sensitiveNames.add(key);
+   if(SENSITIVE_PARAMETER.test(key))sensitiveNames.add(key);
    promptValues[key]=sensitiveNames.has(key)?parameterReference(key):value;
    if(!sensitiveNames.has(key))publicValues[key]=value;
   }
@@ -207,7 +208,7 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
    // Native lookupSecret treats an empty value as an unknown token. The
    // reviewed blank is safe to bind directly and must remain blank at Run.
    const emptyPrivate=Object.fromEntries(Object.keys(values).filter(key=>sensitiveNames.has(key)&&values[key]==='').map(key=>[key,'']));
-   return {secrets,secretBindings,references,parameterValues:{...publicValues,...emptyPrivate}};
+   return {secrets,secretBindings,references,parameterValues:{...publicValues,...emptyPrivate},defaultedParameterNames:Object.keys(defaultedCaseValues).sort()};
   },
   requiresDataAccess(name,args){return ['browser_fill','browser_select_option','browser_press_key','browser_assert','browser_navigate'].includes(name)&&Boolean(bindingKey(args?.[name==='browser_navigate'?'url':name==='browser_press_key'?'key':'value'])||(compositeAssertion(name,args)&&parameterTemplateParts(args?.value)));},
   resolve(name,args){
@@ -255,7 +256,7 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
   redactError(error){const seen=new Set();let current=error;while(current&&typeof current==='object'&&!seen.has(current)){seen.add(current);current.message=redactString(String(current.message||'Browser tool failed'));if(typeof current.stack==='string')current.stack=redactString(current.stack);current=current.cause;}return error;}
  };
 }
-async function loadBrowserParameterResolver({testCase,projectId,userId,caseValues,steps=[],test_environment_id,test_configuration_id,test_data_set_id,test_suite_id,allowUnselectedSuite=false,materialize=true,buildParameterValues={},defaultMissingInputs=false,privateParameterNames=[],parameterOverrides=[],lock=false}){
+async function loadBrowserParameterResolver({testCase,projectId,userId,caseValues,steps=[],test_environment_id,test_configuration_id,test_data_set_id,test_suite_id,allowUnselectedSuite=false,materialize=true,buildParameterValues={},defaultMissingInputs=false,privateParameterNames=[],parameterOverrides=[],protectSelectedDataSet=false,expectedSelectedDataSetRevision,lock=false}){
  const selected=[['test_environments',test_environment_id,'environment.view'],['test_configurations',test_configuration_id,'configuration.view'],['test_data_sets',test_data_set_id,'data.view']];
  const permissions=['data.view','testcase.view','suite.view',...selected.filter(([,id])=>id).map(([, ,permission])=>permission)];
  const access=await getOptionalEvidenceAccess({id:userId},projectId,permissions);
@@ -291,6 +292,27 @@ async function loadBrowserParameterResolver({testCase,projectId,userId,caseValue
  }
  const caseOptions=normalizeDataOptions(testCase.test_data_options||{},'sections');
  caseOptions.parameter_overrides=[...new Set([...(caseOptions.parameter_overrides||[]),...parameterOverrides])];
+ if(expectedSelectedDataSetRevision&&(!resources[2]?.updated_at||new Date(expectedSelectedDataSetRevision).getTime()!==new Date(resources[2].updated_at).getTime())){
+  throw Object.assign(new Error('The selected Test Data Set changed after case preparation. Prepare test data again before generating automation.'),{
+   statusCode:409,code:'AUTOMATION_TEST_DATA_CHANGED',effect_dispatched:false,outcome_unknown:false
+  });
+ }
+ // Project selected fixtures down to the authored references for workflow
+ // preview. Keep all rows and link the original data source for native replay.
+ // Unused columns and used values never enter the model context.
+ if(protectSelectedDataSet&&resources[2]){
+  const source=resources[2],referenced=new Set(referencedParameterNames(steps));
+  const rows=typeof source.rows==='string'?JSON.parse(source.rows):source.rows||[];
+  const names=new Set(privateParameterNames);
+  const retained=key=>{
+   const name=normalizeParameterKey(key,'r');
+   if(!referenced.has(name))return false;
+   names.add(name);return true;
+  };
+  resources[2]={...source,rows:source.mode==='key_value'?rows.filter(row=>retained(row?.key)):
+   rows.map(row=>Object.fromEntries(Object.entries(row||{}).filter(([key])=>retained(key))))};
+  privateParameterNames=[...names];
+ }
  return Object.assign(createBrowserParameterResolver({caseValues,suiteValues:suite.parameters,suiteDataSet:suite.dataSet,suiteOptions:suite.dataOptions,suitePrivateParameterNames:suite.private_parameter_names,suiteSourceSnapshot:suite.source_snapshot,testSuiteId:suite.test_suite_id,environment:resources[0],configuration:resources[1],dataSet:resources[2],caseOptions,testCase,steps,materialize,buildParameterValues,defaultMissingInputs,privateParameterNames}),{required_permissions:requiredPermissions,suite_selection_required:suite.suite_selection_required});
 }
 module.exports={referenceKey,parameterReference,referencedParameterNames,maskParameterReferences,createBrowserParameterResolver,loadBrowserParameterResolver};

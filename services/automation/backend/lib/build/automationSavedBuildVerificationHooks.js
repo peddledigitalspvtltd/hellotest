@@ -2,22 +2,11 @@ const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/ai
 const { createVerificationRepairContext } = require("../verification/automationVerificationRepairContext");
 const { deterministicSectionInstructions } = require("../upstream/automationUpstreamSectionSource");
 
-/** Shared domain hooks for both saved-build paths. The verification pipeline
- * retains authority over replay safety, one locator repair and unchanged oracles;
- * commitBuild retains the domain source/data/context locks. */
-function createSavedBuildVerificationHooks({ assertBuildAccess, getVerificationAccess, parameterResolver,
-  featureKey, completeRepair, parseResponse, getBuild, commitBuild, signal }) {
-  const assertAccess = async () => {
-    signal?.throwIfAborted();
-    await assertBuildAccess();
-    const permissions = await getVerificationAccess(['automation.run.local', 'run.create']);
-    if (!permissions['automation.run.local'] || !permissions['run.create']) {
-      throw Object.assign(new Error('Verification access changed.'), { statusCode: 403 });
-    }
-    signal?.throwIfAborted();
-  };
+/** Both saved builds and workflow drafts use the same snapshot authority and
+ * source rebind. The caller owns the source's persistence and access checks. */
+function createBuildVerificationRepair({ assertAccess, parameterResolver, featureKey,
+  completeRepair, parseResponse, getBuild, commitBuild }) {
   return {
-    assertAccess,
     diagnose: async ({ sections, failure, snapshot }) => {
       await assertAccess();
       const section = sections.find(row => row.step_id === failure.step_id);
@@ -57,4 +46,17 @@ function createSavedBuildVerificationHooks({ assertBuildAccess, getVerificationA
   };
 }
 
-module.exports = { createSavedBuildVerificationHooks };
+function createSavedBuildVerificationHooks({ assertBuildAccess, getVerificationAccess, signal, ...options }) {
+  const assertAccess = async () => {
+    signal?.throwIfAborted();
+    await assertBuildAccess();
+    const permissions = await getVerificationAccess(['automation.run.local', 'run.create']);
+    if (!permissions['automation.run.local'] || !permissions['run.create']) {
+      throw Object.assign(new Error('Verification access changed.'), { statusCode: 403 });
+    }
+    signal?.throwIfAborted();
+  };
+  return { assertAccess, ...createBuildVerificationRepair({ assertAccess, ...options }) };
+}
+
+module.exports = { createSavedBuildVerificationHooks, createBuildVerificationRepair };

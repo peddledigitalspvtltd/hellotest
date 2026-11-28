@@ -203,7 +203,7 @@ test('the actual configured source HTTP request fits 96KB after twenty native ca
    assert.equal(packet.planner_budget.section_tool_calls.used,actorTurns);
    assert.equal(packet.planner_budget.section_tool_calls.remaining,20-actorTurns);
    if(actorTurns===20)return accepted({done:true});
-   return accepted(null,{finish_reason:'tool_calls',message:{content:null,tool_calls:[{id:`verify-${actorTurns}`,type:'function',function:{name:'browser_verify_text_visible',arguments:'{"text":"Product information"}'}}]}});
+   return accepted(null,{finish_reason:'tool_calls',message:{content:null,tool_calls:[{id:`verify-${actorTurns}`,type:'function',function:{name:'browser_verify_text_visible',arguments:JSON.stringify({text:`Product information ${actorTurns}`})}}]}});
   }
   sourcePayload=payload;
   assert.deepEqual(JSON.parse(packet.brief).selected_story,selectedStory);

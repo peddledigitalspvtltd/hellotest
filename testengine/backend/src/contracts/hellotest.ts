@@ -222,6 +222,19 @@ export type HelloTestExecutionStepApiDetail = {
   assertions: HelloTestExecutionApiAssertion[];
 };
 
+export type HelloTestWebFailureReport = {
+  schema: "web-failure-report/1";
+  code: "locator_missing" | "locator_ambiguous" | "assertion_mismatch" | "navigation_timeout" | "environment_unavailable" | "operation_timeout" | "unclassified";
+  line?: number;
+  operation_duration_ms?: number;
+  page?: {
+    at_environment_start: boolean;
+    document_state: DocumentReadyState;
+    document_busy: boolean;
+    candidates: Array<{ test_id: string; control: string }>;
+  };
+};
+
 export type HelloTestExecutionStepWebDetail = {
   provider: EngineWebEngineProvider;
   started_at: string;
@@ -243,6 +256,7 @@ export type HelloTestExecutionStepWebDetail = {
     timestamp: string;
   }>;
   captures: Record<string, string>;
+  first_failure?: HelloTestWebFailureReport;
 };
 
 export type HelloTestExecutionStepAutomationDetail = {

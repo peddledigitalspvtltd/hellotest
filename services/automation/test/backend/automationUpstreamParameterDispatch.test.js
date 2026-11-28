@@ -33,6 +33,12 @@ test('inserted public email and token-like values are literal and never resolved
  assert.throws(()=>resolve('browser_type',{text:'@r.missing'}),{code:'AUTOMATION_UPSTREAM_PARAMETER_INVALID'});
 });
 
+test('private values never dispatch through native choice tools that have no secret lookup',()=>{
+ assert.throws(()=>resolve('browser_select_option',{target:'plan',values:['@r.password']}),{code:'AUTOMATION_UPSTREAM_PARAMETER_INVALID'});
+ assert.throws(()=>resolve('browser_fill_form',{fields:[{type:'combobox',target:'plan',value:env}]}),{code:'AUTOMATION_UPSTREAM_PARAMETER_INVALID'});
+ assert.equal(resolve('browser_fill_form',{fields:[{type:'textbox',target:'pwd',value:'@r.password'}]}).fields[0].value,env);
+});
+
 const startUrl='https://app.test/start',goto=`await page.goto(${JSON.stringify(startUrl)});`;
 const native=code=>({content:[{type:'text',text:'### Ran Playwright code\n```js\n'+code+'\n```'}]});
 const tools=[

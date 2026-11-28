@@ -685,6 +685,7 @@ const normalizeIntegration = (integration) => {
     ...integration,
     name: /^hellotest$/i.test(String(integration.name || "").trim()) ? "HelloTest" : integration.name,
     is_active: Boolean(integration.is_active),
+    is_default: integration.type === "llm" && integration.is_active === true && integration.is_default === true,
     config
   };
 };
@@ -707,8 +708,14 @@ const validatePayload = (payload) => {
   const project_key = normalizeText(payload.project_key);
   const username = normalizeText(payload.username);
   const is_active = payload.is_active !== undefined ? Boolean(payload.is_active) : true;
+  const is_default = payload.is_default === true;
 
   validateType(type);
+
+  if ((payload.is_default !== undefined && typeof payload.is_default !== "boolean")
+    || (is_default && (type !== "llm" || !is_active))) {
+    throw Object.assign(new Error("Choose an active LLM integration as the preferred default."), { statusCode: 422 });
+  }
 
   if (!name) {
     throw new Error("Integration name is required");
@@ -777,17 +784,21 @@ const validatePayload = (payload) => {
     project_key,
     username,
     config,
-    is_active
+    is_active,
+    is_default
   };
 };
+
+const lockPreferredLlm = () => db.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get("hellotest:preferred-llm");
+const clearOtherPreferredLlm = (id) => db.prepare("UPDATE integrations SET is_default = FALSE WHERE is_default = TRUE AND id <> ?").run(id);
 
 exports.createIntegration = async (input) => {
   const payload = validatePayload(input);
   const id = uuid();
 
-  await db.prepare(`
-    INSERT INTO integrations (id, type, name, base_url, api_key, model, project_key, username, config, is_active, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  const insert = () => db.prepare(`
+    INSERT INTO integrations (id, type, name, base_url, api_key, model, project_key, username, config, is_active, is_default, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     id,
     payload.type,
@@ -798,8 +809,18 @@ exports.createIntegration = async (input) => {
     payload.project_key,
     payload.username,
     payload.config,
-    payload.is_active
+    payload.is_active,
+    payload.is_default
   );
+  if (payload.is_default) {
+    await db.transaction(async () => {
+      await lockPreferredLlm();
+      await clearOtherPreferredLlm(id);
+      await insert();
+    })();
+  } else {
+    await insert();
+  }
 
   return { id };
 };
@@ -829,11 +850,12 @@ exports.getIntegrations = async ({ type, is_active } = {}) => {
   return rows.map(normalizeIntegration);
 };
 
-exports.getIntegration = async (id) => {
+exports.getIntegration = async (id, { lock = false } = {}) => {
   const integration = await db.prepare(`
     SELECT *
     FROM integrations
     WHERE id = ?
+    ${lock ? "FOR UPDATE" : ""}
   `).get(id);
 
   if (!integration) {
@@ -843,6 +865,16 @@ exports.getIntegration = async (id) => {
   return normalizeIntegration(integration);
 };
 
+exports.getPreferredLlmIntegration = async (projectId) => {
+  const integration = await db.prepare(`
+    SELECT *
+    FROM integrations
+    WHERE type = 'llm' AND is_active = TRUE AND is_default = TRUE
+      AND (NULLIF(config->>'project_id', '') IS NULL OR config->>'project_id' = ?)
+  `).get(normalizeText(projectId));
+  return normalizeIntegration(integration || null);
+};
+
 exports.getActiveIntegrationByType = async (type) => {
   validateType(type);
 
@@ -850,6 +882,7 @@ exports.getActiveIntegrationByType = async (type) => {
     SELECT *
     FROM integrations
     WHERE type = ? AND is_active = TRUE
+    ${type === "llm" ? "AND NULLIF(config->>'project_id', '') IS NULL" : ""}
     ORDER BY updated_at DESC, created_at DESC
     LIMIT 1
   `).get(type);
@@ -895,9 +928,12 @@ exports.getActiveIntegrationByTypeForProject = async (type, projectId) => {
   return normalizedProjectId ? null : exports.getActiveIntegrationByType(type);
 };
 
-exports.updateIntegration = async (id, input) => {
-  const existing = await exports.getIntegration(id);
+exports.updateIntegration = async (id, input) => db.transaction(async () => {
+  // Preference switches lock before the target row. Other edits only lock their row.
+  if (input.is_default === true) await lockPreferredLlm();
+  const existing = await exports.getIntegration(id, { lock: true });
   const nextType = input.type ?? existing.type;
+  const isActive = input.is_active ?? existing.is_active;
   const nextConfig =
     input.config === undefined
       ? existing.config
@@ -924,12 +960,14 @@ exports.updateIntegration = async (id, input) => {
     project_key: input.project_key ?? existing.project_key,
     username: input.username ?? existing.username,
     config: nextConfig,
-    is_active: input.is_active ?? existing.is_active
+    is_active: isActive,
+    is_default: input.is_default === undefined ? nextType === "llm" && Boolean(isActive) && existing.is_default === true : input.is_default
   });
 
+  if (input.is_default === true) await clearOtherPreferredLlm(id);
   await db.prepare(`
     UPDATE integrations
-    SET type = ?, name = ?, base_url = ?, api_key = ?, model = ?, project_key = ?, username = ?, config = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+    SET type = ?, name = ?, base_url = ?, api_key = ?, model = ?, project_key = ?, username = ?, config = ?, is_active = ?, is_default = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
     payload.type,
@@ -941,11 +979,12 @@ exports.updateIntegration = async (id, input) => {
     payload.username,
     payload.config,
     payload.is_active,
+    payload.is_default,
     id
   );
 
   return { updated: true };
-};
+})();
 
 exports.deleteIntegration = async (id) => {
   await exports.getIntegration(id);
@@ -1002,7 +1041,8 @@ exports.importIntegrations = async (input = {}) => {
       project_key: entry.project_key,
       username: entry.username,
       config: entry.config,
-      is_active: entry.is_active
+      is_active: entry.is_active,
+      is_default: entry.is_default
     };
 
     try {

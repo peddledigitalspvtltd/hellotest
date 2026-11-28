@@ -2,14 +2,16 @@ const db = require("@hellotest/platform/backend/src/db");
 const attachmentService = require("@hellotest/platform/backend/services/attachment.service");
 const permissionService = require("@hellotest/platform/backend/services/permission.service");
 const { assertExpectedRevision } = require("@hellotest/platform/backend/src/utils/revision");
+const attachmentDocuments = require("@hellotest/platform/shared/attachmentDocuments.json");
 
 const MAX_EVIDENCE_BYTES = 25 * 1024 * 1024;
 const MIME_BY_EXTENSION = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
   bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", svg: "image/svg+xml", avif: "image/avif",
   heic: "image/heic", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", avi: "video/x-msvideo",
-  mpeg: "video/mpeg", mpg: "video/mpeg", ogv: "video/ogg", pdf: "application/pdf", json: "application/json",
-  xml: "application/xml", txt: "text/plain", log: "text/plain", csv: "text/csv", zip: "application/zip"
+  mpeg: "video/mpeg", mpg: "video/mpeg", ogv: "video/ogg", json: "application/json",
+  xml: "application/xml", txt: "text/plain", log: "text/plain", csv: "text/csv", zip: "application/zip",
+  ...attachmentDocuments
 };
 const ALLOWED_MIME_TYPES = new Set([...Object.values(MIME_BY_EXTENSION), "text/xml", "application/x-zip-compressed"]);
 const attachmentError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
@@ -17,7 +19,7 @@ const normalizeEvidenceMimeType = (fileName, mimeType) => {
   const normalized = String(mimeType || "").split(";", 1)[0].trim().toLowerCase();
   const resolved = !normalized || normalized === "application/octet-stream"
     ? MIME_BY_EXTENSION[String(fileName || "").split(".").pop().toLowerCase()] : normalized;
-  if (!ALLOWED_MIME_TYPES.has(resolved)) throw attachmentError("Use an image, video, PDF, text, JSON, XML, CSV, or ZIP evidence file.");
+  if (!ALLOWED_MIME_TYPES.has(resolved)) throw attachmentError("Use an image, video, PDF, Word, Excel, text, JSON, XML, CSV, or ZIP evidence file.");
   return resolved;
 };
 const parseLogs = (value) => {

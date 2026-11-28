@@ -2,7 +2,7 @@ const {implementationSource,implementationFunctionSource}=require('../helpers/im
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {buildAutomationCaseBlueprint}=require('../../../platform/backend/src/utils/automationCaseBlueprint');
-const {groundedManualCoverage}=require("../../backend/lib/build/automationBuildCompletion");
+const {groundedManualCoverage,requireGroundedManualCoverage}=require("../../backend/lib/build/automationBuildCompletion");
 const {reduceActivityProgress}=require("../../backend/lib/build/automationActivityProgress");
 const {sectionPreview}=require("../../backend/lib/build/automationWorkspacePreview");
 const {generationApplicability}=require("../../backend/lib/build/automationGenerationManifest");
@@ -21,6 +21,16 @@ test('prepared linked manual cases retain exact step ownership and distinct auto
  const changed=groundedManualCoverage([{...steps[0],expected_result:'Different requirement'},steps[1]],[{id:'manual-case',steps:manual}]);
  assert.deepEqual(changed.unmappedManualStepIds,['manual-open']);assert.equal(changed.manualCoverage.some(row=>row.manual_step_id==='manual-open'),false);
  assert.throws(()=>groundedManualCoverage([{...steps[1],step_order:1},{...steps[0],step_order:2}],[{id:'manual-case',steps:manual}]),{code:'AUTOMATION_MANUAL_ORDER_CONFLICT'});
+});
+
+test('a changed linked manual step blocks browser build admission before provider or browser dispatch', () => {
+ const linked = [{id:'manual-case', steps:manual}];
+ assert.deepEqual(requireGroundedManualCoverage(steps, linked).manualCoverage, lineage().manualCoverage);
+ assert.deepEqual(requireGroundedManualCoverage(steps, [{id:'manual-case', steps:manual.map(step => ({ ...step, step_type:'manual' }))}]).manualCoverage, lineage().manualCoverage);
+ assert.throws(() => requireGroundedManualCoverage([{ ...steps[0], expected_result:'Different requirement' }, steps[1]], linked), {
+  code:'AUTOMATION_MANUAL_COVERAGE_INCOMPLETE', failure_stage:'context', active_manual_step_ids:['manual-open'],
+  generation_provider_requests:0, browser_actions:0, nonRetryable:true
+ });
 });
 
 test('saved native section previews bind the exact manual specification and their artifact references survive progress reduction',()=>{
@@ -60,4 +70,15 @@ test('the actual upstream saved-section callback retains protected per-step arti
  assert.equal(preview.generation_manifest.manual_specification[0].manual_test_case_id,'manual-case');assert.equal(preview.generation_manifest.manual_specification[0].manual_step_id,'manual-open');
  assert.equal(preview.evidence.snapshot_artifact_id,'native-observation');assert.deepEqual(events[0].details.active_manual_step_ids,['manual-open']);
  assert.equal(events[0].details.preview_artifact_id,'preview-actual');assert.equal(applied.length,1);
+ const createDegradedPreview = async () => { throw new Error('Artifact store unavailable'); };
+ const diagnostics = [];
+ context.require = name => name === './automationAgentActivity.service'
+  ? { createSectionPreview:createDegradedPreview }
+  : { isCriticalAutomationError:() => false, reportDiagnosticFailure:event => diagnostics.push(event) };
+ const degradedCallback = new Function(...Object.keys(context), `return (${source.slice(hook.start,hook.end)});`)(...Object.values(context));
+ await degradedCallback({step:{id:'auto-2'},step_type:'web',automation_code:'await expect(page.getByLabel("Username")).toBeVisible();'},{});
+ assert.equal(applied.length,2);
+ assert.equal(events[1].details.preview_status,'unavailable');
+ assert.equal(events[1].details.instruction_status,'saved');
+ assert.equal(diagnostics[0].operation,'upstream_section_preview');
 });

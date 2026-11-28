@@ -1,0 +1,207 @@
+.page-content--automation .automation-case-shell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.automation-case-shell > .automation-case-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  margin-block-end: 12px;
+  padding-block: 4px;
+}
+
+.automation-case-header > .workspace-back-button {
+  flex: none;
+  min-height: 40px;
+}
+
+.automation-case-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.automation-case-heading h1 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: clamp(1.25rem, 1rem + 1.25vw, 1.7rem);
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+
+.automation-case-heading-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-end: 4px;
+  color: var(--app-text-muted);
+  font-size: .75rem;
+  font-weight: 600;
+}
+
+.automation-case-shell .automation-case-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: auto;
+}
+
+.automation-case-shell .automation-case-header-actions > :first-child { margin: 0; }
+.automation-case-shell .automation-case-header-actions button { min-height: 40px; white-space: nowrap; }
+
+.automation-case-shell .automation-case-tabs.detail-section-tabs--inline {
+  margin: 0;
+}
+
+.automation-case-shell .automation-case-tabs .detail-section-tab {
+  flex-grow: 0;
+}
+
+.automation-case-shell .automation-unsaved-state {
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.automation-case-shell .automation-case-details-form {
+  width: min(100%, 960px);
+  margin-inline: auto;
+  padding-block: 8px;
+}
+
+.automation-case-details-form .automation-metadata-primary {
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 225px);
+  align-items: start;
+}
+
+.automation-case-details-form .automation-metadata-links {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.automation-case-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-block-start: 14px;
+  border-top: 1px solid var(--app-border);
+}
+
+.automation-case-details-actions > .danger { margin-inline-end: auto; }
+
+.automation-case-linked-sources > summary,
+.automation-plan-coverage > summary {
+  width: fit-content;
+  max-width: 100%;
+  padding-block: 8px;
+  color: var(--app-text-muted);
+  font-size: .8125rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.automation-case-linked-sources > summary:hover,
+.automation-plan-coverage > summary:hover { color: var(--app-text); }
+
+.automation-plan-coverage > summary > span {
+  margin-inline-start: 6px;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.automation-plan-coverage > ul {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding-inline-start: 28px;
+  color: var(--app-text-muted);
+  font-size: .8125rem;
+  overflow-wrap: anywhere;
+}
+
+.automation-plan-utilities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.automation-plan-utilities > .automation-icon-button { width: 40px; height: 40px; }
+
+.automation-instruction-sections { display: grid; gap: 8px; }
+
+.page-content--automation .automation-instruction-sections .editor-accordion-head {
+  align-items: center;
+  min-height: 48px;
+  gap: 8px;
+}
+
+.page-content--automation .automation-instruction-sections .editor-accordion-toggle,
+.page-content--automation .automation-instruction-sections .editor-accordion-toggle-meta { padding-block: 8px; }
+
+.automation-plan-accordion-actions { display: inline-flex; align-items: center; }
+
+.automation-plan-empty {
+  margin: 0;
+  padding-block: 4px;
+  color: var(--app-text-muted);
+  font-size: .8125rem;
+}
+
+.automation-new-section-form,
+.automation-new-section-settings { display: grid; gap: 14px; min-width: 0; }
+
+.automation-new-section-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.automation-new-section-placement {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--app-text-muted);
+  font-size: .8125rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .automation-case-shell > .automation-case-header { flex-wrap: wrap; gap: 10px; }
+  .automation-case-header > .workspace-back-button { width: 40px; padding: 0; justify-content: center; }
+  .automation-case-header > .workspace-back-button span { display: none; }
+  .automation-case-heading { flex-basis: calc(100% - 50px); }
+  .automation-case-shell .automation-case-header-actions { justify-content: flex-start; margin-inline-start: 50px; }
+  .automation-case-details-form .automation-metadata-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .automation-case-tabs .detail-section-tab-icon { display: none !important; }
+
+  .page-content--automation .automation-program-section .automation-plan-summary {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 8px;
+    padding: 0 8px;
+  }
+
+  .automation-program-section .automation-plan-summary > button { grid-column: 2; }
+  .automation-program-section .automation-plan-summary > .automation-section-tools {
+    grid-column: 1 / -1;
+    justify-self: end;
+    flex-wrap: wrap;
+    max-width: 100%;
+    padding-block-end: 6px;
+  }
+}
+
+@media (max-width: 460px) {
+  .automation-case-details-form .automation-metadata-primary,
+  .automation-case-details-form .automation-metadata-links { grid-template-columns: minmax(0, 1fr); }
+  .automation-case-shell .automation-case-header-actions { margin-inline-start: 0; }
+  .page-content--automation .automation-program-workspace > .automation-plan-view-toolbar > .automation-plan-actions:first-child { gap: 4px; }
+  .automation-plan-utilities { margin-inline-start: auto; }
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { platformApi } from "@hellotest/platform/frontend/api.client";
 import { testingApi } from "../api.client";
-import { downloadExecutionAttachment, executionAttachmentMimeType, MAX_EXECUTION_ATTACHMENT_BYTES, prepareExecutionAttachment } from "../lib/executionAttachments";
+import { downloadExecutionAttachment, EXECUTION_ATTACHMENT_ACCEPT, executionAttachmentMimeType, MAX_EXECUTION_ATTACHMENT_BYTES, prepareExecutionAttachment } from "../lib/executionAttachments";
 import type { ExecutionStepEvidence } from "../lib/executionLogs";
 import type { ExecutionResultAttachment } from "@hellotest/platform/frontend/src/types";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
@@ -132,10 +132,10 @@ export function CaseRunAttachmentPanel({
     {canUpload ? <div className={isDragging ? "case-run-attachment-dropzone is-dragging" : "case-run-attachment-dropzone"}
       onDragEnter={event => { event.preventDefault(); setIsDragging(true); }} onDragOver={event => event.preventDefault()}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDragging(false); }} onDrop={drop} aria-busy={upload.isPending}>
-      <input aria-label="Choose case attachments" hidden multiple ref={input} type="file" onChange={event => selectFiles(event.target.files)} />
+      <input accept={EXECUTION_ATTACHMENT_ACCEPT} aria-label="Choose case attachments" hidden multiple ref={input} type="file" onChange={event => selectFiles(event.target.files)} />
       <span>{upload.isPending ? "Saving attachments…" : "Drop evidence files here"}</span>
       <button disabled={upload.isPending} type="button" onClick={() => input.current?.click()}>Browse files</button>
-      <small>Images, video, PDF, text or ZIP · up to 25 MB each</small>
+      <small>Images, video, PDF, Word, Excel, text or ZIP · up to 25 MB each</small>
     </div> : null}
     {files.isLoading && activeResultId ? <LoadingState label="Loading case attachments" /> : null}
     {files.error ? <p className="inline-error" role="alert">{files.error instanceof Error ? files.error.message : "Unable to load case attachments."}</p> : null}

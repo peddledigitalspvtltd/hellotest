@@ -160,6 +160,10 @@ const ISSUE_PRIORITY_OPTIONS = [
   { value: "Lowest", label: "Lowest" }
 ];
 
+function issueOptionsWithCurrentValue(options: Array<{ value: string; label: string }>, value: string) {
+  return !value || options.some(option => option.value === value) ? options : [{ value, label: value }, ...options];
+}
+
 const ISSUE_ROOT_CAUSE_OPTIONS = ["Code Defect", "Requirements Gap", "Design Defect", "Configuration", "Test Data", "Environment", "Integration", "Dependency", "Deployment", "Performance / Capacity", "Security", "Human Error", "Duplicate", "Not Reproducible", "Unknown"];
 const ISSUE_QA_ROOT_CAUSE_OPTIONS = ["Missed test scenario", "Missed in execution", "Edge case not covered", "Unique data variation", "Third party scenario"];
 const ISSUE_BUG_TYPE_OPTIONS = ["Functional", "UI / UX", "Performance", "Security", "Accessibility", "Compatibility", "Integration", "Data", "API", "Reliability", "Localization", "Installation / Deployment", "Documentation"];
@@ -2779,29 +2783,29 @@ export function IssuesPage() {
                   </div>
 
                   <div className="issue-form-compact-grid issue-form-classification-grid">
-                    <FormField className="form-field--compact-enum bug-field-status authoring-property-field" label="Status">
-                      <ContextSelect label="Status" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
+                    <FormField className="bug-field-status" label="Status">
+                      <ContextSelect appearance="field" label="Status" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
                         {activeBugStatusOptions.map((option) => (
                           <option key={option.value} value={option.value}>{jiraStatusOptionLabel(option)}</option>
                         ))}
                       </ContextSelect>
                     </FormField>
-                    <FormField className="form-field--compact-enum bug-field-severity authoring-property-field" label="Severity">
-                      <ContextSelect label="Severity" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value }))}>
-                        {ISSUE_SEVERITY_OPTIONS.map((option) => (
+                    <FormField className="bug-field-severity" label="Severity">
+                      <ContextSelect appearance="field" label="Severity" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value }))}>
+                        {issueOptionsWithCurrentValue(ISSUE_SEVERITY_OPTIONS, draft.severity).map((option) => (
                           <option key={option.value || "none"} value={option.value}>{option.label}</option>
                         ))}
                       </ContextSelect>
                     </FormField>
-                    <FormField className="form-field--compact-enum bug-field-priority authoring-property-field" label="Priority" required={jiraBugCoreRequired.priority}>
-                      <ContextSelect label="Priority" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} required={jiraBugCoreRequired.priority} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))}>
-                        {ISSUE_PRIORITY_OPTIONS.map((option) => (
+                    <FormField className="bug-field-priority" label="Priority" required={jiraBugCoreRequired.priority}>
+                      <ContextSelect appearance="field" label="Priority" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} required={jiraBugCoreRequired.priority} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))}>
+                        {issueOptionsWithCurrentValue(ISSUE_PRIORITY_OPTIONS, draft.priority).map((option) => (
                           <option key={option.value || "none"} value={option.value}>{option.label}</option>
                         ))}
                       </ContextSelect>
                     </FormField>
-                    <FormField className="bug-field-assignee authoring-property-field" label="Assignee" required={jiraBugCoreRequired.assignee}>
-                      <ContextSelect label="Assignee" disabled={!canEditBugFields || !canViewProjectMembers} required={jiraBugCoreRequired.assignee} value={draft.assignee_id} onChange={(event) => setDraft((current) => ({ ...current, assignee_id: event.target.value }))}>
+                    <FormField className="bug-field-assignee" label="Assignee" required={jiraBugCoreRequired.assignee}>
+                      <ContextSelect appearance="field" label="Assignee" disabled={!canEditBugFields || !canViewProjectMembers || isSavingIssue || isUploadingAttachments} required={jiraBugCoreRequired.assignee} value={draft.assignee_id} onChange={(event) => setDraft((current) => ({ ...current, assignee_id: event.target.value }))}>
                         <option value="">Unassigned</option>
                         {draft.assignee_id && !userItems.some(user => user.id === draft.assignee_id) && <option value={draft.assignee_id}>{selectedItem?.assignee_name || selectedItem?.assignee_email || draft.assignee_id}</option>}
                         {userItems.map((user) => (

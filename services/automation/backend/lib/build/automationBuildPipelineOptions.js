@@ -5,7 +5,7 @@ const BROWSER_DRIVERS = new Set(['mcp',UPSTREAM_BROWSER_DRIVER]);
 const VERIFICATION_DRIVERS = new Set(['native','playwright_test_cli']);
 
 /** The browser's interaction policy also applies to the fresh verification run. */
-function normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions } = {}) {
+function normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions, paired_browser_bridge_id } = {}) {
   const mode = verification_mode === undefined ? 'generate_only' : verification_mode;
   const driver = browser_driver === undefined || browser_driver === 'mcp' ? UPSTREAM_BROWSER_DRIVER : browser_driver;
   const verifier = verification_driver === undefined ? 'native' : verification_driver;
@@ -17,6 +17,11 @@ function normalizeBuildPipelineOptions({ verification_mode, browser_driver, veri
   if (mode !== 'generate_only' && allow_browser_actions !== true) {
     throw Object.assign(new Error('Running generated automation requires the browser mode “Perform steps in browser”.'), {
       code: 'AUTOMATION_VERIFICATION_REQUIRES_BROWSER_ACTIONS', statusCode: 400, nonRetryable: true
+    });
+  }
+  if (mode !== 'generate_only' && verifier === 'playwright_test_cli' && paired_browser_bridge_id) {
+    throw Object.assign(new Error('Playwright Test CLI verification requires a remote build browser. Choose Run generated test to verify in your paired browser.'), {
+      code: 'AUTOMATION_VERIFICATION_DRIVER_UNAVAILABLE', statusCode: 400, nonRetryable: true
     });
   }
   return { verification_mode: mode, browser_driver: driver, verification_driver:mode==='generate_only'?'native':verifier };

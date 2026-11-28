@@ -1,6 +1,5 @@
 import { MarkerType } from "@xyflow/react";
 import nodeKinds from "../../shared/workflowNodeKinds.json";
-import { specialistDefaults } from "./specialistProfiles";
 import { nativeTaskDefaults, withNativeTaskDefaults } from "./nativeTaskProfiles";
 import { dataOperationDefaults } from "./dataOperationProfiles";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
@@ -41,10 +40,7 @@ export type AgenticCredential = {
 
 export type AgenticApiResponseStyle = "json" | "items" | "text" | "binary";
 
-export const DEFAULT_RUN_INPUT = `{
-  "release_scope": "Review the selected project release and unresolved quality risks",
-  "source": "release-planning"
-}`;
+export const DEFAULT_RUN_INPUT = "{}";
 
 export const nodeKindLabels = Object.fromEntries(Object.entries(nodeKinds.kinds).map(([kind, entry]) => [kind, entry.label])) as Record<WorkflowNodeKind, string>;
 export const nodeKindDescriptions = Object.fromEntries(Object.entries(nodeKinds.kinds).map(([kind, entry]) => [kind, entry.description])) as Record<WorkflowNodeKind, string>;
@@ -250,87 +246,6 @@ export function layoutWorkflow(
   });
 }
 
-export const getDefaultWorkflowNodes = (): AgenticWorkflowNode[] => [
-  {
-    id: "review-request",
-    type: "agenticStep",
-    position: { x: 70, y: 140 },
-    data: {
-      label: "Review request",
-      kind: "trigger",
-      summary: "Capture the release scope and task.",
-      outputKey: "request",
-    },
-  },
-  {
-    id: "story-review",
-    type: "agenticStep",
-    position: { x: 390, y: 140 },
-    data: {
-      ...specialistDefaults("story-architect"),
-      label: "Story Architect",
-      kind: "agent",
-      agentId: "story-architect",
-      prompt:
-        "Review the requested release scope. Identify missing acceptance boundaries and uncovered stories using permitted project evidence.",
-      knowledgeScope: "stories,test-cases,knowledge",
-      timeoutMs: "70000",
-      retryCount: "0",
-      outputKey: "story_review",
-    },
-  },
-  {
-    id: "run-review",
-    type: "agenticStep",
-    position: { x: 710, y: 140 },
-    data: {
-      ...specialistDefaults("run-planner"),
-      label: "Smart Run Planner",
-      kind: "agent",
-      agentId: "run-planner",
-      prompt:
-        "Review the release scope and prior review proposals. Independently verify evidence, then recommend impacted tests and unresolved risks. Do not create or start a test run.",
-      knowledgeScope: "stories,test-cases,runs,knowledge",
-      timeoutMs: "70000",
-      retryCount: "0",
-      outputKey: "run_plan",
-    },
-  },
-  {
-    id: "review-packet",
-    type: "agenticStep",
-    position: { x: 1030, y: 140 },
-    data: {
-      label: "Human review",
-      kind: "output",
-      summary:
-        "Collect the actual specialist reviews and citations for a human decision.",
-      outputKey: "review_packet",
-    },
-  },
-];
-
-export const getDefaultWorkflowEdges = (): AgenticWorkflowEdge[] => [
-  {
-    id: "request-stories",
-    source: "review-request",
-    target: "story-review",
-    animated: true,
-  },
-  {
-    id: "stories-run",
-    source: "story-review",
-    target: "run-review",
-    animated: true,
-  },
-  {
-    id: "run-packet",
-    source: "run-review",
-    target: "review-packet",
-    animated: true,
-  },
-];
-
 export const reviewDefinitionKey = (
   workflowNodes: AgenticWorkflowNode[],
   workflowEdges: AgenticWorkflowEdge[],
@@ -413,16 +328,12 @@ export const createWorkflowDraft = (
   workflow?: AgenticWorkflow | null,
 ): WorkflowDraft => ({
   id: workflow?.id,
-  name: workflow?.name || "Release readiness review",
-  description:
-    workflow?.description ||
-    "Review release scope with Story Architect and Smart Run Planner, then inspect the evidence before deciding what to test.",
+  name: workflow?.name || "Untitled workflow",
+  description: workflow?.description || "",
   status: workflow?.status || "draft",
   trigger_kind: workflow?.trigger_kind || "manual",
-  nodes: workflow
-    ? workflow.nodes.map(normalizeWorkflowNodeDirectLlm)
-    : getDefaultWorkflowNodes(),
-  edges: workflow ? workflow.edges : getDefaultWorkflowEdges(),
+  nodes: workflow?.nodes.map(normalizeWorkflowNodeDirectLlm) || [],
+  edges: workflow?.edges || [],
   settings: workflow?.settings || {
     execution_mode: "review",
     snapshot_runs: true,

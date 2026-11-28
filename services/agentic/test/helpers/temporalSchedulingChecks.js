@@ -128,6 +128,21 @@ exports.run = async ({ db, workflow, user }) => {
     assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM workflow_node_receipts WHERE run_id=? AND node_id='loop' AND state='recorded'").get(loopRun.id)).n, 1);
     assert.equal(dispatches.filter(item => item.run_id === loopRun.id && item.node_id === 'body').length, 0, 'Connected loop bodies execute within the single reserved loop activity.');
 
+    const disabledLoop = structuredClone(loop);
+    disabledLoop.nodes.find(item => item.id === 'loop').data.disabled = true;
+    disabledLoop.nodes.find(item => item.id === 'body').data = { kind: 'apiTool', apiMethod: 'POST' };
+    const disabledInput = { items: [1, 2], keep: false };
+    const disabledRun = await start(disabledLoop, disabledInput, 'loop');
+    const disabledFinal = await finish(disabledRun);
+    const disabledReceipt = disabledFinal.node_results.find(item => item.node_id === 'loop');
+    assert.equal(disabledFinal.status, 'completed');
+    assert.equal(lostAcknowledgements.has(disabledRun.id), true);
+    assert.equal(disabledReceipt.status, 'skipped');
+    assert.equal(disabledReceipt.bypassed, true);
+    assert.equal(disabledReceipt.attempts, 0);
+    assert.equal(disabledFinal.node_results.find(item => item.node_id === 'body').attempts, 0);
+    assert.deepEqual(disabledFinal.output_payload.results[0].output.data, disabledInput);
+
     const nested = { ...workflow, settings: { processing_mode: 'parallel', max_parallel_nodes: 3 }, nodes: [node('input', 'trigger'),
       node('outer', 'loop', { loopAction: 'workflow', loopSourceKey: 'input.items', loopMaxIterations: 10, loopBatchSize: 1 }),
       node('inner', 'loop', { loopAction: 'workflow', loopSourceKey: 'item.items', loopMaxIterations: 10, loopBatchSize: 2 }),

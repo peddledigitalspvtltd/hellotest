@@ -22,7 +22,25 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
     const snapshot=await db.prepare('SELECT * FROM execution_step_snapshots WHERE execution_id=? ORDER BY step_order').all(original.id);
     const sharedProbe={values:{'t.shared_probe':'original-frozen-value'},templates:{'t.shared_probe':'original-template-not-for-regeneration'},privateNames:['t.shared_probe']};
     await db.prepare('UPDATE execution_step_snapshots SET shared_parameter_values=?,shared_parameter_template_values=?,shared_parameter_sensitive_names=? WHERE execution_id=? AND snapshot_step_id=?').run(sharedProbe.values,sharedProbe.templates,sharedProbe.privateNames,original.id,snapshot[0].snapshot_step_id);
-    await db.prepare("INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,logs) VALUES(?,?,?,?,'failed',?)").run(randomUUID(),original.id,caseId,appTypeId,JSON.stringify({stepStatuses:{[snapshot[0].snapshot_step_id]:'passed',[snapshot[1].snapshot_step_id]:'failed'}}));
+    const resultId=randomUUID(), originalLogs={stepStatuses:{[snapshot[0].snapshot_step_id]:'passed',[snapshot[1].snapshot_step_id]:'failed'}};
+    await db.prepare("INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,logs) VALUES(?,?,?,?,'failed',?)").run(resultId,original.id,caseId,appTypeId,JSON.stringify(originalLogs));
+    if (instructionRepair) {
+      const typedLogs={...originalLogs,stepWebDetails:{[snapshot[1].snapshot_step_id]:{provider:'playwright',first_failure:{schema:'web-failure-report/1',code:'navigation_timeout',line:1}}}};
+      await db.prepare('UPDATE execution_results SET logs=? WHERE id=?').run(JSON.stringify(typedLogs),resultId);
+      try {
+        const response=await require('../../../agentic/backend/services/agenticAssistant.service').respond({project_id:projectId,app_type_id:appTypeId,user,agent_id:'automation-repair',mode:'agent',
+          integration_id:randomUUID(),inputs:{test_case_id:caseId,execution_id:original.id},prompt:'Diagnose the selected failed automation Run.'});
+        assert.equal(response.transaction.status,'completed');
+        assert.equal(response.provenance.generation_mode,'deterministic');
+        assert.equal(response.result.model_execution.model_calls,0);
+        assert.equal(response.result.verification.status,'passed');
+        assert.equal(response.result.automation_repair.status,'triaged');
+        assert.equal(response.result.automation_repair.triage.route,'timing');
+        assert.equal(response.result.automation_repair.patch,undefined);
+      } finally {
+        await db.prepare('UPDATE execution_results SET logs=? WHERE id=?').run(JSON.stringify(originalLogs),resultId);
+      }
+    }
     const prepared=await service.prepare({projectId,appTypeId,user,input:{test_case_id:caseId,execution_id:original.id}});
     assert.equal(prepared.status,'eligible',prepared.detail);
     const patch=service.validatePatch(prepared.base,instructionRepair?{kind:'replace_instructions',step_id:ids[1],automation_code:'await web.click("#new");',rationale:'The observed fixture has the new submit control; retain the complete section action and protected assertions.'}:{kind:'replace_locator',step_id:ids[1],new_locator:'#new',rationale:'The supplied fixture uses the new submit button identifier.'});
@@ -68,6 +86,8 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
             const lines=persisted.runtime_state.logs.stepAutomationDetails[step.id].line_results;
             const proof=rows=>rows.map(({line,status,attempt})=>({line,status,attempt}));
             assert.deepEqual(proof(lines),proof(outcome.line_results),'Persisted assertion provenance comes from the actual browser run');
+            assert.equal(outcome.web_detail.first_failure?.schema,'web-failure-report/1');
+            assert.deepEqual(persisted.runtime_state.logs.stepWebDetails[step.id].first_failure,outcome.web_detail.first_failure,'Queued evidence keeps the actual browser’s first-failure report');
           }
           if(outcome.status!=='passed'){status='failed';break;}
         }}finally{await session.stop(status);}

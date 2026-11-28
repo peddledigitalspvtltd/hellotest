@@ -75,6 +75,7 @@
     "./services/qualityRecordSchema": "./backend/services/qualityRecordSchema.js",
     "./services/qualityGraphChanges": "./backend/services/qualityGraphChanges.js",
     "./services/artifactAssurance": "./backend/services/artifactAssurance.service.js",
+    "./services/storyAttachmentContext": "./backend/services/storyAttachmentContext.js",
     "./services/generationLifecycle": "./backend/services/generationLifecycle.js",
     "./shared/generationFailure": "./shared/generationFailure.mjs",
     "./frontend/components/AiFailureNotice": "./frontend/components/AiFailureNotice.tsx",

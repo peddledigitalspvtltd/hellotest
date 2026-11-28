@@ -63,7 +63,8 @@ async function verify({ app, createToken }) {
       headers: sessionHeaders, payload: { approved: true, projectId: 'mcp-p-a', scopes: [] }
     });
     assert.equal(emptyGrant.statusCode, 400);
-    assert.equal(emptyGrant.json().code, 'invalid_scope');
+    assert.equal(emptyGrant.json().code, 'INVALID_REQUEST');
+    assert.equal(emptyGrant.json().message, 'Choose at least one requested tool set.');
 
     const consent = await app.inject({
       method: 'POST', url: `/agentic-workflows/mcp/oauth/authorize-request/${authorization.json().request_id}/decision`,

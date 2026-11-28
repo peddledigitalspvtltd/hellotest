@@ -1,11 +1,15 @@
 
 const connections=require("../connections");
+const { WORKSPACE_SPRINT_STORIES, readWorkspaceSprintStories } = require('../sprintPipeline');
 
 const {httpMethod,parseRequestBody,mapValues,contextFor,interpolate}=require("./shared/values");
 function validate(node) {
     const { data = {} } = node;
     const kind = "apiTool";
     const errors = [];
+    if (data.apiResource === WORKSPACE_SPRINT_STORIES)
+        return (data.apiMethod || 'GET') === 'GET' && !data.connectionId && !data.apiUrl && !data.apiBody && !data.apiAuth && !data.credentialId
+            ? [] : ['The workspace Sprint read uses GET and the running project session.'];
     const check = (task) => {
         try {
             task();
@@ -43,6 +47,7 @@ function validate(node) {
 }
 async function execute({ run, node, sources, user, signal, onProgress, review, }) {
     const data = node.data || {}, kind = "apiTool";
+    if (data.apiResource === WORKSPACE_SPRINT_STORIES) return readWorkspaceSprintStories({ run, user, signal });
     const context = contextFor(run, sources, { internal: kind === "artifactTask" });
     if (data.apiResource === "sprintStories") {
         const sprintId = require("../artifactTasks").checkSprintInput(run);
@@ -73,4 +78,15 @@ async function execute({ run, node, sources, user, signal, onProgress, review, }
     });
     throw connections.fail("This node does not have an execution adapter.");
 }
-module.exports=require("./definition")("apiTool",{allowsCredentialReference:true,validateInput(context){if(context.hasInput&&!context.hasNativeInput&&context.node.data.apiResource==='sprintStories')context.checkInputOnce('sprintStories',()=>require('../artifactTasks').checkSprintInput({project_id:context.workflow.project_id,input_payload:context.payload}));},preflight:{connection:context=>require('./shared/httpPreflight')(context,String(context.node.data.apiMethod||'GET').toUpperCase())},preflightFailure:(_phase,failure)=>failure.publicMessage||'This connection could not be checked. Review its settings in Admin Space.',validate,execute});
+module.exports = require("./definition")("apiTool", {
+    allowsCredentialReference: true,
+    validateInput(context) {
+        if (context.hasInput && !context.hasNativeInput && ['sprintStories', WORKSPACE_SPRINT_STORIES].includes(context.node.data.apiResource))
+            context.checkInputOnce('sprintStories', () => require('../artifactTasks').checkSprintInput({project_id:context.workflow.project_id,input_payload:context.payload}));
+    },
+    preflight: { connection: context => context.node.data.apiResource === WORKSPACE_SPRINT_STORIES
+        ? require('../artifactTasks').access(context.user, context.workflow.project_id, ['requirement_iteration.view', 'requirement.view'])
+        : require('./shared/httpPreflight')(context,String(context.node.data.apiMethod||'GET').toUpperCase()) },
+    preflightFailure: (_phase, failure) => failure.publicMessage || 'This connection could not be checked. Review its settings in Admin Space.',
+    validate, execute
+});

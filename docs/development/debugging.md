@@ -427,6 +427,12 @@ Bound runtime parameter names also accompany generation feedback, allowing the
 validator to correct false parameter-only dependency reports without exposing
 values or hiding genuinely missing external context.
 
+`{{aiData:customer email}}` sends the text after `aiData:` to the configured
+model during Test Params authoring. Randomize saves a generated value pool for
+execution snapshots, and Static saves one model-generated value. If a legacy
+run input reports `TEST_DATA_AI_GENERATION_REQUIRED`, regenerate its unresolved
+token through the data utility before running the test again.
+
 `POST /test-cases/:id/automation/parameter-plan` returns authorized public values,
 private/deferred names, missing names and authored bound-empty names. It does not
 materialize random generators. The primary build reviews missing or empty inputs;

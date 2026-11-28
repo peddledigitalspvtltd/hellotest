@@ -43,6 +43,7 @@ test('saved chatbot context exposes actual retrieval, versioned evidence and the
    await page.getByLabel('Conversation history',{exact:true}).click();
    await page.getByRole('button',{name:'Checkout context review',exact:true}).click();
    await page.getByText('Checkout depends on the supplied refund contract.',{exact:true}).waitFor();
+   await page.getByRole('region',{name:'Context for this answer',exact:true}).waitFor({state:'detached'});
    await page.getByText('How this answer was built',{exact:false}).click();
    await page.getByRole('region',{name:'Context for this answer',exact:true}).waitFor();
   };

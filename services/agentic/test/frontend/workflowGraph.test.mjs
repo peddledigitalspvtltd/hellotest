@@ -66,6 +66,8 @@ test('opening legacy native tasks preserves user guidance and intentionally empt
 });
 
 test('opening an intentionally empty or disconnected saved definition never invents default nodes or edges', () => {
+  assert.deepEqual(graph.createWorkflowDraft().nodes, []);
+  assert.deepEqual(graph.createWorkflowDraft().edges, []);
   const draft = graph.createWorkflowDraft({ id: 'empty', name: 'Empty workflow', nodes: [], edges: [], settings: {}, status: 'draft', trigger_kind: 'manual' });
   assert.deepEqual(draft.nodes, []); assert.deepEqual(draft.edges, []);
   const disconnected = graph.createWorkflowDraft({ ...draft, nodes: [{ id: 'one', position: {x:0,y:0}, data: {kind:'trigger'} }] });
@@ -83,6 +85,9 @@ test('arrange follows dependencies and keeps parallel branches in separate rows'
 
 test('saved output becomes stale after input, connections, settings or task changes, but not a canvas move', () => {
   const draft = graph.createWorkflowDraft();
+  const request = graph.insertWorkflowNode([], [], 'trigger');
+  const review = graph.insertWorkflowNode(request.nodes, request.edges, 'agent', { sourceId: request.node.id });
+  Object.assign(draft, { nodes: review.nodes, edges: review.edges });
   const run = { workflow_snapshot: structuredClone(draft), input_payload:{scope:'Checkout'} };
   const matches = (nodes=draft.nodes,edges=draft.edges,input='{"scope":"Checkout"}',definition=draft) => graph.runMatchesDraft(run,definition,nodes,edges,input);
   assert.equal(matches(),true);
@@ -250,21 +255,29 @@ test('arrange reserves space for tall switch cards and exported flow preserves b
 });
 
 
-test('list-processing starter has an explicit connected body and valid completion wiring', () => {
+test('SpecToScript joins parallel evidence and uses bounded Story and case bodies', () => {
   const templates = {};
   new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/workflowTemplates.ts', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText)(name => name === './workflowGraph' ? graph : name === './nativeTaskProfiles' ? nativeProfiles : profiles, templates);
-  const {draft,input}=templates.draftFromTemplate(templates.WORKFLOW_TEMPLATES.find(item=>item.id==='foreach'));
-  const loop=draft.nodes.find(node=>node.data.kind==='loop');
-  const body=draft.nodes.find(node=>node.id==='shape-batch');
-  assert.equal(loop.data.loopAction,'workflow');assert.equal(loop.data.loopBatchSize,1);
-  assert.equal(body.data.kind,'dataOperation');assert.equal(body.data.dataSourceKey,'input');
-  assert.equal(loop.data.transformMapping,undefined,'connected bodies do not store an unused inline field mapping');
-  assert.equal(JSON.parse(input).items.length,2);
-  assert.ok(draft.edges.some(edge=>edge.source===loop.id && edge.target===body.id && edge.sourceHandle==='loop'));
-  assert.ok(draft.edges.some(edge=>edge.source===body.id && edge.target===loop.id && edge.targetHandle==='continue'));
-  assert.ok(draft.edges.some(edge=>edge.source===loop.id && edge.sourceHandle==='done' && draft.nodes.find(node=>node.id===edge.target)?.data.kind==='output'));
+  assert.deepEqual(templates.WORKFLOW_TEMPLATES.map(item => item.id), ['sprint-automator', 'spec-to-script']);
+  const {draft,input}=templates.draftFromTemplate(templates.WORKFLOW_TEMPLATES[1]);
+  const node = id => draft.nodes.find(item => item.id === id).data;
+  assert.equal(draft.settings.processing_mode,'parallel');
+  assert.equal(draft.settings.library_publication_mode,'automatic');
+  assert.deepEqual(draft.edges.filter(edge => edge.source === 'request').map(edge => edge.target), ['sprint-stories','repository-objects','repository-api']);
+  assert.equal(node('sprint-stories').apiResource,'workspaceSprintStories');
+  assert.equal(node('repository-objects').repositoryAgentType,'object_repository');
+  assert.equal(node('repository-api').repositoryAgentType,'api_tests');
+  assert.equal(node('repository-curator').agentId,'repository-curator');
+  assert.ok(draft.edges.some(edge=>edge.source==='repository-context' && edge.target==='source-barrier' && edge.targetHandle==='input-2'));
+  assert.equal(node('source-barrier').mergeMode,'chooseInput');
+  assert.equal(node('each-story').loopSourceKey,'input.0.items');
+  assert.equal(node('each-test-case').loopSourceKey,'input.0.cases');
+  assert.deepEqual(JSON.parse(input), { sprint_id: '' });
+  assert.ok(draft.edges.some(edge=>edge.source==='automation-engineer' && edge.target==='each-test-case' && edge.targetHandle==='continue'));
+  assert.ok(draft.edges.some(edge=>edge.source==='each-test-case' && edge.sourceHandle==='done' && edge.target==='each-story' && edge.targetHandle==='continue'));
+  assert.ok(draft.edges.some(edge=>edge.source==='each-story' && edge.sourceHandle==='done' && edge.target==='sprint-output'));
   for(const edge of draft.edges) assert.equal(graph.canConnectWorkflow(draft.nodes,draft.edges.filter(item=>item.id!==edge.id),edge.source,edge.target,edge.sourceHandle,edge.targetHandle),true);
 });
 

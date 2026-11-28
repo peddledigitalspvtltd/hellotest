@@ -176,7 +176,7 @@ exports.queueGeneratorJob = db.transaction(async ({
   created_by
 } = {}) => {
   const selectedFeature = buildFeature(ai_feature);
-  ({ verification_mode, browser_driver, verification_driver } = require("../lib/build/automationBuildPipelineOptions").normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions }));
+  ({ verification_mode, browser_driver, verification_driver } = require("../lib/build/automationBuildPipelineOptions").normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions, paired_browser_bridge_id }));
   const scheduledAt = normalizeScheduledAt(scheduled_at);
   const testCaseId = normalizeText(test_case_id);
 

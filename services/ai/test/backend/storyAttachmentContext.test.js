@@ -26,4 +26,26 @@ test('binary and large attachments stay metadata-only and never trigger a downlo
  for(const candidate of [{...item,mime_type:'image/png'},{...item,size_bytes:64001}])assert.equal((await reader.excerpt({item:candidate,projectId:'project',user:{id:'reviewer'}})).status,'metadata_only');
  assert.equal(download.mock.callCount(),0);
 });
+test('workflow attachment retrieval uses the exact Story and checks both read permissions before querying',async t=>{
+ const access=require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
+ let permitted=false;
+ t.mock.method(access,'getOptionalEvidenceAccess',async(user,project,codes)=>{
+  assert.deepEqual([user.id,project,codes],['reviewer','project',['requirement.view','attachment.view']]);
+  return {'requirement.view':true,'attachment.view':permitted};
+ });
+ const db=require('@hellotest/platform/backend/src/db');
+ const prepare=t.mock.method(db,'prepare',sql=>({all:async(...args)=>{
+  assert.match(sql,/entity_type = 'requirement' AND entity_id = \?/);
+  assert.deepEqual(args,['project','story']);
+  return [{...item,file_name:'contract.txt'}];
+ }}));
+ t.mock.method(attachments,'download',async()=>({row,stream:Readable.from(['Only this Story’s requirement.'])}));
+ const input={storyId:'story',projectId:'project',user:{id:'reviewer'}};
+ assert.deepEqual(await reader.readStoryAttachments(input),[]);
+ assert.equal(prepare.mock.callCount(),0);
+ permitted=true;
+ const [evidence]=await reader.readStoryAttachments(input);
+ assert.equal(evidence.id,'file');assert.equal(evidence.story_id,'story');
+ assert.equal(evidence.excerpt,'Only this Story’s requirement.');
+});
 test.after(()=>require('@hellotest/platform/backend/src/db').close());

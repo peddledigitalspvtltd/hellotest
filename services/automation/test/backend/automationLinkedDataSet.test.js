@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 function fixture({own=false,manual=true,dataAllowed=true,caseAllowed=true,foreign=false}={}){
  const reads=[],module={exports:{}},local=require('node:module').createRequire(require.resolve("../../backend/lib/parameters/automationBrowserParameters"));
- const dataset=id=>({id,name:id,mode:'key_value',rows:[{key:'t.email',value:'{{yopmail:linked}}'},{key:'t.name',value:'Linked Reader'},{key:'t.secret_alias',value:'protected-dataset-value',is_secret:true}]});
+ const dataset=id=>({id,name:id,updated_at:'2026-11-28T00:00:00.000Z',mode:'key_value',rows:[{key:'t.email',value:'{{yopmail:linked}}'},{key:'t.name',value:'Linked Reader'},{key:'t.secret_alias',value:'protected-dataset-value',is_secret:true}]});
  new Function('require','module',fs.readFileSync(require.resolve("../../backend/lib/parameters/automationBrowserParameters"),'utf8'))(id=>{
   if(id.endsWith('/db'))return {prepare:sql=>({
    all:async(...args)=>{
@@ -50,4 +50,21 @@ test('relationship provenance does not change the source fingerprint for the sam
  const selected=await fixture().loadBrowserParameterResolver({...input,test_data_set_id:'manual',materialize:false});
  assert.equal(inherited.inputSourceKey,selected.inputSourceKey,'manual inheritance and an explicit mapping of the same resource share the exact source receipt');
  assert.doesNotMatch(inherited.inputSourceKey,/mapping_source|source_test_case_id|test_case_id/);
+});
+test('a workflow preview keeps row identity and exposes only referenced dataset bindings',async()=>{
+ const resolver=await fixture().loadBrowserParameterResolver({...input,test_data_set_id:'manual',protectSelectedDataSet:true,
+  steps:[{action:'Enter @t.name',expected_result:'The entered name is visible'}]});
+ assert.equal(resolver.resolve('browser_fill',{value:'@t.name'}).value,'Linked Reader');
+ assert.equal(resolver.projectText('Enter @t.name'),'Enter @t.name');
+ assert.equal(resolver.promptValues['t.secret_alias'],undefined);
+ const projected=resolver.projectBuildContext({});
+ assert.equal(projected.data_set.id,'manual');
+ assert.deepEqual(projected.data_set.rows,[{'t.name':'@t.name'}]);
+ assert.doesNotMatch(JSON.stringify(projected),/Linked Reader|protected-dataset-value|yopmail/);
+});
+test('a changed dataset revision stops workflow preparation before browser dispatch',async()=>{
+ const f=fixture(),selected={...input,test_data_set_id:'manual',protectSelectedDataSet:true};
+ await assert.rejects(f.loadBrowserParameterResolver({...selected,expectedSelectedDataSetRevision:'2026-11-27T00:00:00.000Z'}),
+  {code:'AUTOMATION_TEST_DATA_CHANGED',statusCode:409,effect_dispatched:false,outcome_unknown:false});
+ await assert.doesNotReject(f.loadBrowserParameterResolver({...selected,expectedSelectedDataSetRevision:new Date('2026-11-28T00:00:00.000Z')}));
 });

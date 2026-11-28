@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const { Readable } = require("node:stream");
 const { gunzipSync } = require("node:zlib");
 const test = require("node:test");
+const documentMimes = require("@hellotest/platform/shared/attachmentDocuments.json");
 
 function fixture() {
   const user = { id: "qa", name: "QA Reviewer" };
@@ -109,6 +110,25 @@ test("already-compressed media and archives keep original bytes and MIME type", 
   assert.equal(attachment.compression, "none");
   assert.deepEqual([...state.objects.values()][0].bytes, bytes);
   assert.equal([...state.objects.values()][0].mimeType, "application/zip");
+});
+
+test("Office and PDF files keep canonical metadata and bytes through run and generic attachment uploads", async () => {
+  const { upload, attachments, state, user } = fixture();
+  const bytes = Buffer.from([20, 31, 4, 7, 255]);
+  for (const [index, [extension, mimeType]] of Object.entries(documentMimes).entries()) {
+    const fileName = `review.${extension.toUpperCase()}`;
+    const { attachment, evidence } = await upload({ fileName, mimeType: "application/octet-stream", stream: Readable.from(bytes), stepId: "step", expectedRevision: index + 1 });
+    const direct = await attachments.upload({ user, projectId: "project", entityType: "execution_result", entityId: "result", fileName, stream: Readable.from(bytes) });
+    assert.equal(evidence.mimeType, mimeType);
+    assert.equal(direct.mimeType, mimeType);
+    for (const id of [direct.id, attachment.id]) {
+      const row = state.attachments.get(id);
+      assert.equal(row.mime_type, mimeType);
+      assert.equal(row.compression, "none");
+      assert.equal(state.objects.get(row.object_name).mimeType, mimeType);
+      assert.deepEqual(state.objects.get(row.object_name).bytes, bytes);
+    }
+  }
 });
 
 test("step upload commits only durable attachment metadata, preserving lifecycle and notes", async () => {

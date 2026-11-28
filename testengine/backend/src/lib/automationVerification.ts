@@ -4,6 +4,7 @@ import path from "node:path";
 import { parse } from "acorn";
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { chromium, type Browser, type BrowserContext, type Page, type FrameLocator } from "playwright";
+import { expect as playwrightExpect } from "playwright/test";
 import { createInspectionProxy } from "./inspectionProxy.js";
 import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
 import { createPlaywrightCodeBindings, usesExpressionParameterBindings } from "./playwrightBindings.js";
@@ -11,7 +12,7 @@ import { captureAutomationBrowserSnapshot } from "./automationMcp.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
 import { compileRecordedProgram, parameterKey, parameterTemplateParts, hasInvalidParameterTemplate, recordedSelectionNameParameter, recordedScopedSelectionLocator } from "./automationVerificationProgram.js";
 import { normalizeScopedParameterKey } from "./stepParameterReferences.js";
-import { normalizeAutomationAssertionTimeoutMs, validAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
+import { nativeAutomationAssertionTimeoutMs, validAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
 import { validAutomationNavigationTimeoutMs } from "./automationNavigationPolicy.js";
 
 type Operation = { name: string; arguments: Record<string, any>; navigation_intent?: "reload" };
@@ -38,19 +39,51 @@ type Dependencies = {
 };
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const READ_ONLY = new Set(["browser_navigate", "browser_assert"]);
+const ACTION_TIMEOUT_MS = 8_000;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const record = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === "object" && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const string = (value: unknown, max = 2_000): value is string => typeof value === "string" && value.length <= max;
 const exactKeys = (value: Record<string, unknown>, allowed: string[], required = allowed) => Object.keys(value).every(key => allowed.includes(key)) && required.every(key => Object.hasOwn(value, key));
 const invalid = () => Object.assign(new Error("The isolated verification contract is invalid or does not match the recorded program."), { code: "AUTOMATION_VERIFICATION_CONTRACT_INVALID", statusCode: 400 });
-const syntax = (value: any): any => Array.isArray(value) ? value.map(syntax) : value && typeof value === "object"
-  ? Object.fromEntries(Object.entries(value).filter(([key]) => !["start", "end", "loc", "raw"].includes(key)).map(([key, item]) => [key, syntax(item)])) : value;
+const semanticLocators = new Set(["getByRole", "getByLabel", "getByText", "getByPlaceholder", "getByTitle", "getByAltText"]);
+
+// Match the builder's proof of equivalence for fixed Playwright locator
+// options. Computed, duplicate and unsupported properties remain distinct.
+function locatorOptions(node: any) {
+  const callee = node.callee;
+  const method = callee?.property?.name;
+  if (node.type !== "CallExpression" || node.optional || callee?.type !== "MemberExpression" || callee.computed || callee.optional
+    || !semanticLocators.has(method) || node.arguments.length < 1 || node.arguments.length > 2) return null;
+  const options = node.arguments[1];
+  if (options && options.type !== "ObjectExpression") return null;
+  let exact = false, name: string | undefined;
+  const seen = new Set();
+  for (const property of options?.properties || []) {
+    const key = property.key?.name ?? property.key?.value;
+    if (property.type !== "Property" || property.kind !== "init" || property.computed || property.method || property.shorthand
+      || property.value?.type !== "Literal" || seen.has(key)) return null;
+    seen.add(key);
+    const value = property.value.value;
+    if (key === "exact" && typeof value === "boolean") exact = value;
+    else if (key === "name" && method === "getByRole" && typeof value === "string") name = value;
+    else return null;
+  }
+  return [node.arguments[0], { type: "VerificationLocatorOptions", exact, name }];
+}
+
+function syntax(value: any): any {
+  if (Array.isArray(value)) return value.map(syntax);
+  if (!value || typeof value !== "object") return value;
+  const options = locatorOptions(value);
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !["start", "end", "loc", "raw"].includes(key))
+    .map(([key, item]) => [key, syntax(key === "arguments" && options ? options : item)]));
+}
 const parsed = (source: string) => JSON.stringify(syntax(parse(source, { ecmaVersion: "latest", sourceType: "module", allowAwaitOutsideFunction: true })));
 
 /** Reject every unsupported statement atomically before launching a browser.
- * AST equality accepts formatting only; the runner never executes an arbitrary
- * expression, import, shell command or model-authored evaluate callback. */
+ * AST equality accepts formatting and equivalent native locator defaults.
+ * The runner executes only operations from the recorded program. */
 export function validateAutomationVerificationRequest(input: unknown): AutomationVerificationRequest {
   if (!record(input) || !exactKeys(input, ["schema_version", "verification_id", "lease_token", "start_url", "sections", "parameters", "timeout_ms", "assertion_timeout_ms", "navigation_timeout_ms", "replay_policy", "execution_driver"],
     ["schema_version", "verification_id", "lease_token", "start_url", "sections", "parameters", "replay_policy"])
@@ -166,7 +199,7 @@ export async function runAutomationVerification(input: AutomationVerificationReq
     if (request.navigation_timeout_ms !== undefined) page.setDefaultNavigationTimeout(Math.min(request.navigation_timeout_ms, remaining()));
     context.on("page", candidate => { if (candidate !== page) void candidate.close(); });
     const parameters = Object.freeze(Object.assign(Object.create(null), request.parameters)) as Record<string, string>;
-    const bindingsForSection = (section: Section) => createPlaywrightCodeBindings(page!, { parameterExpressions: usesExpressionParameterBindings(section.automation_code), assertionTimeout: Math.min(normalizeAutomationAssertionTimeoutMs(request.assertion_timeout_ms), remaining()), resolveLocator: value => value, resolveUrl: value => value,
+    const bindingsForSection = (section: Section, assertionTimeout: number) => createPlaywrightCodeBindings(page!, { parameterExpressions: usesExpressionParameterBindings(section.automation_code), assertionTimeout, resolveLocator: value => value, resolveUrl: value => value,
       interpolate: value => {
         const key = parameterKey(value);
         if (key) return parameters[key];
@@ -184,11 +217,12 @@ export async function runAutomationVerification(input: AutomationVerificationReq
       } });
     await page.goto(request.start_url, { waitUntil: "domcontentloaded", timeout: Math.min(request.navigation_timeout_ms ?? remaining(), remaining()) });
     for (const section of request.sections) {
-      const bindings = bindingsForSection(section);
       for (let index = 0; index < section.operations.length; index++) {
         if (cancelled || timedOut || remaining() <= 1) throw invalid();
         const operation = section.operations[index]; active = { section, operation, index }; actionStarted = false;
-        page.setDefaultTimeout(Math.min(8_000, remaining()));
+        const operationDeadline = Math.min(deadline, Date.now() + (operation.name === "browser_assert"
+          ? nativeAutomationAssertionTimeoutMs(operation.arguments.assertion, request.assertion_timeout_ms) : ACTION_TIMEOUT_MS));
+        const remainingOperation = () => Math.max(1, operationDeadline - Date.now());
         page.setDefaultNavigationTimeout(Math.min(operation.name === 'browser_navigate' ? request.navigation_timeout_ms ?? 15_000 : 15_000, remaining()));
         const compiled = compileRecordedProgram([operation]);
         // Each statement is rendered by the same atomically checked grammar.
@@ -201,9 +235,21 @@ export async function runAutomationVerification(input: AutomationVerificationReq
           const locator = scopedSelection ? root.locator(scopedSelection.scope).getByText(optionParameter ? parameters[optionParameter.key] : scopedSelection.name, { exact: true }) : resolveRepositoryLocator(root, optionParameter
             ? `getByRole("option", ${JSON.stringify({ name: parameters[optionParameter.key], exact: true })})`
             : operation.arguments.locator);
-          try { await locator.waitFor({ state: "attached", timeout: Math.min(3_000, remaining()) }); } catch { /* count below is authoritative */ }
-          if (await locator.count() !== 1) throw Object.assign(new Error(), { code: "AUTOMATION_VERIFICATION_LOCATOR_UNRESOLVED" });
+          // A live UI can render late, or show two matching nodes during a
+          // transition. Wait for the original locator to resolve uniquely
+          // within this operation's budget before starting any interaction.
+          if (await locator.count() !== 1) {
+            try { await playwrightExpect(locator).toHaveCount(1, { timeout: remainingOperation() }); }
+            catch (error) {
+              if (cancelled || timedOut) throw error;
+              throw Object.assign(new Error(), { code: "AUTOMATION_VERIFICATION_LOCATOR_UNRESOLVED" });
+            }
+          }
         }
+        if (Date.now() >= deadline) timedOut = true;
+        if (cancelled || timedOut || Date.now() >= operationDeadline) throw invalid();
+        page.setDefaultTimeout(remainingOperation());
+        const bindings = bindingsForSection(section, remainingOperation());
         actionStarted = !READ_ONLY.has(operation.name);
         await new AsyncFunction("page", "expect", "params", `"use strict";\n${compiled!.source}`)(bindings.page, bindings.expect, parameters);
         actionStarted = false;

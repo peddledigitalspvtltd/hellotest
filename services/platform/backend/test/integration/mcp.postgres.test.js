@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, and honor revocation',{skip:process.env.MCP_POSTGRES_TEST!=='1',timeout:180000},async()=>{
+test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, and honor revocation',{skip:process.env.MCP_POSTGRES_TEST!=='1',timeout:180000},async t=>{
  assert.match(new URL(process.env.DATABASE_URL).pathname,/^\/agent_verify_mcp_[0-9]+$/);
  const db=require('../../src/db'),obsDb=require('../../src/obsDb');let app;
  try{
@@ -49,6 +49,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const memoryFixture=await require('./contextGraphMemory.fixture').verify({app,db,user:{id:'mcp-a'},headers,createToken});
   await require('./mcpContextAttribution.fixture').verify({app,db,rpc,graphFixture});
   await require('./mcpToolSets.fixture').verify({app,db,headers});
+  await t.test('manual host credentials enforce selected tools and expiry presets', () => require('./mcpCredentialSelection.fixture').verify({app,db,headers}));
   const memoryList=await rpc('hellotest_context_graph_list',{feature_id:memoryFixture.featureId});
   assert.equal(memoryList.result.isError,undefined,JSON.stringify(memoryList.result));
   assert.ok(memoryList.result.structuredContent.data.items.some(item=>item.trace_id===memoryFixture.traceId));

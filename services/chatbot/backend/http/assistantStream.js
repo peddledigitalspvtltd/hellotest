@@ -54,7 +54,7 @@ const streamAssistant = async (req, reply, task) => {
     // drafts and claims removed by validation can never reach the browser.
     const message = result?.assistant_message || result?.message;
     const contract = result?.answer_contract || message?.answer_contract || message?.retrieval?.answer_contract;
-    if (active() && message && typeof message.id === "string" && message.id.length <= 255
+    if (req.query?.delivery !== "final" && active() && message && typeof message.id === "string" && message.id.length <= 255
       && typeof message.content === "string" && message.content.length > 0
       && contract?.contract_type === "AnswerContract"
       && ["1.0", "AnswerContract.v1"].includes(contract.contract_version)

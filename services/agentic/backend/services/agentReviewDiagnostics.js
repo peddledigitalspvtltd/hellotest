@@ -21,7 +21,8 @@ function aggregateUsage(records) {
     ? records.reduce((sum, record) => sum + record.usage[key], 0) : null])),
     usage_unknown_calls: records.filter(record => keys.some(key => record.usage?.[key] == null)).length };
 }
-const correctableOutputError = error => error instanceof SyntaxError || ['AI_INVALID_JSON', 'AI_INVALID_RESPONSE', 'AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error?.code);
+const correctableOutputError = error => !error?.outcome_unknown && !error?.transactionOutcomeUnknown
+  && (error instanceof SyntaxError || ['AI_INVALID_JSON', 'AI_INVALID_RESPONSE', 'AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error?.code));
 function outputErrorIssues(error) {
   if (['AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error.code) || error.code === 'AI_INVALID_RESPONSE' && error.validation_errors?.length) return (error.validation_errors?.length ? error.validation_errors : [{ path: 'output', keyword: 'published_schema_constraint' }]).slice(0, 5).map(item => ({
     path: normalizeText(item.path, 255), issue: normalizeText(item.keyword, 80) || 'published_schema_constraint',

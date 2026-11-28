@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
@@ -10,7 +10,7 @@ import { FormField } from "@hellotest/platform/frontend/src/shared/components/Fo
 import { TestDataIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import type { StepParameterDefinition, StepParameterScope } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import { isPrivateParameterName } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
-import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
+import { evaluateTestDataTemplate, hasAiDataTemplate, hasTestDataGeneratorTemplate, resolveAiDataTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import "./StepParameterDialog.css";
 
 type StepParameterDialogInputState = {
@@ -53,6 +53,7 @@ export function StepParameterDialog({
   onReset,
   onRefreshPreviews,
   footerContent,
+  renderFooter,
   overrideLabel = "Test Case override",
   resetLabel,
   allowSensitiveValueOverrides = false,
@@ -78,6 +79,7 @@ export function StepParameterDialog({
   onReset?: (name: string) => void;
   onRefreshPreviews?: () => void;
   footerContent?: ReactNode;
+  renderFooter?: (state: { aiDataPending: boolean; hasUnresolvedAiData: boolean }) => ReactNode;
   overrideLabel?: string;
   resetLabel?: string;
   allowSensitiveValueOverrides?: boolean;
@@ -92,7 +94,14 @@ export function StepParameterDialog({
   const [appTypeId] = useCurrentAppType(projectId);
   const { getLlmIntegrationId, getPrompt } = useAiPromptRegistry(Boolean(session));
   const generateAiData = useMutation({ mutationFn: testingApi.testDataSets.previewAiData });
-  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
+  const aiDataRequests = useRef(new Map<string, { template: string; staticSample: boolean }>());
+  const [aiDataPending, setAiDataPending] = useState(false);
+  const closeAfterAiData = useRef(false);
+  const requestClose = () => {
+    if (aiDataRequests.current.size) closeAfterAiData.current = true;
+    else onClose();
+  };
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose: requestClose });
   const dialogId = useId();
   // Stored private values never seed an input. Only replacements authored in
   // this open dialog may be displayed, using a password control.
@@ -103,6 +112,7 @@ export function StepParameterDialog({
     onChange(parameter.name, value);
   };
   const resetValue = (parameter: StepParameterDefinition) => {
+    clearAiDataDraft(parameter.name);
     setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; });
     onReset?.(parameter.name);
   };
@@ -132,6 +142,11 @@ export function StepParameterDialog({
   const dynamicParameterCount = parameters.filter((parameter) => hasTestDataGeneratorTemplate(values[parameter.name])).length;
   const [activeUtilityParameter, setActiveUtilityParameter] = useState("");
   const [utilityDrafts, setUtilityDrafts] = useState<Record<string, string>>({});
+  const [aiDataDrafts, setAiDataDrafts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const requests = aiDataRequests.current;
+    return () => { requests.clear(); closeAfterAiData.current = false; };
+  }, [projectId, appTypeId]);
   const [utilityFeedbackByParameter, setUtilityFeedbackByParameter] = useState<Record<string, string>>({});
   const [customUtilityTemplates, setCustomUtilityTemplates] = useState<UtilityTemplate[]>([]);
   const [customUtilityLabel, setCustomUtilityLabel] = useState("");
@@ -149,7 +164,85 @@ export function StepParameterDialog({
     });
   };
 
-  const addCustomUtilityTemplate = () => {
+  const clearAiDataDraft = (parameterName: string) => {
+    aiDataRequests.current.delete(parameterName);
+    setAiDataPending(aiDataRequests.current.size > 0);
+    setAiDataDrafts(current => {
+      if (!Object.prototype.hasOwnProperty.call(current, parameterName)) return current;
+      const next = { ...current };
+      delete next[parameterName];
+      return next;
+    });
+  };
+
+  const setUtilityFeedback = (parameterName: string, message: string) => {
+    setUtilityFeedbackByParameter(current => ({ ...current, [parameterName]: message }));
+  };
+
+  const applyUtility = async (parameterName: string, template: string, staticSample = false) => {
+    const pending = aiDataRequests.current.get(parameterName);
+    if (pending?.template === template && pending.staticSample === staticSample) return false;
+    const request = { template, staticSample };
+    aiDataRequests.current.set(parameterName, request);
+    try {
+      const generatesAiData = hasAiDataTemplate(template);
+      let nextValue = template;
+      if (generatesAiData) {
+        if (!projectId) throw new Error("Select a project to generate AI test data.");
+        setAiDataPending(true);
+        setUtilityFeedback(parameterName, "Generating test data with the configured LLM…");
+        nextValue = await resolveAiDataTemplate(template, async intent => {
+          if (aiDataRequests.current.get(parameterName) !== request) throw new Error("The test data draft changed.");
+          const preview = await generateAiData.mutateAsync({
+            project_id: projectId,
+            app_type_id: appTypeId || undefined,
+            prompt: intent,
+            field_context: parameterName,
+            sample_count: staticSample ? 1 : 8,
+            single_value: staticSample || undefined,
+            prompt_instruction: getPrompt("ai.test_data.synthetic") || undefined,
+            integration_id: getLlmIntegrationId("ai.test_data.synthetic") || undefined
+          });
+          const generated = staticSample ? preview.suggestions[0]?.value : preview.randomized_template;
+          if (preview.generation_mode !== "llm" || preview.fallback_used || !generated) {
+            throw new Error("The configured LLM did not return test data. Try generating again.");
+          }
+          return generated;
+        }, staticSample);
+      } else if (staticSample) nextValue = evaluateTestDataTemplate(template);
+      if (aiDataRequests.current.get(parameterName) !== request) return false;
+      clearAiDataDraft(parameterName);
+      onChange(parameterName, nextValue);
+      setUtilityDrafts(current => ({ ...current, [parameterName]: nextValue }));
+      const sample = staticSample ? nextValue : evaluateTestDataTemplate(nextValue);
+      setUtilityFeedback(parameterName, staticSample
+        ? `Static sample saved${sample ? ` · ${sample}` : ""}`
+        : `${generatesAiData ? "LLM-generated value pool saved" : "Template saved"}${sample ? ` · Example for a new run ${sample}` : ""}`);
+      if (closeAfterAiData.current && !aiDataRequests.current.size) {
+        closeAfterAiData.current = false;
+        onClose();
+      }
+      return true;
+    } catch (error) {
+      if (aiDataRequests.current.get(parameterName) === request) {
+        closeAfterAiData.current = false;
+        aiDataRequests.current.delete(parameterName);
+        setAiDataPending(aiDataRequests.current.size > 0);
+        setUtilityFeedback(parameterName, error instanceof Error ? error.message : "Unable to generate AI data.");
+      }
+      return false;
+    }
+  };
+
+  const changePublicValue = (parameter: StepParameterDefinition, value: string) => {
+    closeAfterAiData.current = false;
+    clearAiDataDraft(parameter.name);
+    setUtilityFeedback(parameter.name, "");
+    if (hasAiDataTemplate(value)) setAiDataDrafts(current => ({ ...current, [parameter.name]: value }));
+    else changeValue(parameter, value);
+  };
+
+  const addCustomUtilityTemplate = async () => {
     const label = customUtilityLabel.trim();
     const token = customUtilityToken.trim();
 
@@ -157,6 +250,7 @@ export function StepParameterDialog({
       return;
     }
 
+    if (activeUtilityParameter && !await applyUtility(activeUtilityParameter, token)) return;
     setCustomUtilityTemplates((current) => [
       ...current,
       {
@@ -166,14 +260,6 @@ export function StepParameterDialog({
         custom: true
       }
     ]);
-    if (activeUtilityParameter) {
-      setUtilityDrafts((current) => ({ ...current, [activeUtilityParameter]: token }));
-      onChange(activeUtilityParameter, token);
-      setUtilityFeedbackByParameter((current) => ({
-        ...current,
-        [activeUtilityParameter]: `Custom utility saved. Example for a new run: ${evaluateTestDataTemplate(token) || "—"}`
-      }));
-    }
     setCustomUtilityLabel("");
     setCustomUtilityToken("");
     setActiveUtilityParameter("");
@@ -192,73 +278,20 @@ export function StepParameterDialog({
 
     const utility = utilityTemplates.find((template) => template.id === utilityId);
     if (!utility) return;
-    const sampleValue = evaluateTestDataTemplate(utility.token);
+    clearAiDataDraft(parameterName);
+    if (hasAiDataTemplate(utility.token)) {
+      setUtilityDrafts(current => ({ ...current, [parameterName]: utility.token }));
+      setUtilityFeedback(parameterName, "Describe the value after aiData: and generate the sample or pool.");
+      setActiveUtilityParameter(parameterName);
+      return;
+    }
     setUtilityDrafts((current) => ({ ...current, [parameterName]: utility.token }));
-    setUtilityFeedbackByParameter((current) => ({
-      ...current,
-      [parameterName]: `${utility.label} selected. Example for a new run: ${sampleValue || "—"}`
-    }));
-    onChange(parameterName, utility.token);
+    void applyUtility(parameterName, utility.token);
     setActiveUtilityParameter("");
   };
 
-  const resolveAiDataTemplate = async (parameterName: string, template: string) => {
-    const match = template.trim().match(/^\{\{\s*aiData\s*:\s*([^}]+)\}\}$/i);
-    if (!match || !projectId) return false;
-    const criterion = match[1].trim();
-    setUtilityFeedbackByParameter((current) => ({ ...current, [parameterName]: `Generating ${criterion} with the configured LLM…` }));
-    try {
-      const preview = await generateAiData.mutateAsync({
-        project_id: projectId,
-        app_type_id: appTypeId || undefined,
-        prompt: criterion,
-        field_context: parameterName,
-        sample_count: 8,
-        prompt_instruction: getPrompt("ai.test_data.synthetic") || undefined,
-        integration_id: getLlmIntegrationId("ai.test_data.synthetic") || undefined
-      });
-      onChange(parameterName, preview.randomized_template);
-      setUtilityDrafts((current) => ({ ...current, [parameterName]: preview.randomized_template }));
-      setUtilityFeedbackByParameter((current) => ({ ...current, [parameterName]: preview.fallback_used ? "The LLM was unavailable; a safe reviewed fallback pool will randomize each run." : `${preview.suggestions.length} LLM-generated values reviewed and saved as a randomized run-time pool.` }));
-    } catch (error) {
-      setUtilityFeedbackByParameter((current) => ({ ...current, [parameterName]: error instanceof Error ? error.message : "Unable to generate AI data." }));
-    }
-    return true;
-  };
-
-  const applyUtilityTemplate = async (parameterName: string) => {
-    const template = utilityDrafts[parameterName] || "";
-    if (await resolveAiDataTemplate(parameterName, template)) return;
-    const sampleValue = evaluateTestDataTemplate(template);
-
-    onChange(parameterName, template);
-    setUtilityFeedbackByParameter((current) => ({
-      ...current,
-      [parameterName]: sampleValue
-        ? `Template saved. Example for a new run: ${sampleValue}`
-        : "Saved an empty generator template."
-    }));
-  };
-
-  const applyUtilityStaticValue = (parameterName: string) => {
-    const template = utilityDrafts[parameterName] || "";
-    const sampleValue = evaluateTestDataTemplate(template);
-
-    onChange(parameterName, sampleValue);
-    setUtilityDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [parameterName]: sampleValue
-    }));
-    setUtilityFeedbackByParameter((current) => ({
-      ...current,
-      [parameterName]: sampleValue
-        ? `Static value saved now: ${sampleValue}`
-        : "Saved an empty static value."
-    }));
-  };
-
   return (
-    <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
+    <div className="modal-backdrop modal-backdrop--scroll" onClick={requestClose} role="presentation">
       <div
         aria-labelledby="step-parameter-dialog-title"
         aria-modal="true"
@@ -283,7 +316,7 @@ export function StepParameterDialog({
               </button>
             ) : null}
             <span className="count-pill">{parameterCount} field{parameterCount === 1 ? "" : "s"}</span>
-            <DialogCloseButton label={`Close ${title}`} onClick={onClose} />
+            <DialogCloseButton label={`Close ${title}`} onClick={requestClose} />
           </div>
         </div>
 
@@ -334,11 +367,11 @@ export function StepParameterDialog({
                           : configuredInputState;
                         const hasDefaultValue = inheritedNames.has(parameter.name);
                         const hasOverrideValue = Object.prototype.hasOwnProperty.call(overrideValues, parameter.name);
-                        const currentValue = isSensitive ? allowSensitiveValueOverrides ? sensitiveEdits[parameter.name] ?? "" : "" : values[parameter.name] ?? "";
+                        const currentValue = isSensitive ? allowSensitiveValueOverrides ? sensitiveEdits[parameter.name] ?? "" : "" : aiDataDrafts[parameter.name] ?? values[parameter.name] ?? "";
                         const inputId = `${dialogId}-${encodeURIComponent(parameter.name)}`;
                         const isPrivateInput = inputState.inputType === "password";
                         const isDynamicValue = !isPrivateInput && hasTestDataGeneratorTemplate(currentValue);
-                        const previewValue = isSensitive ? "" : previewValues[parameter.name] ?? currentValue;
+                        const previewValue = isSensitive || hasAiDataTemplate(currentValue) ? "" : previewValues[parameter.name] ?? currentValue;
                         const sourceLabel = hasOverrideValue
                           ? overrideLabel
                           : hasDefaultValue
@@ -358,7 +391,7 @@ export function StepParameterDialog({
                                 <code>{parameter.token}</code>
                                 {onSecretChange ? <label className="step-parameter-secret-toggle" title={getSecretState?.(parameter).hint}>
                                   <input aria-label={`Secret for ${parameter.token}`} type="checkbox" checked={Boolean(isSensitive)} disabled={getSecretState?.(parameter).disabled ?? inputState.disabled}
-                                    onChange={event => { setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; }); onSecretChange(parameter.name, event.target.checked); }} />
+                                    onChange={event => { clearAiDataDraft(parameter.name); setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; }); onSecretChange(parameter.name, event.target.checked); }} />
                                   <span>Secret</span>
                                 </label> : null}
                                 <span className={isDynamicValue ? "step-parameter-mode-badge is-dynamic" : "step-parameter-mode-badge is-static"}>
@@ -374,6 +407,7 @@ export function StepParameterDialog({
                                     value={parameter.scope}
                                     onChange={event => {
                                       const scope = event.target.value as StepParameterScope;
+                                      clearAiDataDraft(parameter.name);
                                       setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; });
                                       setCollapsedGroups(current => ({ ...current, [scope]: false }));
                                       onScopeChange(parameter.name, scope);
@@ -402,8 +436,8 @@ export function StepParameterDialog({
                                   placeholder={inputState.placeholder || `Value for ${parameter.token}`}
                                   rows={Math.min(6, Math.max(1, currentValue.split("\n").length, Math.ceil(currentValue.length / 100)))}
                                   value={currentValue}
-                                  onChange={(event) => changeValue(parameter, event.target.value)}
-                                  onBlur={(event) => { void resolveAiDataTemplate(parameter.name, event.target.value); }}
+                                  onChange={(event) => changePublicValue(parameter, event.target.value)}
+                                  onBlur={(event) => { if (hasAiDataTemplate(event.target.value)) void applyUtility(parameter.name, event.target.value); }}
                                 />}
                                 <label className="step-parameter-utility-select">
                                   <span aria-hidden="true" className="step-parameter-utility-select-icon"><TestDataIcon size={17} /></span>
@@ -432,6 +466,9 @@ export function StepParameterDialog({
                                   <span>Resolved preview</span>
                                   <strong>{previewValue || "—"}</strong>
                                 </div>
+                              ) : null}
+                              {activeUtilityParameter !== parameter.name && utilityFeedbackByParameter[parameter.name] ? (
+                                <span className="step-parameter-utility-feedback" role="status">{utilityFeedbackByParameter[parameter.name]}</span>
                               ) : null}
                               {isSensitive && allowSensitiveValueOverrides ? (
                                 <button className="link-button step-parameter-reset-button" disabled={inputState.disabled} onClick={() => changeValue(parameter, "")} type="button">
@@ -465,14 +502,16 @@ export function StepParameterDialog({
                                       value={customUtilityToken}
                                       onChange={(event) => setCustomUtilityToken(event.target.value)}
                                     />
-                                    <button className="ghost-button" onClick={addCustomUtilityTemplate} type="button">
+                                    <button className="ghost-button" disabled={generateAiData.isPending} onClick={() => void addCustomUtilityTemplate()} type="button">
                                       Save utility
                                     </button>
                                   </div>
                                   <textarea
+                                    aria-label={`Value template for ${parameter.token}`}
                                     className="step-parameter-utility-template"
                                     onChange={(event) => {
                                       const nextValue = event.target.value;
+                                      clearAiDataDraft(parameter.name);
                                       setUtilityDrafts((currentDrafts) => ({
                                         ...currentDrafts,
                                         [parameter.name]: nextValue
@@ -487,16 +526,16 @@ export function StepParameterDialog({
                                     value={utilityDrafts[parameter.name] || ""}
                                   />
                                   <div className="step-parameter-utility-footer">
-                                    <button className="primary-button" disabled={generateAiData.isPending} onClick={() => void applyUtilityTemplate(parameter.name)} title="Save the template so every run resolves a fresh value" type="button">
+                                    <button className="primary-button" disabled={generateAiData.isPending} onClick={() => void applyUtility(parameter.name, utilityDrafts[parameter.name] || "")} title="Save the template so every run resolves a fresh value" type="button">
                                       {generateAiData.isPending ? "Generating…" : "Generate / randomize each run"}
                                     </button>
-                                    <button className="ghost-button" onClick={() => applyUtilityStaticValue(parameter.name)} title="Resolve the template now and save the generated value as static data" type="button">
+                                    <button className="ghost-button" disabled={generateAiData.isPending} onClick={() => void applyUtility(parameter.name, utilityDrafts[parameter.name] || "", true)} title="Resolve the template now and save the generated value as static data" type="button">
                                       Use static sample
                                     </button>
                                     <span>Template keeps values dynamic; static sample writes one generated value into this reference.</span>
                                   </div>
                                   {utilityFeedbackByParameter[parameter.name] ? (
-                                    <span className="step-parameter-utility-feedback">{utilityFeedbackByParameter[parameter.name]}</span>
+                                    <span className="step-parameter-utility-feedback" role="status">{utilityFeedbackByParameter[parameter.name]}</span>
                                   ) : null}
                                 </div>
                               ) : null}
@@ -515,7 +554,7 @@ export function StepParameterDialog({
         </div>
 
         <div className="step-parameter-dialog-footer">
-          {footerContent ?? <button className="ghost-button" onClick={onClose} type="button">
+          {renderFooter?.({ aiDataPending, hasUnresolvedAiData: Object.keys(aiDataDrafts).length > 0 }) ?? footerContent ?? <button className="ghost-button" onClick={requestClose} type="button">
             Done
           </button>}
         </div>

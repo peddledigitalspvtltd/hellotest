@@ -122,6 +122,21 @@ const chunkItems = (items, size) => {
   return chunks;
 };
 
+const resolveAiParameterValues = (fastify, req, projectId, appTypeId, testCase, dataSet) => {
+  const values = req.body.parameter_values;
+  if (!Object.values(values || {}).some(value => typeof value === 'string' && /\{\{\s*aiData\b/i.test(value))) return values;
+  return require('../services/testCaseAiData.service').resolve(values, {
+    projectId, appTypeId, userId: req.user.id,
+    privateParameterNames: [
+      ...(testCase?.effective_private_parameter_names || []),
+      ...(testCase?.test_data_options?.private_parameter_names || []),
+      ...(Array.isArray(req.body.test_data_options?.private_parameter_names) ? req.body.test_data_options.private_parameter_names : []),
+      ...(dataSet?.mode === 'key_value' && Array.isArray(dataSet.rows) ? dataSet.rows.filter(row => row?.is_secret).map(row => row.key) : [])
+    ],
+    authorize: () => fastify.requirePermission('data.ai', { projectId })(req)
+  });
+};
+
 module.exports = async function (fastify) {
   fastify.post("/test-cases", async (req) => {
     await fastify.authenticate(req);
@@ -214,8 +229,9 @@ module.exports = async function (fastify) {
     if (req.body.test_data_options !== undefined) {
       await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
     }
+    let dataSet;
     if (req.body.test_data_set_ids?.length) {
-      const dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
+      dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
       const dataProjectId = dataSet.project_id;
       if (scopedProjectId && dataProjectId !== scopedProjectId) {
         const error = new Error("Test Data Set must belong to the Test Case project");
@@ -229,8 +245,10 @@ module.exports = async function (fastify) {
     if (!req.body.ai_generation_source && ["accepted", "changes_requested"].includes(req.body.review_status)) {
       throw Object.assign(new Error("Create the test case before submitting a reviewer decision"), { statusCode: 403 });
     }
+    const parameterValues = await resolveAiParameterValues(fastify, req, scopedProjectId, scopedAppType?.id || req.body.app_type_id, null, dataSet);
     return service.createTestCase({
       ...req.body,
+      parameter_values: parameterValues,
       ai_generation_source: req.body.ai_generation_source || null,
       ai_generation_review_status: req.body.ai_generation_source ? "pending" : null,
       ai_generation_job_id: null,
@@ -1637,8 +1655,9 @@ module.exports = async function (fastify) {
     if (req.body.test_data_options !== undefined) {
       await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
     }
+    let dataSet;
     if (req.body.test_data_set_ids?.length) {
-      const dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
+      dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
       const dataProjectId = dataSet.project_id;
       if (scopedProjectId && dataProjectId !== scopedProjectId) {
         const error = new Error("Test Data Set must belong to the Test Case project");
@@ -1649,8 +1668,10 @@ module.exports = async function (fastify) {
       await fastify.requirePermission("data.view", { projectId: dataProjectId })(req);
     }
 
+    const parameterValues = await resolveAiParameterValues(fastify, req, scopedProjectId, req.body.app_type_id || testCase.app_type_id, testCase, dataSet);
     return service.updateTestCase(req.params.id, {
       ...req.body,
+      parameter_values: parameterValues,
       updated_by: req.user.id
     });
   });

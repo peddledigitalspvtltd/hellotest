@@ -20,6 +20,8 @@ import { AuthProvider } from "/src/auth/AuthContext";
 import { GherkinEditor } from "/services/testing/frontend/components/GherkinEditor";
 import { SharedStepGherkinEditor } from "/services/testing/frontend/components/SharedStepGherkinEditor";
 import { StepParameterDialog } from "/services/testing/frontend/components/StepParameterDialog";
+import { testingApi } from "/services/testing/frontend/api.client";
+import { setCurrentScope } from "/src/platform/hooks/useCurrentProject";
 import { buildStepParameterDefinitionsFromValues } from "/src/shared/lib/stepParameters";
 import "/src/styles.css";
 import "/src/dark-theme.css";
@@ -30,6 +32,15 @@ import "/src/workspace-layout.css";
 const fragment = ${JSON.stringify(fragment)};
 const initial = "Feature: Editor checks\\n\\nScenario: Editor checks\\n" + fragment;
 const defaults = { "t.customer": ${JSON.stringify(longValue)}, "t.dynamic": "{{randomString:12}}", "t.second": "second value" };
+setCurrentScope("fixture-project", "fixture-app");
+window.aiDataRequests = [];
+testingApi.testDataSets.previewAiData = async request => {
+  window.aiDataRequests.push(request);
+  if (request.prompt === "unavailable sample") throw new Error("The fixture model is offline.");
+  if (request.prompt === "customer email on done") await new Promise(resolve => { window.completeAiData = resolve; });
+  const values = ["customer@example.test", "another@example.test"];
+  return { generation_mode: "llm", suggestions: values.map(value => ({value})), randomized_template: "{{oneOf:" + btoa(JSON.stringify(values)).replace(/=+$/, "") + "}}" };
+};
 function Fixture() {
   const [caseValue, setCaseValue] = useState(initial);
   const [sharedValue, setSharedValue] = useState(fragment);
@@ -43,6 +54,7 @@ function Fixture() {
     </div></div></div>
     <div className="shared-host"><SharedStepGherkinEditor value={sharedValue} onChange={setSharedValue} groupName="Reusable checkout" parameterValues={values} /></div>
     <output hidden data-testid="case-source">{caseValue}</output><output hidden data-testid="shared-source">{sharedValue}</output>
+    <output hidden data-testid="parameter-values">{JSON.stringify(values)}</output>
     {dialog ? <StepParameterDialog title="Test Params" subtitle="Review parameter values" parameters={buildStepParameterDefinitionsFromValues(values)} values={values} onChange={(name, value) => setValues(current => ({ ...current, [name]: value }))} onClose={() => setDialog(false)} previewValues={{ "t.dynamic": ${JSON.stringify(longValue)} }} /> : null}
   </main>;
 }
@@ -129,6 +141,43 @@ test("Gherkin parameters and arbitrary step moves work with application CSS", { 
         assert.equal(fit, true, `Gherkin values wrap at ${width}px`);
       }
     }
+    await page.getByRole("button", { name: "Open parameters", exact: true }).click();
+    const params = page.getByRole("dialog", { name: "Test Params", exact: true });
+    const row = params.locator(".step-parameter-row").filter({ has: page.getByText("@t.second", { exact: true }) });
+    await row.getByRole("combobox", { name: "Data utility for @t.second" }).selectOption("ai-data");
+    assert.deepEqual(await page.evaluate(() => window.aiDataRequests), [], "Selection lets the author supply an intent before calling the model");
+    const templateInput = row.getByRole("textbox", { name: "Value template for @t.second" });
+    await templateInput.fill("ref-{{aiData:customer email, prefix with demo}}");
+    await row.getByRole("button", { name: "Generate / randomize each run", exact: true }).click();
+    await row.getByText(/LLM-generated value pool saved/).waitFor();
+    const readParameter = async () => JSON.parse(await page.getByTestId("parameter-values").textContent())["t.second"];
+    assert.match(await readParameter(), /^ref-\{\{oneOf:/);
+    await templateInput.fill("{{aiData:synthetic customer email}}");
+    await row.getByRole("button", { name: "Use static sample", exact: true }).click();
+    await row.getByText(/Static sample saved/).waitFor();
+    assert.equal(await readParameter(), "customer@example.test");
+    await row.getByRole("button", { name: "Close", exact: true }).click();
+    const authorInput = row.locator("textarea.step-parameter-value-input");
+    await authorInput.fill("{{aiData:unavailable sample}}");
+    await authorInput.press("Tab");
+    await row.getByText("The fixture model is offline.", { exact: true }).waitFor();
+    assert.equal(await readParameter(), "customer@example.test", "Provider failure keeps the previously saved parameter");
+    await authorInput.fill("{{aiData:customer email on done}}");
+    await params.getByRole("button", { name: "Done", exact: true }).click();
+    await page.waitForFunction(() => typeof window.completeAiData === "function");
+    assert.equal(await params.isVisible(), true, "Done waits for a request started by leaving the Test Param field");
+    await page.evaluate(() => window.completeAiData());
+    await params.waitFor({ state: "hidden" });
+    assert.match(await readParameter(), /^\{\{oneOf:/);
+    const requests = await page.evaluate(() => window.aiDataRequests);
+    assert.deepEqual(requests.map(({ prompt, sample_count }) => ({ prompt, sample_count })), [
+      { prompt: "customer email, prefix with demo", sample_count: 8 },
+      { prompt: "synthetic customer email", sample_count: 1 },
+      { prompt: "unavailable sample", sample_count: 8 },
+      { prompt: "customer email on done", sample_count: 8 }
+    ]);
+    assert.equal(requests[1].single_value, true);
+    assert.ok(requests.every(request => request.field_context === "t.second" && request.project_id === "fixture-project" && request.app_type_id === "fixture-app"));
     assert.deepEqual(errors, []);
   } finally {
     await browser?.close();

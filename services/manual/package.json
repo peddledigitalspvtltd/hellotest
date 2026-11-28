@@ -13,8 +13,10 @@
   "exports": {
     "./backend": "./backend/service.manifest.js",
     "./backend/services/requirement.service": "./backend/services/requirement.service.js",
+    "./backend/services/requirementCatalog.service": "./backend/services/requirementCatalog.service.js",
     "./backend/services/requirementDefect.service": "./backend/services/requirementDefect.service.js",
     "./backend/services/requirementDesign.service": "./backend/services/requirementDesign.service.js",
+    "./backend/services/requirementIteration.service": "./backend/services/requirementIteration.service.js",
     "./backend/services/requirementWorkspace.service": "./backend/services/requirementWorkspace.service.js",
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",

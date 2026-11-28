@@ -1,5 +1,6 @@
 const agentRegistry=require('../../../agents/agentRegistry.service');
 const nodeAiConfiguration=require('../../nodeAiConfiguration');
+const { isAutomaticSprintPublication } = require('../../sprintPipeline');
 const text=value=>typeof value==='string'?value.trim():'';
 module.exports=async({workflow,node,user,payload})=>{
         const task = node.data.artifactTask;
@@ -10,7 +11,7 @@ module.exports=async({workflow,node,user,payload})=>{
           : task === 'automation-engineer' ? [manual ? 'testcase.view' : 'requirement.view', 'automation.ai', 'automation.build', 'automation.code.view']
             : task === 'test-data-generator' ? dataOptions.source === 'dataset' ? ['data.view'] : ['data.ai']
               : ['requirement.view', 'testcase.ai'];
-        if (!manual && workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic'
+        if (!manual && isAutomaticSprintPublication(workflow.settings)
           && ['test-case-generation', 'automation-engineer'].includes(task)) {
           codes.push('agentic_workflow.view', 'testcase.create');
           if (task === 'automation-engineer') {

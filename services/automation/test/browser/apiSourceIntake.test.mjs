@@ -10,7 +10,7 @@ const expect=require('playwright/test').expect.configure({timeout:15000});
 const root=new URL('../../../platform/frontend/',import.meta.url);
 const fixture=`import React from 'react';import {createRoot} from 'react-dom/client';import {ApiAutomationSourceIntake} from '/services/automation/frontend/components/ApiAutomationSourceIntake';import '/src/product-experience.css';
 window.intakeReceipts=[];
-createRoot(document.getElementById('root')).render(<main style={{maxWidth:880,margin:'24px auto',padding:'0 12px',minWidth:0}}><h1>Prepare API request steps</h1><ApiAutomationSourceIntake hasSteps onApply={(result,mode)=>{if(window.rejectNextIntake)return false;window.intakeReceipts.push({result,mode});}}/></main>);`;
+createRoot(document.getElementById('root')).render(<main style={{maxWidth:880,margin:'24px auto',padding:'0 12px',minWidth:0}}><h1>Prepare API request steps</h1><ApiAutomationSourceIntake hasSteps onApply={(result,mode)=>{if(window.rejectNextIntake)return 'Parameter defaults conflict for orderId.';window.intakeReceipts.push({result,mode});}}/></main>);`;
 
 test('API source intake previews ordered requests, protects credentials, applies Add/Replace explicitly and fits mobile', {timeout:120000}, async()=>{
  const name='api-source-intake-'+randomUUID();let browser;
@@ -40,6 +40,7 @@ test('API source intake previews ordered requests, protects credentials, applies
   await page.evaluate(()=>{window.rejectNextIntake=true;});
   await page.getByRole('button',{name:'Add 3 API request steps',exact:true}).click();
   await expect(page.locator('.api-source-intake-review')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Parameter defaults conflict for orderId.');
   assert.equal(await page.evaluate(()=>window.intakeReceipts.length),0,'A rejected draft application preserves its review and input.');
   await page.evaluate(()=>{window.rejectNextIntake=false;});
   await page.getByRole('button',{name:'Add 3 API request steps',exact:true}).click();

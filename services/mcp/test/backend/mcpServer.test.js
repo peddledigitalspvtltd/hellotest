@@ -250,4 +250,9 @@ test('what a host is told about the server matches the tool sets of its credenti
  assert.match(readOnly,/knowledge, records tool sets; tools outside them/);
  const writing=await initialize(scopedAuth(toolSets.normalizeScopes(['actions'])));
  assert.match(writing,/exact approved plan/);assert.doesNotMatch(writing,/context_build for evidence/,'knowledge was not asked for');
+ const exactAuth=scopedAuth(toolSets.normalizeScopes(['actions']));
+ exactAuth.authInfo.extra.actor.toolNames=['hellotest_capabilities'];
+ const exact=await initialize(exactAuth);
+ assert.match(exact,/Use capabilities for discovery/);assert.doesNotMatch(exact,/database_schema|context_build|exact approved plan|issued for the/);
+ assert.match(exact,/only its selected MCP tools/);
 });

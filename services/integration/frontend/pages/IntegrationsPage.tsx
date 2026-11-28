@@ -48,6 +48,7 @@ type IntegrationDraft = {
   api_key: string;
   model: string;
   llm_project_id: string;
+  llm_is_default: boolean;
   project_key: string;
   username: string;
   is_active: boolean;
@@ -221,6 +222,7 @@ const buildEmptyDraft = (
     api_key: "",
     model: "",
     llm_project_id: "",
+    llm_is_default: false,
     project_key: "",
     username: "",
     is_active: true,
@@ -590,6 +592,7 @@ function getDraftFromIntegration(
     api_key: integration.api_key || "",
     model: integration.model || "",
     llm_project_id: typeof config.project_id === "string" ? config.project_id : "",
+    llm_is_default: integration.is_default === true,
     project_key: integration.project_key || "",
     username: integration.username || "",
     is_active: integration.is_active,
@@ -891,7 +894,7 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
   if (integration.type === "llm") {
     return {
       primary: integration.model || "Model not set",
-      secondary: integration.base_url || "No base URL configured"
+      secondary: [integration.is_default ? "Preferred default" : "", integration.base_url || "No base URL configured"].filter(Boolean).join(" · ")
     };
   }
 
@@ -1364,7 +1367,10 @@ export function IntegrationsPage({ embedded = false, additionalProviders = NO_AD
   }, [defaultIntegrationType, emptyDraft, integrationTypeDefinitions, isCreating, selectedIntegration, selectedIntegrationId]);
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["integrations"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["integrations"] }),
+      queryClient.invalidateQueries({ queryKey: ["knowledge-assistant-integrations"] })
+    ]);
   };
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
@@ -1379,6 +1385,7 @@ export function IntegrationsPage({ embedded = false, additionalProviders = NO_AD
       const resolvedApiKey = isCloudRun ? draft.cloud_run_access_key : draft.api_key;
       const resolvedBaseUrl = isCloudRun ? draft.cloud_run_remote_url || draft.base_url : draft.base_url;
       const resolvedUsername = isCloudRun ? draft.cloud_run_username : draft.username;
+      const preferredDefault = draft.is_active && draft.llm_is_default;
       const input = {
         type: draft.type,
         name: draft.name.trim(),
@@ -1388,7 +1395,9 @@ export function IntegrationsPage({ embedded = false, additionalProviders = NO_AD
         project_key: draft.project_key.trim() || undefined,
         username: resolvedUsername.trim() || undefined,
         config: buildIntegrationConfig(draft, integrationTypeDefinitions, canUseMobileAppium),
-        is_active: draft.is_active
+        is_active: draft.is_active,
+        ...(isLlm && (isCreating || preferredDefault !== Boolean(selectedIntegration?.is_default))
+          ? { is_default: preferredDefault } : {})
       };
 
       if (isCreating || !selectedIntegration) {
@@ -1851,6 +1860,12 @@ export function IntegrationsPage({ embedded = false, additionalProviders = NO_AD
                         <input type="password" value={draft.api_key} onChange={(event) => setDraft((current) => ({ ...current, api_key: event.target.value }))} />
                       </FormField>
                     </div>
+
+                    <label className="checkbox-field">
+                      <input type="checkbox" checked={draft.is_active && draft.llm_is_default} disabled={!draft.is_active}
+                        onChange={(event) => setDraft((current) => ({ ...current, llm_is_default: event.target.checked }))} />
+                      <span>Preferred default LLM</span>
+                    </label>
 
                     <div className="empty-state compact integration-helper">
                       Knowledge retrieval reuses this LLM model, Base URL, and API key. If the provider does not expose a compatible embeddings endpoint, HelloTest gracefully falls back to local and keyword retrieval.

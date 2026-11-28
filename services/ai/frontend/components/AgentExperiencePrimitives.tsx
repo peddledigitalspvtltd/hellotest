@@ -186,6 +186,8 @@ type AgenticCommandComposerProps = {
   promptLabel?: string;
   identityDescription?: string;
   optionsContent?: ReactNode;
+  secondaryAction?: ReactNode;
+  showReviewCue?: boolean;
   appTypeId?: string;
   agents?: HelloTestAgent[];
   agentId: string;
@@ -211,6 +213,7 @@ type AgenticCommandComposerProps = {
 
 export function AgenticCommandComposer({
   allowEmptyPrompt = false, submitLabel = "Start review", promptLabel = "Ask or delegate to HelloTest AI", identityDescription = "Structured evidence review", optionsContent,
+  secondaryAction, showReviewCue = true,
   evidenceScopeControl, evidenceScope,
   appTypeId,
   agents = HELLOTEST_AGENT_CATALOG,
@@ -263,7 +266,7 @@ export function AgenticCommandComposer({
           <strong>{selectedAgent?.name || "HelloTest Agent"}</strong>
           <small>{identityDescription}</small>
         </div>
-        <span className="agent-command-composer__governed"><IconShieldCheck size={15} stroke={1.9} />Review before apply</span>
+        {showReviewCue ? <span className="agent-command-composer__governed"><IconShieldCheck size={15} stroke={1.9} />Review before apply</span> : null}
       </div>
       {contextScopes.length ? <div className="agent-command-attached-context" aria-label="Included context sources">{contextScopes.map(scope => <button aria-label={`Remove ${AGENT_CONTEXT_OPTIONS.find(option => option.id === scope)?.label || scope} context`} disabled={disabled || running} key={scope} onClick={() => toggleScope(scope)} type="button"><IconDatabase size={12} aria-hidden="true" />{AGENT_CONTEXT_OPTIONS.find(option => option.id === scope)?.label || scope}<span aria-hidden="true">×</span></button>)}</div> : null}
       <textarea
@@ -348,6 +351,7 @@ export function AgenticCommandComposer({
             </div>
           </details>
           <span className="agent-command-divider" aria-hidden="true" />
+          {secondaryAction}
           <button aria-label={running ? "Review in progress" : submitLabel} className="agent-command-send" disabled={disabled || submitDisabled || running || (!allowEmptyPrompt && !prompt.trim())} type="submit">
             {running ? <IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={18} /> : <IconSend size={19} stroke={1.9} />}
             <span>{running ? "Working…" : submitLabel}</span>

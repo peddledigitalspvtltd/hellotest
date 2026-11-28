@@ -10,6 +10,7 @@ const base = (await readFile(new URL('agentWorkspace.test.mjs', import.meta.url)
 const playwrightCode = "import { test, expect } from '@playwright/test';\n\ntest('Read saved invoice', async ({ request }) => {\n  const response = await request.get('https://invoice.example/invoices/one');\n  expect(response.status()).toBe(200);\n  expect(await response.json()).toMatchObject({ amount: 10 });\n});\n";
 const setup = `
 window.enablePreviewFixture();
+api.evidenceScope.options = async () => ({items:[{id:'sprint-a',label:'Sprint A'}],has_more:false});
 Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedCode=text;}}});
 api.agenticWorkflows.update = async (id,input) => { window.previewWorkflow={...window.previewWorkflow,...input,id};return structuredClone(window.previewWorkflow); };
 window.acceptedDrafts = [];
@@ -32,6 +33,10 @@ window.openSprintRun = async (blocked=false,automatic=false,failed=false) => {
     if(node.data.artifactTask==='story-assurance')return {data:[packet,other].map(p=>({...identity(p),story:p.story,story_assurance:p.story_assurance}))};
     if(node.data.artifactTask==='test-case-generation')return {data:[packet,other].map(p=>({...identity(p),cases:p.cases}))};
     if(node.data.artifactTask==='test-case-assurance')return {data:[other,packet].map(p=>({...identity(p),case_assurance:p.case_assurance})),...(automatic?{library_publication:{mode:'automatic',receipts:[{id:'auto-manual',story_id:'story-a',case_index:0,kind:'manual',saved:true,requires_review:true}]}}:{})};
+    if(node.data.artifactTask==='test-data-generator')return {data:[{...identity(packet),test_data:{'draft-a':{
+      status:'ready',source:'dataset',test_data_set_name:'Invoice cases',dataset_selection:'manual_case',dataset_row_count:1,
+      parameter_sources:{'t.invoice_id':{source:'test_data_set'}},parameter_step_orders:{'t.invoice_id':[1]}
+    }}}]};
     if(node.data.artifactTask==='automation-engineer')return {data:[other,packet].map(p=>({...identity(p),automation:p.automation,automation_input_required:p.automation_input_required||[],automation_failures:p.automation_failures||[],automation_progress:p.automation_progress})),...(automatic&&!blocked?{library_publication:{mode:'automatic',receipts:[{id:'auto-automation',story_id:'story-a',case_index:0,kind:'automation',saved:true,requires_review:true}]}}:{})};
     return {};
   };
@@ -52,8 +57,28 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     page=await browser.newPage({viewport:{width:1440,height:1100}});page.setDefaultTimeout(15000);
     page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/api/**',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Unexpected isolated test API request'})}));
-    await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`);
-    await page.getByRole('button',{name:/Data flow Sprint Automator/}).click();
+    await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`,{waitUntil:'domcontentloaded',timeout:30000});
+    await page.getByRole('button',{name:'Preview SpecToScript',exact:true}).click();
+    const templatePreview = page.getByRole('dialog',{name:'SpecToScript',exact:true});
+    await templatePreview.getByText('Discover API Test Cases',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>window.workspaceCalls.writes.filter(call=>call.name==='workflow').length),0);
+    assert.equal(await templatePreview.locator('.react-flow__node[data-id="source-barrier"]').count(),1);
+    assert.equal(await templatePreview.locator('.react-flow__node.draggable').count(),0);
+    assert.equal(await templatePreview.getByRole('button',{name:'Add node',exact:true}).count(),0);
+    await templatePreview.getByRole('button',{name:'Create Workflow',exact:true}).click();
+    await page.getByRole('combobox',{name:'Sprint',exact:true}).click();
+    await page.getByRole('option',{name:/Sprint A/}).click();
+    await page.getByText('Repository source',{exact:false}).first().click();
+    await page.getByLabel('GitHub repository URL',{exact:true}).fill('https://github.com/example/app');
+    await page.getByLabel('Branch, tag or commit',{exact:true}).fill('qa');
+    await page.getByRole('button',{name:'Save changes',exact:true}).click();
+    await page.waitForFunction(()=>window.previewWorkflow.settings.sprint_input_defaults?.source?.ref === 'qa');
+    const spec = await page.evaluate(()=>window.previewWorkflow);
+    assert.equal(spec.settings.template_id,'spec-to-script');
+    assert.equal(spec.settings.sprint_input_defaults.sprint_id,'sprint-a');
+    assert.equal(spec.settings.sprint_input_defaults.source.repository_url,'https://github.com/example/app');
+    await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
+    await page.getByRole('button',{name:'Create Workflow from Sprint Automator',exact:true}).click();
     await page.locator('.studio-node[data-kind="artifactTask"]').first().waitFor();
     assert.equal(await page.locator('.studio-node[data-kind="artifactTask"]').count(),5);
     assert.equal(await page.locator('.studio-node[data-kind="loop"]').count(),2);
@@ -75,6 +100,9 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await drafts.getByText('Sprint drafts ready for review',{exact:true}).waitFor();
     await drafts.locator('summary').filter({hasText:'Customer reads a saved invoice'}).click();
     await drafts.getByRole('heading',{name:'Read saved invoice',exact:true}).waitFor();
+    await selectedStory.getByText('Prepared data · Invoice cases · Ready',{exact:true}).click();
+    await selectedStory.getByRole('list',{name:'Parameter sources'}).getByText('t.invoice_id',{exact:true}).waitFor();
+    await selectedStory.getByText('Selected by the Test Case · 1 row',{exact:true}).waitFor();
     await drafts.getByRole('button',{name:'Accept Test Case into Library',exact:true}).click();
     const manualReceipt=drafts.getByRole('status').filter({hasText:'Saved AI generated Test Case · Pending review'});
     await manualReceipt.waitFor();
@@ -89,6 +117,7 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     assert.deepEqual(await page.evaluate(()=>window.acceptedDrafts.map(item=>item.input)),[{node_id:'automation-engineer',story_index:1,case_index:0,kind:'manual'},{node_id:'automation-engineer',story_index:1,case_index:0,kind:'automation'}], 'acceptance uses the latest checkpoint row even though its Story order differs from generation');
     await selectedStory.getByText('Generated draft · Unverified',{exact:true}).click();
     await selectedStory.getByRole('heading',{name:'GET /invoices/one',exact:true}).waitFor();
+    await selectedStory.getByRole('region',{name:'Automation section 1',exact:true}).getByText('Expected result',{exact:true}).waitFor();
     const code=drafts.getByRole('textbox',{name:'Executable Playwright code',exact:true});
     assert.equal(await code.inputValue(),playwrightCode);
     assert.equal(await code.evaluate(element=>element.readOnly),true);
@@ -146,7 +175,8 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await drafts.getByText('Automation generation failed',{exact:true}).waitFor();
     await drafts.getByText('Generated source omitted the invoice amount assertion.',{exact:true}).waitFor();
     assert.equal(await drafts.getByText('Automation needs input',{exact:true}).count(),0,'A build failure must not be mislabeled as missing input');
-    assert.equal(await drafts.getByRole('progressbar',{name:'Automation progress for Customer reads a saved invoice'}).getAttribute('value'),'1');
+    await drafts.getByText('0 automation drafts · 1 failed · 0 need input',{exact:true}).first().waitFor();
+    assert.equal(await drafts.getByRole('progressbar').count(),0);
     assert.equal(await drafts.getByRole('textbox',{name:'Automation failure JSON',exact:true}).count(),0);
     assert.equal(await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).count(),0);
     assert.deepEqual(errors,[]);

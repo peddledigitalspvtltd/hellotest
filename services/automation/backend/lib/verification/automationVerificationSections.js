@@ -7,7 +7,40 @@ const {parameterTemplateParts}=require("../parameters/automationParameterTemplat
 const { normalizeLegacyFieldValidationSyntax } = require("../build/automationFieldValidity");
 const { selectionLocatorNameBinding } = require("../build/automationOptionParameterBinding");
 const { verificationFailure: fail } = require("./automationVerificationContract");
-const syntax = value => Array.isArray(value) ? value.map(syntax) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([key]) => !['start', 'end', 'loc', 'raw'].includes(key)).map(([key, item]) => [key, syntax(item)])) : value;
+const semanticLocators = new Set(['getByRole', 'getByLabel', 'getByText', 'getByPlaceholder', 'getByTitle', 'getByAltText']);
+
+// Match TestEngine's proof of equivalence. Playwright treats omitted exact as
+// false. Only these fixed native locator options can differ in spelling.
+function locatorOptions(node) {
+    const callee = node.callee;
+    const method = callee?.property?.name;
+    if (node.type !== 'CallExpression' || node.optional || callee?.type !== 'MemberExpression' || callee.computed || callee.optional
+        || !semanticLocators.has(method) || node.arguments.length < 1 || node.arguments.length > 2)
+        return null;
+    const options = node.arguments[1];
+    if (options && options.type !== 'ObjectExpression') return null;
+    let exact = false, name;
+    const seen = new Set();
+    for (const property of options?.properties || []) {
+        const key = property.key?.name ?? property.key?.value;
+        if (property.type !== 'Property' || property.kind !== 'init' || property.computed || property.method || property.shorthand
+            || property.value?.type !== 'Literal' || seen.has(key)) return null;
+        seen.add(key);
+        const value = property.value.value;
+        if (key === 'exact' && typeof value === 'boolean') exact = value;
+        else if (key === 'name' && method === 'getByRole' && typeof value === 'string') name = value;
+        else return null;
+    }
+    return [node.arguments[0], { type: 'VerificationLocatorOptions', exact, name }];
+}
+
+function syntax(value) {
+    if (Array.isArray(value)) return value.map(syntax);
+    if (!value || typeof value !== 'object') return value;
+    const options = locatorOptions(value);
+    return Object.fromEntries(Object.entries(value).filter(([key]) => !['start', 'end', 'loc', 'raw'].includes(key))
+        .map(([key, item]) => [key, syntax(key === 'arguments' && options ? options : item)]));
+}
 const ast = source => syntax(parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: true }));
 function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidationRequirements = false, sourceOnly = false } = {}) {
     if (!Array.isArray(steps) || !steps.length || steps.length > 50)
@@ -60,6 +93,12 @@ function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidati
         const inline = compileRecordedProgram(operations, { layout: 'inline' });
         if (!isDeepStrictEqual(comparableSource, ast(compiled.source)) && (!inline || !isDeepStrictEqual(comparableSource, ast(inline.source))))
             throw fail('AUTOMATION_VERIFICATION_UNSUPPORTED', 'The saved instructions are outside the closed, faithfully replayable Playwright contract.');
+        if (!sourceOnly && typeof step.expected_result === 'string' && step.expected_result.trim()
+            && !operations.some(operation => operation.name === 'browser_assert')) {
+            const order = Number(step.step_order);
+            throw Object.assign(fail('AUTOMATION_VERIFICATION_EXPECTED_RESULT_UNCOVERED',
+                `Section${Number.isSafeInteger(order) && order > 0 ? ` ${order}` : ''} has an authored expected result that needs an executable assertion before isolated verification.`), { step_id: step.id });
+        }
         // Retained-contract inspection proves syntax only, without reading or
         // materializing data. Execution callers always use the strict default.
         if (!sourceOnly) for (const operation of operations) {

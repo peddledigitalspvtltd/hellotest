@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { presentationIssues } = require('../../backend/services/agentOutcomePresentation');
 const { aggregateUsage, revisionFeedback, normalizeResult } = require('../../backend/services/agenticAssistant.service')._internals;
+const { correctableOutputError } = require('../../backend/services/agentReviewDiagnostics');
 const citations = [{ id: 'evidence-1' }];
 const base = () => ({ response: 'Observed result [evidence-1].', citation_ids: ['evidence-1'] });
 
@@ -36,6 +37,14 @@ test('revision retains whole untrusted output or an explicit omission within a b
   const large = revisionFeedback({ response: 'x'.repeat(13000) }, [], 2);
   assert.equal(large.previous_draft, null);assert.equal(large.previous_draft_omitted, true);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(large)));
+});
+
+test('output correction cannot reopen a review with an unacknowledged browser action', () => {
+  assert.equal(correctableOutputError(new SyntaxError('Malformed model response')), true);
+  assert.equal(correctableOutputError(Object.assign(new SyntaxError('Malformed browser response'), {
+    effect_dispatched: true, outcome_unknown: true
+  })), false);
+  assert.equal(correctableOutputError({ code: 'AI_INVALID_RESPONSE', transactionOutcomeUnknown: true }), false);
 });
 
 test('valid long outcome lists retain all accepted items and final obligations',()=>{

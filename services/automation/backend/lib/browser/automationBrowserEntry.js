@@ -14,7 +14,9 @@ function assertBrowserEntry(result, httpStatus) {
       http_status: httpStatus
     });
   }
-  if (!result || result.isError) throw browserEntryError(
+  const pageEvidence = Array.isArray(result?.content) && result.content.some(block =>
+    block?.type === 'text' && typeof block.text === 'string' && block.text.trim());
+  if (result?.isError || !pageEvidence) throw browserEntryError(
     'AUTOMATION_BROWSER_ENTRY_UNAVAILABLE',
     'The build browser could not open the application Start URL. Check the route and its network or access requirements.'
   );

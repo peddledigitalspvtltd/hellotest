@@ -200,7 +200,8 @@ module.exports = async function (fastify) {
       project_key: { required: false, type: "string" },
       username: { required: false, type: "string" },
       config: { required: false, type: "object" },
-      is_active: { required: false, type: "boolean" }
+      is_active: { required: false, type: "boolean" },
+      is_default: { required: false, type: "boolean" }
     }, req.body);
 
     await requireMobileIntegrationWrite(fastify, req, req.body);
@@ -437,7 +438,8 @@ module.exports = async function (fastify) {
       project_key: { required: false, type: "string" },
       username: { required: false, type: "string" },
       config: { required: false, type: "object" },
-      is_active: { required: false, type: "boolean" }
+      is_active: { required: false, type: "boolean" },
+      is_default: { required: false, type: "boolean" }
     }, req.body);
 
     const existing = await service.getIntegration(req.params.id);

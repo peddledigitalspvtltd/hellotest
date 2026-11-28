@@ -159,9 +159,10 @@
 .studio-execution-layout-tools > button.studio-follow-execution[aria-pressed="true"] { color:var(--studio-accent); border-color:var(--studio-accent); }
 .studio-execution.is-live { height:calc(100dvh - 164px); min-height:500px; }
 .studio-execution.is-live.is-maximized { position:fixed; inset:16px; height:auto; z-index:1000; box-shadow:0 12px 80px color-mix(in srgb, var(--ui-shadow) 18.824%, transparent); }
-.studio-execution-details { display:flex; min-width:0; min-height:0; scroll-margin-top:55px; }
-.studio-execution-details > .studio-inspector { flex:1; width:100%; }
-.studio-execution-details .studio-inspector-content { max-height:none; }
+.studio-execution-details { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:auto; scroll-margin-top:55px; }
+.studio-execution-details > .studio-inspector { flex:1 0 auto; width:100%; }
+.studio-execution-details .studio-inspector-content { flex:none; max-height:none; overflow:visible; }
+.studio-execution-details > .studio-resume { flex:none; }
 .studio-execution-details .studio-inspector > header { padding:12px; }
 .studio-execution-details .studio-inspector > header strong { overflow-wrap:anywhere; }
 .studio-execution-details .studio-inspector nav { gap:16px; }

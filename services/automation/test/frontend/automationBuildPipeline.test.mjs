@@ -23,6 +23,10 @@ test('build requests send browser controls only for browser runtimes and verify 
   assert.deepEqual(automationBuildRuntimeRequest(['web'], 'remote', true, pipeline), {
     browser_location: 'remote', allow_browser_actions: true, ...pipeline
   });
+  assert.deepEqual(automationBuildRuntimeRequest(['web'], 'local', true, pipeline), {
+    browser_location: 'local', allow_browser_actions: true, ...pipeline,
+    verification_mode: 'generate_only', verification_driver: 'native'
+  });
 });
 
 test('CLI verification choices keep MCP authoring and use the same guarded verification modes',()=>{

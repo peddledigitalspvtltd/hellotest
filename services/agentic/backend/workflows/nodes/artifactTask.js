@@ -46,10 +46,10 @@ function validate(node) {
     }
     return errors;
 }
-async function execute({ run, node, sources, user, signal, onProgress, review, }) {
+async function execute({ run, node, sources, user, signal, onProgress, agentPresentation }) {
     const data = node.data || {}, kind = "artifactTask";
     const context = contextFor(run, sources, { internal: kind === "artifactTask" });
-    return require("../artifactTasks").execute({ run, node, sources, user, signal, onProgress, context });
+    return require("../artifactTasks").execute({ run, node, sources, user, signal, onProgress, context, agentPresentation });
     throw connections.fail("This node does not have an execution adapter.");
 }
 function inputContract(node) {

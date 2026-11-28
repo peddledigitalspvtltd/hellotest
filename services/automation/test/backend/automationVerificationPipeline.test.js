@@ -19,12 +19,24 @@ test('legacy requests save only; MCP is required and verification needs explicit
  assert.throws(()=>normalizeBuildPipelineOptions({verification_mode:'verify'}),{code:'AUTOMATION_VERIFICATION_REQUIRES_BROWSER_ACTIONS'});
  assert.deepEqual(normalizeBuildPipelineOptions({verification_mode:'verify',verification_driver:'playwright_test_cli',allow_browser_actions:true}),{verification_mode:'verify',verification_driver:'playwright_test_cli',browser_driver:UPSTREAM_BROWSER_DRIVER});
  assert.throws(()=>normalizeBuildPipelineOptions({verification_mode:'verify',verification_driver:'cli',allow_browser_actions:true}),{code:'AUTOMATION_BUILD_OPTIONS_INVALID'});
+ assert.throws(()=>normalizeBuildPipelineOptions({verification_mode:'verify',verification_driver:'playwright_test_cli',allow_browser_actions:true,paired_browser_bridge_id:'paired'}),{code:'AUTOMATION_VERIFICATION_DRIVER_UNAVAILABLE'});
+ assert.equal(normalizeBuildPipelineOptions({verification_mode:'verify',allow_browser_actions:true,paired_browser_bridge_id:'paired'}).verification_driver,'native');
  assert.equal(normalizeBuildPipelineOptions({verification_driver:'playwright_test_cli'}).verification_driver,'native','save-only cannot select an executable lane');
 });
 test('preparation freezes referenced values once, including empty data, and rejects unsupported source atomically',()=>{
  const row=section(),calls=[];const result=prepareVerificationSections([{id:'one',step_type:'web',...row}],{resolve:(name,args)=>{calls.push(name);return {...args,value:''};}});
  assert.equal(result.parameters['r.name'],'');assert.equal(calls.length,2);assert.equal(result.sections[0].automation_code,row.automation_code);
  for(const code of ['await page.locator("#old").fill("x"); process.exit();','// @hellotest-options skip\n'+row.automation_code,'// @HELLOTEST-OPTIONS optional\n'+row.automation_code])assert.throws(()=>prepareVerificationSections([{id:'one',step_type:'web',automation_code:code}],{}));
+});
+test('isolated verification requires an executable check in each section that declares an expected result', () => {
+ const click = compileRecordedProgram([op('browser_click', { locator:'#submit' })]).source;
+ const setup = { id:'submit', step_order:1, step_type:'web', expected_result:'The submission is saved.', automation_code:click };
+ const status = { ...section(), id:'status', step_type:'web', step_order:2 };
+ const resolver = { resolve: (_name, args) => args };
+ assert.throws(() => prepareVerificationSections([setup, status], resolver), {
+  code:'AUTOMATION_VERIFICATION_EXPECTED_RESULT_UNCOVERED', step_id:'submit'
+ });
+ assert.equal(prepareVerificationSections([{ ...setup, expected_result:'' }, status], resolver).sections.length, 2);
 });
 test('repair changes only matching interactive actions and preserves every assertion and navigation operation',()=>{
  const original=[section()],before=JSON.stringify(original),candidate=applyLocatorRepair(original,failure,proposal,snapshot);
@@ -120,8 +132,21 @@ test('changed source invalidates a passing receipt; access revocation propagates
 });
 test('a lost response is not dispatched again and generate-only does not open a browser',async()=>{
  let calls=0;const common={sections:[section()],parameters:{},run:async()=>{calls++;throw Error('lost');}};
- assert.equal((await runVerificationPipeline({...common,mode:'verify_repair'})).status,'blocked');assert.equal(calls,1);
+ const result=await runVerificationPipeline({...common,mode:'verify_repair'});
+ assert.equal(result.status,'blocked');assert.equal(result.outcome_unknown,true);assert.equal(calls,1);
  assert.equal((await runVerificationPipeline({...common,mode:'generate_only'})).status,'not_requested');assert.equal(calls,1);
+});
+
+test('a lost repaired draft rerun receipt cannot inherit the first failure or report a save', async()=>{
+ let calls=0;const progress=[];
+ const result=await runVerificationPipeline({mode:'verify_repair',sourceState:'draft',sections:[section()],parameters:{},
+  run:async request=>{if(++calls===1)return receipt(request,failed);throw Error('lost rerun');},
+  diagnose:async()=>proposal,commitRepair:async()=>assert.fail('Unconfirmed draft repair changed source.'),
+  onProgress:summary=>progress.push(summary)});
+ assert.equal(calls,2);assert.equal(result.status,'blocked');assert.equal(result.outcome_unknown,true);
+ assert.equal(result.first_attempt_status,'failed');assert.equal(result.execution_status,undefined);assert.equal(result.failure,undefined);
+ assert.equal(progress.find(summary=>summary.phase==='rerun').replay_safe,undefined);
+ assert.match(result.message,/generated draft remains available/);
 });
 
 test('saved params expressions remain expressions and use the same fixed binding',()=>{

@@ -3,8 +3,7 @@ export { formatRunDate, normalizeMetadataValue, getScreenName, makeRepositoryScr
 /** Shared automation authoring/repository contracts and stateless UI support.
  * Route controllers own state, queries, mutations and lifecycle effects. */
 import { automationQueryKeys } from "../lib/automationQueryKeys";
-import { type ReactNode } from "react";
-import { CollapseExpandIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { useId, type ReactNode } from "react";
 import { type RepositoryLocalAgent } from "@hellotest/automation/frontend/hooks/useRepositoryInspectAgent";
 import { inspectSessionRequest } from "@hellotest/automation/frontend/lib/repositoryInspectSession";
 import type { ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
@@ -343,7 +342,6 @@ export function AutomationAccordionSection({
   isExpanded,
   onToggle,
   stage,
-  summary,
   title
 }: {
   actions?: ReactNode;
@@ -352,25 +350,24 @@ export function AutomationAccordionSection({
   isExpanded: boolean;
   onToggle: () => void;
   stage?: AutomationCaseSectionKey;
-  summary: ReactNode;
   title: ReactNode;
 }) {
+  const bodyId = useId();
   return (
     <section aria-label={typeof title === "string" ? title : undefined} className={["editor-accordion-section", title === "Preconditions" || title === "Steps" ? "automation-program-flow" : "", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")} data-automation-stage={stage}>
       <div className="editor-accordion-head">
-        <button aria-expanded={isExpanded} className="editor-accordion-toggle" onClick={onToggle} type="button">
+        <button aria-controls={isExpanded ? bodyId : undefined} aria-expanded={isExpanded} className="editor-accordion-toggle" onClick={onToggle} type="button">
           <div className="editor-accordion-toggle-main">
             <span aria-hidden="true" className={isExpanded ? "editor-accordion-icon is-expanded" : "editor-accordion-icon"}><svg fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18"><path d="m9 5 7 7-7 7" /></svg></span>
-            <div className="editor-accordion-toggle-copy"><strong>{title}</strong><span>{summary}</span></div>
+            <div className="editor-accordion-toggle-copy"><strong>{title}</strong></div>
           </div>
         </button>
         <div className="editor-accordion-toggle-meta">
           {countLabel ? <span className="editor-accordion-toggle-count">{countLabel}</span> : null}
-          {actions ? <div className="editor-accordion-actions">{actions}</div> : null}
-          <button aria-label={isExpanded ? "Collapse section" : "Expand section"} aria-expanded={isExpanded} className="editor-accordion-toggle-state explorer-icon-button" onClick={onToggle} title={isExpanded ? "Collapse section" : "Expand section"} type="button"><CollapseExpandIcon isExpanded={isExpanded} /></button>
+          {actions ? <div className="automation-plan-accordion-actions">{actions}</div> : null}
         </div>
       </div>
-      {isExpanded ? <div className="editor-accordion-body">{children}</div> : null}
+      {isExpanded ? <div className="editor-accordion-body" id={bodyId}>{children}</div> : null}
     </section>
   );
 }

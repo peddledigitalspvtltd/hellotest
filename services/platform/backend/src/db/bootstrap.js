@@ -53,6 +53,7 @@ const statements = [
       username TEXT,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
       is_active BOOLEAN DEFAULT TRUE,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     )
@@ -66,10 +67,14 @@ const statements = [
   `ALTER TABLE integrations ADD COLUMN IF NOT EXISTS username TEXT`,
   `ALTER TABLE integrations ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE integrations ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`,
+  `ALTER TABLE integrations ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE`,
   `ALTER TABLE integrations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE integrations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE integrations DROP CONSTRAINT IF EXISTS integrations_type_check`,
   `ALTER TABLE integrations ADD CONSTRAINT integrations_type_check CHECK (type IN (${sqlEnum(INTEGRATION_TYPE_VALUES)}))`,
+  `ALTER TABLE integrations DROP CONSTRAINT IF EXISTS integrations_default_llm_check`,
+  `ALTER TABLE integrations ADD CONSTRAINT integrations_default_llm_check CHECK (NOT is_default OR (type = 'llm' AND is_active IS TRUE))`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_default_llm ON integrations (is_default) WHERE is_default`,
   `CREATE INDEX IF NOT EXISTS idx_integrations_type_active ON integrations (type, is_active)`,
   `
     CREATE TABLE IF NOT EXISTS ai_knowledge_repo (

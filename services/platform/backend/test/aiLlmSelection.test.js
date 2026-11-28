@@ -3,7 +3,7 @@ const test = require("node:test");
 const { readFileSync } = require("node:fs");
 const vm = require("node:vm");
 
-function fixture(initial = {}) {
+function fixture(initial = {}, preferredId = null) {
   let preferences = initial;
   const writes = [];
   const reads = {admin:0,personal:0};
@@ -19,6 +19,10 @@ function fixture(initial = {}) {
     require(id) {
       if (id === "./integration.service") return {
         async getIntegration(id) { if (!integrations.has(id)) throw new Error("Integration not found"); return { ...integrations.get(id) }; },
+        async getPreferredLlmIntegration(projectId) {
+          const preferred = integrations.get(preferredId);
+          return preferred?.is_active && (!preferred.config?.project_id || preferred.config.project_id === projectId) ? { ...preferred } : null;
+        },
         async getActiveIntegrationByType() { return { ...integrations.get("edited-recently") }; },
         async getActiveIntegrationByTypeForProject() { return { ...integrations.get("edited-recently") }; }
       };
@@ -59,6 +63,18 @@ test("inactive/deleted implicit defaults are skipped while explicit selections r
   assert.equal((await service.resolveLlmIntegrationForUsage(scope)).id, "worked");
   await assert.rejects(service.resolveLlmIntegrationForUsage({ ...scope, integrationId: "inactive" }), /inactive/);
   await assert.rejects(service.resolveLlmIntegrationForUsage({ ...scope, integrationId: "deleted" }), /not found/);
+});
+
+test("the configured preferred LLM precedes remembered use and respects explicit task and project selection", async () => {
+  const preferences = { ai_last_successful_llm: [success("worked")] };
+  const { service } = fixture(preferences, "edited-recently");
+  assert.equal((await service.resolveLlmIntegrationForUsage(scope)).id, "edited-recently");
+  assert.equal((await service.resolveLlmIntegrationForUsage({ ...scope, integrationId: "worked" })).id, "worked");
+  const { service: taskOverride } = fixture({ ...preferences, ai_prompt_registry_llm_overrides: { [scope.usageKey]: "worked" } }, "edited-recently");
+  assert.equal((await taskOverride.resolveLlmIntegrationForUsage(scope)).id, "worked");
+  const { service: scoped } = fixture(preferences, "other-project");
+  assert.equal((await scoped.resolveLlmIntegrationForUsage(scope)).id, "worked");
+  assert.equal((await scoped.resolveLlmIntegrationForUsage({ ...scope, projectId: "other" })).id, "other-project");
 });
 
 test("configured feature overrides win and success history is scoped and bounded", async () => {

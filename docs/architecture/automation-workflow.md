@@ -13,7 +13,7 @@ An automation case is an ordered behavior plan with an implementation for each s
 
 Playwright is the primary Web runtime; the existing Selenium provider remains selectable. A shared envelope and parameter context coordinate mixed API/Web/native plans. Native apps need Appium drivers and a connected device, simulator, emulator or device-cloud connection. Configure `MOBILE_ENGINE_URL`, matching `MOBILE_ENGINE_SHARED_SECRET` values and a reachable Appium endpoint; XCUITest requires a macOS Appium host. Browser MCP cannot inspect native app controls. This follows the platform distinction in the [Appium driver documentation](https://appium.io/docs/en/2.3/ecosystem/drivers/).
 
-The MCP endpoint is a HelloTest implementation at `/api/v1/automation/mcp`, protected by the TestEngine shared secret. It uses Playwright and exposes a bounded browser tool set. It is not Microsoft's packaged server. The LLM owns the decision loop; MCP returns observations. This separation follows the [Playwright MCP model](https://github.com/microsoft/playwright-mcp).
+Automation Build uses the pinned Microsoft Playwright MCP package through the authenticated TestEngine transport at `/api/v1/automation/playwright-mcp` or the paired-browser bridge. The configured LLM selects tools from the admitted upstream catalog. Playwright MCP returns structured DOM and accessibility observations and native action source. [Playwright MCP](https://github.com/microsoft/playwright-mcp)
 
 ## Workspace
 
@@ -35,9 +35,9 @@ For Web, the build opens an isolated browser session and provides tool schemas a
 
 The agent develops and saves one section at a time. Final completion requires every section and linked manual step to have a valid implementation/mapping. Runtime changes, duplicate/missing mappings and malformed executable contracts reject completion. Existing code and successfully saved sections survive later failures. Concurrent case changes cause a conflict instead of being overwritten. A generated implementation is ready to review; execution is a separate action that verifies it.
 
-## Automation Engineer implementation
+## Automation Build Agent implementation
 
-Reviewed on 2026-11-09. Browser generation uses the actual pinned
+Browser generation uses the pinned
 [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) package.
 HelloTest supplies the configured model, authorized specification, scoped data,
 interaction policy and durable saves. It does not replace upstream browser tools
@@ -56,7 +56,7 @@ flowchart LR
   Model --> Upstream[Upstream Playwright MCP]
   Upstream --> Browser[Actual browser and native emitted code]
   Browser --> Source[Finalize and validate Playwright source]
-  Source --> Wording[Separate LLM call for readable instructions]
+  Source --> Wording[Source-preserving readable instructions]
   Wording --> Saved[Source plus hash-bound display mapping]
   Saved --> Run[Local or remote Run with frozen test data]
 ```
@@ -69,8 +69,9 @@ acceptance. Workflow generation requests no page preview; browser visibility
 does not determine whether authored actions are permitted.
 
 The saved workflow `automationBrowserMode` selects `perform_steps`, `read_only`
-or `offline`. Newly created Engineer nodes explicitly default to `perform_steps`:
-the background generator performs the authored flow through native MCP tools.
+or `offline`. Newly created Build nodes default to `read_only`.
+`perform_steps` runs the authored flow through native MCP tools on the selected
+environment under the workflow's execution permissions.
 `read_only` inspects the entry page without typing or submitting. `offline` opens
 no browser. Existing definitions without a mode retain their earlier authority:
 `inspectBrowser:false` means offline; otherwise they remain read-only. Hydration,
@@ -79,6 +80,55 @@ interactive actions. All modes return generated source as unverified until a
 separate execution passes. Offline source receives the same separate
 display-mapping stage. API-only and native-mobile generation use their own
 contracts without a browser connection.
+
+Interactive all-Web Case Builds and workflow nodes can explicitly choose
+**Run with Playwright Test CLI** on the remote build browser. Verification
+replays the built source and scoped data once in fresh Chromium and returns
+an independent execution receipt. A paired local browser offers native
+verification. The live authoring loop stays on Playwright MCP, with one owner
+of the page and its current state. [Playwright MCP and browser CLI](https://playwright.dev/agent-cli/introduction#playwright-cli-vs-mcp) · [Playwright Test Agents](https://playwright.dev/docs/test-agents)
+
+On a workflow Build node, **Run with locator recovery** adds one bounded
+locator correction when TestEngine confirms the failed lookup happened before
+any interaction and supplies a validated failure snapshot. The rerun uses the
+same data, action arguments, and assertions. Its passing receipt covers the
+repaired draft and the exported source. A missing rerun receipt requires
+reconciliation. The draft still requires normal library acceptance.
+
+### Manual-case workflow evidence
+
+Automation Build and Web Automation use the same builder. The workflow checks
+returned section identity, order, action and expected result against the bound
+manual case before it offers the draft for review. Saved manual cases pin the
+source revision. Sprint builds pin the Story and assessed case identity.
+
+The Test Data Generator resolves references used by the case and records their
+source and affected sections. Authored values, including deliberately empty
+values, remain available alongside a scoped Test Data Set and configured runtime
+inputs. Conflicting case and workflow dataset selections require a correction.
+The builder checks the selected dataset revision before dispatch.
+Missing fixtures, protected values and expected values identify the referring
+sections. Synthetic samples provide input examples for review. Manual Build
+analyzes its selected case and opens the Data Utility for unresolved input.
+The build waits for the user to review generated values before queuing. Authored
+runtime generators remain runtime references, and selected dataset columns must
+be complete for the rows the case can execute.
+
+Workflow results record source validation, live grounding and isolated execution
+separately. A browser check during grounding describes what the build observed.
+Verification requires a passing execution receipt. Generated drafts remain
+available when isolated verification fails, is blocked, or requires a configured
+Test Run for a mixed-runtime case. The review shows the authored expected result
+alongside generated instructions and the section's browser evidence.
+
+A known stale-reference rejection can trigger one fresh snapshot in the same
+session. The next action uses a new decision grounded in that snapshot. A lost
+acknowledgement after a state-changing action retains the operation receipt for
+reconciliation. The runtime suppresses unchanged repeated reads and keeps the
+authoring tool and model budgets bounded. Imported native tasks that omit a
+timeout inherit Studio’s default. Isolated verification waits for a unique
+match within the operation budget and carries the remaining time into the
+action or assertion.
 
 ### Upstream testing pattern
 
@@ -127,10 +177,25 @@ binding only for the current section. Generated source uses native
 rescanned as executable code. Raw generator templates remain available for fresh
 Runs while one materialized value stays fixed throughout the current attempt.
 
-Completed-section summaries retain identity/runtime/status instead of resending
-all preceding programs on every actor turn. Source generation receives only the
-two most recent sections for continuity. Full evidence and saved source remain
-available in protected artifacts and are not changed by prompt packing.
+The shared agent carries bounded summaries of earlier sections and the latest
+observed progress through the current step. Source generation receives up to
+two recent completed sections for continuity. Full evidence and saved source
+remain available in protected artifacts.
+
+An observed prerequisite, such as expanding an existing form, can bridge a
+gap in the manual steps. The agent can select an enabled option when the case
+leaves the choice open. A named option requires its authored or configured
+value. Native checkbox and radio actions set an explicit state and refresh the
+page evidence before the next decision. The model treats consent and permission
+changes as blockers unless the case explicitly calls for them. [Browser Use skill](https://github.com/browser-use/browser-use/blob/94784c1f7ecb6b0a5f565b7f9fba59e395b7e048/skills/browser-use/SKILL.md) · [Dropdown interaction guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/dropdowns.md)
+
+Mixed Web and API builds draft requests, assertions and response captures from
+the API contract. Generation preserves configured request fields, including
+endpoint, body, authentication, repeated query values, redirect policy and
+timeout. Later steps receive the exact references to earlier capture
+outputs. If a browser step needs a response value that exists only during
+execution, the build continues as an unverified draft at that point. The
+configured Test Run executes the complete sequence and resolves those values.
 
 ### Native browser tools and source authority
 
@@ -153,9 +218,9 @@ including clicks, navigation, selection and submitting text. The model receives
 the returned observation before choosing another target. Undispatched requests
 from the earlier batch are discarded; completed actions are retained. Known
 field fills and independent reads can still use native batching. The original
-tool schemas are unchanged. Operations without a portable saved-source contract,
-including tab mutations and native dialog handling, are rejected before dispatch
-with explicit feedback; tab listing remains available for inspection.
+tool schemas are unchanged. The agent can list owned tabs and switch to an
+observed popup through its saved tab binding. Tab creation, tab closing and
+native dialog responses need additional saved-source contracts.
 
 Malformed source JSON receives bounded corrections in the source stage using
 the retained native evidence. These corrections cannot call the browser or
@@ -169,8 +234,11 @@ data is omitted from preview URLs. The image travels as separate transport
 metadata to the Build workspace; it is not a model input or an invented native
 MCP tool result. Workflow generation does not request these images.
 
-AI Build validation checks expected-result assertions and rejects known unsupported runner
-features or ambiguous generated record checks with source-only feedback. Native
+AI Build validation checks each expected result for executable assertions. It
+rejects known unsupported runner features, constant checks, swallowed assertion
+failures and ambiguous record checks with source-only feedback. An automatic
+rebuild preserves the saved assertion contract. The isolated verifier requires
+an executable check in each section with an authored expected result. Native
 Playwright behavior is the reference for locator compatibility; equivalent iframe
 selector spellings do not always produce equivalent composite locators. The
 current engine and upstream runtime have real-browser regression coverage.
@@ -178,8 +246,9 @@ current engine and upstream runtime have real-browser regression coverage.
 ### Source to readable instructions
 
 `automationUpstreamSectionSource` owns source finalization and calls the shared
-`mapGeneratedSectionInstructions` stage. The latter makes a separate configured
-LLM call through `automationInstructionMapping` after the source is final.
+`mapGeneratedSectionInstructions` stage. Straight-line programs with supported
+operations map directly from the parsed source. More complex programs use the
+configured model through `automationInstructionMapping` after source validation.
 
 A display instruction must cover an exact parsed source operation in order and
 retain its operation identity and source hash. The mapping cannot replace code,
@@ -277,6 +346,7 @@ Recordings keep actions in chronological order. Typing can coalesce only within 
 - Hooks support before/after each test. Coordinated once-per-suite/run hooks and independent hook data-set iteration are not implemented.
 - Native video and native per-line traces are not implemented. Native screenshots require the configured failure-capture policy.
 - Isolated test fixtures verify authoring and engine behavior. Live provider credentials, private targets, remote recorder deployment and physical devices require validation in the configured environment.
+- Isolated verification runs one Chromium pass on the configured data. Repeatable fixture reset, multi-browser verification and automated negative checks require additional execution support.
 
 See [automation setup and focused checks](../../services/automation/README.md) and the [TestEngine runtime guide](../../testengine/README.md).
 
@@ -428,8 +498,13 @@ retain their original case/suite/run references.
 
 Agent Studio repair produces a typed proposal focused on the first failed
 case-owned section. It pins the exact failed result, frozen inputs, source and
-execution policies, checks freshness again before saving/planning, and rolls back
-cancelled writes. Reviewed validation reproduces the original failure, executes
+execution policies. New Playwright Runs can record the failed operation's
+classification, source line, duration and a bounded observation of unique
+same-origin test IDs. Repair uses that recorded screen. Confirmed timing,
+environment and assertion-result issues return triage with a next action
+through the built-in agent without a model call.
+Proposal freshness is checked again before saving and planning. Reviewed
+validation reproduces the original failure, executes
 the complete repaired case and selected neighbors, then confirms a known-negative
 fixture still fails its protected assertion. Setup, teardown, every successor and
 frozen shared-section bindings remain part of the verification contract. Ordered
@@ -437,7 +512,7 @@ runner receipts and executed assertion-line evidence are required; an
 infrastructure error is not a successful negative control. Older validation
 fingerprints that omitted frozen policy require a new proposal.
 
-The builder's bounded locator-repair pipeline is a separate entry point. It uses
-the same closed native operation contracts, preserves actions, data and assertion
-checkpoints, and commits only after isolated verification. Neither entry point
-can treat a proposed patch or a live browser inspection as a verified repair.
+Case Build and workflow drafts share the bounded locator-repair pipeline. It
+preserves actions, data and assertion checkpoints, and requires a passing
+isolated rerun before updating the source. Standalone repair verifies proposals
+through the pinned Run protocol above.

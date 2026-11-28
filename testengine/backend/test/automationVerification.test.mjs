@@ -63,6 +63,29 @@ test('atomic contract validation accepts empty frozen data and sections without 
   const invalid=input();mutate(invalid);assert.throws(()=>validateAutomationVerificationRequest(invalid),{code:'AUTOMATION_VERIFICATION_CONTRACT_INVALID'});
  }
 });
+test('planner and worker accept equivalent native locator defaults and reject changed matching', () => {
+ const { prepareVerificationSections } = require('../../../services/automation/backend/lib/verification/automationVerificationSections.js');
+ const source = [
+  'await page.getByRole("button", { name: "Save" }).click();',
+  'await expect(page.getByRole("status")).toHaveText("Saved");'
+ ].join('\n');
+ const { sections: [prepared] } = prepareVerificationSections([
+  { id: 'one', step_type: 'web', automation_code: source, expected_result: 'Saved status appears' }
+ ], {});
+ const request = input();
+ request.sections[0] = {
+  step_id: prepared.step_id, operations: prepared.operations, automation_code: prepared.automation_code
+ };
+ assert.doesNotThrow(() => validateAutomationVerificationRequest(request));
+ for (const changed of [
+  source.replace('name: "Save"', 'name: "Save", exact: true'),
+  source.replace('name: "Save"', 'name: "Save", includeHidden: true'),
+  source.replace('name: "Save"', 'name: "Save", name: "Save"')
+ ]) {
+  request.sections[0].automation_code = changed;
+  assert.throws(() => validateAutomationVerificationRequest(request), { code: 'AUTOMATION_VERIFICATION_CONTRACT_INVALID' });
+ }
+});
 test('verification endpoint enforces host authentication and closed contract before launching',async t=>{
  let launches=0;const app=Fastify();await registerAutomationVerification(app,async(request,reply)=>{if(request.headers.authorization!=='host')return reply.code(401).send({code:'UNAUTHORIZED'});},{launchBrowser:async()=>{launches++;throw Error('unexpected launch');}});t.after(()=>app.close());
  assert.equal((await app.inject({method:'POST',url:'/api/v1/automation/verify',payload:input()})).statusCode,401);

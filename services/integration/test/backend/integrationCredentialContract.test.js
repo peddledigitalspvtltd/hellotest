@@ -49,7 +49,18 @@ test("an LLM created without an optional Base URL uses the catalog default", () 
   assert.equal(validated.base_url, "https://api.openai.com/v1");
 });
 
-test("an update cannot preserve a legacy placeholder as an LLM credential", async () => {
+test("only an active LLM can be marked as the preferred default", () => {
+  const validate = integrationService._internals.validatePayload;
+  const input = { type: "llm", name: "Preferred provider", api_key: "llm-fixture", model: "test-model" };
+  assert.equal(validate({ ...input, is_default: true }).is_default, true);
+  assert.equal(validate(input).is_default, false);
+  assert.throws(() => validate({ ...input, is_default: true, is_active: false }), /Choose an active LLM/);
+  assert.throws(() => validate({ ...input, type: "testengine", is_default: true }), /Choose an active LLM/);
+  assert.throws(() => validate({ ...input, is_default: "true" }), /Choose an active LLM/);
+});
+
+test("an update cannot preserve a legacy placeholder as an LLM credential", async (t) => {
+  t.mock.method(require("@hellotest/platform/backend/src/db"), "transaction", (callback) => callback);
   const originalGetIntegration = integrationService.getIntegration;
   integrationService.getIntegration = async () => ({
     id: "legacy-placeholder-llm",

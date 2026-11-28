@@ -9,6 +9,9 @@ module.exports = [
 // a token without the claim is treated. The internal column marks credentials the platform mints for its own calls.
 `ALTER TABLE mcp_credentials ADD COLUMN IF NOT EXISTS scopes JSONB NOT NULL DEFAULT '["knowledge","records"]'::jsonb`,
 `ALTER TABLE mcp_credentials ADD COLUMN IF NOT EXISTS internal BOOLEAN NOT NULL DEFAULT FALSE`,
+// Exact manual credentials bind this list with a hash signed into their token.
+// Null keeps legacy, OAuth and internal rows on their original tool-set contract.
+`ALTER TABLE mcp_credentials ADD COLUMN IF NOT EXISTS tool_names JSONB CHECK (tool_names IS NULL OR (jsonb_typeof(tool_names) = 'array' AND internal = FALSE))`,
 `CREATE INDEX IF NOT EXISTS mcp_credentials_expiry ON mcp_credentials(expires_at)`,
 `CREATE TABLE IF NOT EXISTS mcp_action_plans (
  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

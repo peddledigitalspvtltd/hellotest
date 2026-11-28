@@ -15,8 +15,12 @@ function choicesFrom(children: ReactNode, group?: string): Choice[] {
   });
 }
 
-/** Compact property control. The original select remains authoritative for forms and validation. */
-export function ContextSelect({ label, icon, children, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string; icon?: ReactNode }) {
+/** The original select remains authoritative for forms and validation. */
+export function ContextSelect({ label, icon, children, className = "", appearance = "compact", ...props }: SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  icon?: ReactNode;
+  appearance?: "compact" | "field";
+}) {
   const generatedId = useId().replace(/:/g, "");
   const triggerId = `context-trigger-${generatedId}`;
   const listId = `context-options-${generatedId}`;
@@ -31,6 +35,7 @@ export function ContextSelect({ label, icon, children, className = "", ...props 
   const choices = choicesFrom(children);
   const value = String(props.value ?? props.defaultValue ?? "");
   const selected = choices.find(item => item.value === value);
+  const selectedLabel = selected?.label || "Not set";
   const filtered = choices.filter(item => `${item.label} ${item.group || ""}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const enabled = filtered.filter(item => !item.disabled);
   const disabled = props.disabled || Boolean(selectRef.current?.closest("fieldset:disabled"));
@@ -49,7 +54,6 @@ export function ContextSelect({ label, icon, children, className = "", ...props 
   };
 
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
-  useEffect(() => { setActiveIndex(0); }, [search]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => { const target = event.target as Node; if (!triggerRef.current?.contains(target) && !popoverRef.current?.contains(target)) close(); };
@@ -62,6 +66,10 @@ export function ContextSelect({ label, icon, children, className = "", ...props 
     window.addEventListener("scroll", scrolled, true);
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(scrollFrame); document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", place); window.removeEventListener("scroll", scrolled, true); };
   }, [open]);
+  useEffect(() => {
+    if (!open || appearance !== "field") return;
+    popoverRef.current?.querySelector(".context-select-options .is-active")?.scrollIntoView({ block: "nearest" });
+  }, [open, activeIndex, search, appearance]);
 
   const choose = (choice: Choice) => {
     if (choice.disabled || disabled || !selectRef.current || selectRef.current.matches(":disabled") || selectRef.current.closest("[inert]")) return;
@@ -71,15 +79,24 @@ export function ContextSelect({ label, icon, children, className = "", ...props 
     selectRef.current.dispatchEvent(new Event("change", { bubbles: true }));
     close(true);
   };
-  const show = () => { if (disabled || selectRef.current?.matches(":disabled") || selectRef.current?.closest("[inert]")) return; triggerRef.current?.focus({ preventScroll: true }); place(); setSearch(""); setActiveIndex(0); setOpen(true); };
+  const show = () => {
+    if (disabled || selectRef.current?.matches(":disabled") || selectRef.current?.closest("[inert]")) return;
+    triggerRef.current?.focus({ preventScroll: true });
+    place();
+    setSearch("");
+    const selectedIndex = appearance === "field" ? choices.filter(choice => !choice.disabled).findIndex(choice => choice.value === value) : 0;
+    setActiveIndex(Math.max(0, selectedIndex));
+    setOpen(true);
+  };
 
-  return <span className={["context-select", open ? "is-open" : "", className].filter(Boolean).join(" ")}>
+  return <span className={["context-select", appearance === "field" ? "context-select--field" : "", open ? "is-open" : "", className].filter(Boolean).join(" ")}>
     <select {...props} aria-hidden="true" className="context-select-native" ref={selectRef} tabIndex={-1} onFocus={show} onInvalid={event => { props.onInvalid?.(event); event.preventDefault(); show(); }}>
       {children}
     </select>
-    <button aria-controls={open ? listId : undefined} aria-expanded={open} aria-haspopup="listbox" aria-label={`${label}: ${selected?.label || "Not set"}`} aria-describedby={props["aria-describedby"]} aria-invalid={props["aria-invalid"]} className="context-select-trigger" data-dialog-popover-owner={triggerId} disabled={disabled} id={triggerId} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); close(true); } else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); show(); } }} ref={triggerRef} type="button">
+    <button aria-controls={open ? listId : undefined} aria-expanded={open} aria-haspopup="listbox" aria-label={`${label}: ${selectedLabel}`} aria-describedby={props["aria-describedby"]} aria-invalid={props["aria-invalid"]} className="context-select-trigger" data-dialog-popover-owner={triggerId} disabled={disabled} id={triggerId} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); close(true); } else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); show(); } }} ref={triggerRef} type="button">
       {icon ? <span aria-hidden="true" className="context-select-icon">{icon}</span> : null}
-      <span className="context-select-label">{label}: </span><span className="context-select-value">{selected?.label || "Not set"}</span><IconChevronDown aria-hidden="true" size={13} />
+      {appearance === "compact" ? <span className="context-select-label">{label}: </span> : null}
+      <span className="context-select-value">{selectedLabel}</span><IconChevronDown aria-hidden="true" size={13} />
     </button>
     {open && typeof document !== "undefined" ? createPortal(<div className="context-select-popover" data-dialog-popover-owner={triggerId} ref={popoverRef} style={position} onKeyDown={event => {
       if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); event.stopPropagation(); close(true); return; }
@@ -88,7 +105,7 @@ export function ContextSelect({ label, icon, children, className = "", ...props 
         event.preventDefault(); setActiveIndex(current => event.key === "Home" ? 0 : event.key === "End" ? enabled.length - 1 : (current + (event.key === "ArrowUp" ? -1 : 1) + enabled.length) % enabled.length);
       } else if (event.key === "Enter") { event.preventDefault(); const item = enabled[activeIndex]; if (item) choose(item); }
     }}>
-      <div className="context-select-search"><IconSearch aria-hidden="true" size={16} /><input aria-activedescendant={enabled[activeIndex] ? `${listId}-${choices.indexOf(enabled[activeIndex])}` : undefined} aria-controls={listId} aria-label={`Search ${label}`} autoComplete="off" onChange={event => setSearch(event.target.value)} placeholder={`Find ${label.toLowerCase()}…`} ref={searchRef} role="combobox" aria-expanded="true" aria-autocomplete="list" type="text" value={search} /></div>
+      <div className="context-select-search"><IconSearch aria-hidden="true" size={16} /><input aria-activedescendant={enabled[activeIndex] ? `${listId}-${choices.indexOf(enabled[activeIndex])}` : undefined} aria-controls={listId} aria-label={`Search ${label}`} autoComplete="off" onChange={event => { setSearch(event.target.value); setActiveIndex(0); }} placeholder={`Find ${label.toLowerCase()}…`} ref={searchRef} role="combobox" aria-expanded="true" aria-autocomplete="list" type="text" value={search} /></div>
       <div aria-label={label} className="context-select-options" id={listId} role="listbox">
         {filtered.map((choice, index) => <button aria-selected={choice.value === value} className={enabled[activeIndex] === choice ? "is-active" : ""} disabled={choice.disabled} id={`${listId}-${choices.indexOf(choice)}`} key={`${choice.value}-${index}`} onClick={() => choose(choice)} onMouseEnter={() => { const next = enabled.indexOf(choice); if (next >= 0) setActiveIndex(next); }} role="option" tabIndex={-1} type="button">
           <span>{choice.group && filtered[index - 1]?.group !== choice.group ? <small>{choice.group}</small> : null}{choice.label}</span>{choice.value === value ? <IconCheck aria-hidden="true" size={15} /> : null}

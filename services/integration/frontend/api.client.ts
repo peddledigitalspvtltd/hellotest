@@ -8,11 +8,11 @@ export const integrationApi = {
 integrations: {
     list: (query?: { type?: Integration["type"]; is_active?: boolean }, options?: { signal?: AbortSignal }) =>
       request<Integration[]>(`/integrations${toQueryString(query)}`, { signal: options?.signal }),
-    create: (input: { type: Integration["type"]; name: string; base_url?: string; api_key?: string; model?: string; project_key?: string; username?: string; config?: Record<string, unknown>; is_active?: boolean }) =>
+    create: (input: { type: Integration["type"]; name: string; base_url?: string; api_key?: string; model?: string; project_key?: string; username?: string; config?: Record<string, unknown>; is_active?: boolean; is_default?: boolean }) =>
       request<{ id: string }>("/integrations", { method: "POST", body: JSON.stringify(input) }),
     testConnection: (input: IntegrationConnectionInput, options?: { signal?: AbortSignal }) =>
       request<IntegrationConnectionResult>("/integrations/test-connection", { method: "POST", body: JSON.stringify(input), signal: options?.signal }, 40_000),
-	    update: (id: string, input: Partial<{ type: Integration["type"]; name: string; base_url: string; api_key: string; model: string; project_key: string; username: string; config: Record<string, unknown>; is_active: boolean }>) =>
+	    update: (id: string, input: Partial<{ type: Integration["type"]; name: string; base_url: string; api_key: string; model: string; project_key: string; username: string; config: Record<string, unknown>; is_active: boolean; is_default: boolean }>) =>
 	      request<{ updated: boolean }>(`/integrations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
 	    export: () =>
 	      request<{ version: number; exported_at: string; integrations: Integration[]; transaction_id?: string; artifact_id?: string }>("/integrations/export"),

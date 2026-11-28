@@ -211,6 +211,7 @@
     "./backend/services/aiConfiguration.service": "./backend/services/aiConfiguration.service.js",
     "./backend/src/utils/aiInstructionBlocks": "./backend/src/utils/aiInstructionBlocks.js",
     "./shared/aiFeatureCatalog.json": "./shared/aiFeatureCatalog.json",
+    "./shared/attachmentDocuments.json": "./shared/attachmentDocuments.json",
     "./shared/aiPromptDefaults.json": "./shared/aiPromptDefaults.json",
     "./shared/metricCatalog.json": "./shared/metricCatalog.json",
     "./backend/services/metricGovernance.service": "./backend/services/metricGovernance.service.js",

@@ -6,6 +6,7 @@ import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/c
 import { StepParameterizedText } from "./StepParameterizedText";
 import { gherkinDescriptionToPlainText, matchGherkinKeyword, normalizeGherkinParameterReferences } from "../lib/gherkin";
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
+import { EXECUTION_ATTACHMENT_ACCEPT } from "../lib/executionAttachments";
 import { type ExecutionStepApiDetail, type ExecutionStepEvidence, type ExecutionStepStatus, type ExecutionStepAutomationDetail, type ExecutionStepWebDetail } from "../lib/executionLogs";
 import { parseStepParameterName, resolveStepParameterText } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import type { ExecutionResult, Issue, TestStep } from "@hellotest/platform/frontend/src/types";
@@ -509,7 +510,7 @@ export function ExecutionStepCard({
 
           <div className="execution-step-evidence-cell">
             <input
-              accept="image/*,video/*,application/pdf,text/plain,text/csv,application/json,application/xml,text/xml,application/zip"
+              accept={EXECUTION_ATTACHMENT_ACCEPT}
               hidden
               onChange={(event) => {
                 const file = event.target.files?.[0];

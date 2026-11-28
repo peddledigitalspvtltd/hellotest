@@ -107,15 +107,7 @@
 .automation-batch-readiness { border-top: 1px solid var(--app-border); padding-top: 14px; display: grid; gap: 12px; }
 .automation-batch-readiness > div { display: grid; gap: 5px; font-size: 12px; }
 .automation-batch-readiness > div > span { color: var(--app-text-muted); }
-.automation-metadata-form--compact .automation-metadata-primary { grid-template-columns: 1fr; }
 .automation-metadata-enums { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.automation-metadata-advanced { border-top: 1px solid var(--app-border); padding-top: 14px; }
-.automation-metadata-advanced > summary { font-size: 12px; color: var(--app-text-muted); cursor: pointer; }
-.automation-metadata-advanced[open] { display: grid; gap: 16px; }
-.page-content--automation .automation-authoring-create { width: min(1080px, calc(100vw - 40px)); border-radius: 18px; background: var(--app-surface); }
-.page-content--automation .automation-create-columns { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 32px; }
-.page-content--automation .automation-create-plan-panel { background: var(--app-surface-muted); border: 1px solid var(--app-border); border-radius: var(--app-radius); padding: 20px; }
-.page-content--automation .automation-create-plan-panel > div > p { font-size: 12px; line-height: 1.6; }
 .page-content--automation .automation-record-picker { background: var(--app-surface-muted); }
 .page-content--automation .automation-record-options { max-height: 180px; }
 .page-content--automation .repository-field-check { white-space: normal; align-items: flex-start; font-size: 12px; line-height: 1.6; }
@@ -124,7 +116,6 @@
 @media (prefers-reduced-motion: reduce) { .automation-live-dot { animation: none; } }
 @media (max-width: 900px) {
   .page-content--automation .automation-quality-launch { float: none; margin-top: 0; margin-bottom: 14px; }
-  .page-content--automation .automation-create-columns { grid-template-columns: 1fr; gap: 24px; }
 }
 @media (max-width: 640px) {
   .page-content--automation .automation-agent-workspace { padding: 18px; }
@@ -143,7 +134,6 @@
   .automation-readiness-case > header, .automation-readiness-case > footer { flex-wrap: wrap; }
   .page-content--automation .automation-catalog-toolbar .catalog-toolbar-actions { width: 100%; margin-left: 0; justify-content: flex-end; }
   .automation-selection-hint { margin-right: auto; font-size: 10px; }
-  .page-content--automation .automation-authoring-create { width: calc(100vw - 20px); }
 }
 
 .automation-case-commandbar {

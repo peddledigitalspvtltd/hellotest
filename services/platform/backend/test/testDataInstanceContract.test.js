@@ -72,6 +72,12 @@ test("reviewed one-of Data Set utilities resolve at runtime instead of leaking t
   assert.ok(candidates.includes(materializeTemplateValue(template)));
 });
 
+test("raw AI intents need a generated value before runtime snapshotting", () => {
+  const source = "demo-{{aiData:customer email}}";
+  assert.equal(hasGeneratorTemplate(source), true);
+  assert.throws(() => materializeTemplateValue(source), { code: "TEST_DATA_AI_GENERATION_REQUIRED", statusCode: 422 });
+});
+
 test("selected data rows consistently override case defaults regardless of attachment source", async (t) => {
   // Exercise current TypeScript sources with the same .js import layout as the
   // built engine, without depending on or modifying generated dist artifacts.

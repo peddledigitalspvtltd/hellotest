@@ -27,6 +27,18 @@ test('inactive and flow editors do not mount model, provider or artifact-resourc
  f.render({kind:'artifactTask',artifactTask:'automation-engineer'});assert.equal(f.queries.find(query=>query.queryKey[0]==='workflow-test-environments').enabled,true);assert.equal(f.queries.find(query=>query.queryKey[0]==='workflow-test-data-sets').enabled,false);
 });
 
+test('the Browser Quality Agent editor selects a project environment and explains its read-only scope', async () => {
+ const f=workflowEditorFixture({testEnvironments:[{id:'qa',name:'Scoped QA',base_url:'https://qa.test'},{id:'missing',name:'Missing URL'}]});
+ const view=f.render({kind:'qualityAgent',qualityAgentKind:'accessibility',testEnvironmentId:'qa'});
+ assert.match(view.html,/Accessibility reviewer|Security observer|Web explorer/);
+ assert.match(view.html,/Scoped QA/);
+ assert.match(view.html,/Page path \(optional\)/);
+ assert.match(view.html,/Browser input actions require an interactive run/);
+ assert.doesNotMatch(view.html,/Missing URL|Credential reference|Allow form submission/);
+ await f.queries.find(query=>query.queryKey[0]==='workflow-test-environments').queryFn({signal:new AbortController().signal});
+ assert.deepEqual(f.calls[0][1],{project_id:'project',app_type_id:'app'});
+});
+
 test('merge, loop and wait own their dependent initialization patches without changing literal inputs',()=>{
  const f=workflowEditorFixture();f.render({kind:'aggregator'});change(f,'Merge inputs','combineMatching');assert.deepEqual(f.patches.pop(),{mergeMode:'combineMatching',mergeMatchFields:'[{"left":"id","right":"id"}]'});
  f.render({kind:'aggregator',mergeMatchFields:'[]'});change(f,'Merge inputs','combineMatching');assert.deepEqual(f.patches.pop(),{mergeMode:'combineMatching'});
@@ -67,6 +79,28 @@ test('manual automation exposes a scoped case picker and live browser verificati
  assert.equal(query.enabled,true);
  await query.queryFn({signal:new AbortController().signal});
  assert.deepEqual(f.calls.at(-1)[1],{project_id:'project',app_type_id:'app',search:undefined});
+});
+
+test('Playwright Test CLI verification requires an interactive Web build with an environment', () => {
+ const f = workflowEditorFixture();
+ const data = {kind:'artifactTask', artifactTask:'automation-engineer', automationBrowserMode:'perform_steps',
+  automationRuntime:'web', testEnvironmentId:'qa', automationVerificationMode:'verify_cli'};
+ const cliOption = () => f.control('After generating').props.children.find(option => option.props.value === 'verify_cli');
+ f.render(data);
+ assert.equal(cliOption().props.disabled, false);
+ change(f, 'Test Environment', '');
+ assert.deepEqual(f.patches.pop(), {testEnvironmentId:'', automationVerificationMode:'generate_only'});
+ change(f, 'Browser generation', 'read_only');
+ assert.deepEqual(f.patches.pop(), {automationBrowserMode:'read_only', automationVerificationMode:'generate_only'});
+ f.render({...data, automationBrowserMode:'read_only'});
+ assert.equal(cliOption().props.disabled, true);
+ const recoveryOption = () => f.control('After generating').props.children.find(option => option.props.value === 'verify_repair');
+ assert.equal(recoveryOption().props.disabled, true);
+ const recoveryView = f.render({ ...data, automationVerificationMode: 'verify_repair' });
+ assert.equal(recoveryOption().props.disabled, false);
+ assert.match(recoveryView.html, /one correction from the failure snapshot/);
+ change(f, 'Test Environment', '');
+ assert.deepEqual(f.patches.pop(), { testEnvironmentId: '', automationVerificationMode: 'generate_only' });
 });
 
 test('switching Automation Agents preserves the source and hides browser controls for API builds', () => {

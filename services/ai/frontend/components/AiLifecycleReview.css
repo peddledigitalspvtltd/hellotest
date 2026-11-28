@@ -30,6 +30,7 @@
 .ai-lifecycle-shell > summary::after { content: "+"; font-size: 20px; margin-left: 8px; }
 .ai-lifecycle-shell[open] > summary::after { content: "−"; }
 .ai-lifecycle-shell > .ai-lifecycle-review { margin: 0; border: 0; border-top: 1px solid var(--line, var(--ui-border)); border-radius: 0 0 14px 14px; }
+.ai-lifecycle-review.ai-lifecycle-review--embedded { margin: 12px 0 0; padding: 0; border: 0; background: transparent; }
 @media (max-width: 600px) { .ai-lifecycle-shell > summary span { display: none; } }
 
 .ai-lifecycle-result { min-width:0; overflow-wrap:anywhere; }

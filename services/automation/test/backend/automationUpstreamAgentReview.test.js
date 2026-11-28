@@ -39,7 +39,7 @@ test('generic Engineer uses native filtered schemas, one reviewed bootstrap and 
  const checked=await session.browser.call('browser_verify_value',{type:'textbox',element:'Password',target:'native-password',value:'@t.password'});
  assert.equal(f.calls.at(-1).args.value,'PRIVATE-native-password');assert.doesNotMatch(JSON.stringify(checked),/PRIVATE-native-password/);
  const count=f.calls.length;f.denied.add('data.view');
- await assert.rejects(session.browser.call('browser_type',{ref:'native-password',text:secretName}),{statusCode:403});assert.equal(f.calls.length,count,'Revoked data access cannot reuse initialized native secrets.');
+ await assert.rejects(session.browser.call('browser_type',{ref:'native-password',text:secretName}),{statusCode:403,action_outcome:'not_attempted'});assert.equal(f.calls.length,count,'Revoked data access cannot reuse initialized native secrets.');
 });
 
 test('generic read-only Engineer rejects mutation or invented native arguments before transport; F18 legacy is explicit',async()=>{
@@ -96,7 +96,8 @@ test('native generic review never retries uncertain actions or a transport ackno
  for(const mode of ['transport','error']){
   let calls=0,models=0;
   await assert.rejects(runUpstreamBrowserReview({browser:{tools:[tools[2]],call:async()=>{calls++;if(mode==='transport')throw Object.assign(new Error('Lost acknowledgement'),{code:'LOST'});return {isError:true,content:[]};}},prompt:'Review',deadlineMs:Date.now()+1000,
-   complete:async()=>{models++;return {tool_calls:[{name:'browser_type',arguments:{ref:'native',text:'value'}}]};}}),error=>mode==='transport'?error.code==='LOST':error.code==='AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED');
+   complete:async()=>{models++;return {tool_calls:[{name:'browser_type',arguments:{ref:'native',text:'value'}}]};}}),error=>error.effect_dispatched&&error.outcome_unknown&&error.nonRetryable
+    &&error.code===(mode==='transport'?'LOST':'AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'));
   assert.equal(calls,1);assert.equal(models,1);
  }
 });

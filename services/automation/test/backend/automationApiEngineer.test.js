@@ -9,6 +9,7 @@ const {executeApiRequestStep}=require('../../backend/services/apiRequestExecutio
 // Pinned @playwright/mcp 0.0.84 read-only snapshot contract. Inspected previews
 // advertise real native functions even when the model needs no additional read.
 const nativeReadOnlyTools=[{name:'browser_snapshot',description:'Capture accessibility snapshot of the current page, this is better than screenshot',annotations:{readOnlyHint:true},inputSchema:{type:'object',properties:{target:{type:'string'},filename:{type:'string'},depth:{type:'number'},boxes:{type:'boolean'}},additionalProperties:false}}];
+const invoiceBrowserEvidence=()=>({content:[{type:'text',text:'### Snapshot\n- heading "Invoice" [ref=e1]'}]});
 
 function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=false,browserFixture,upstreamFixture,integrationFixture,environmentFixture,dataSetFixture,resolverInputs=[],mappingResponse=instructionMappingResponse,managedTransport=false}={}){
  const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js');
@@ -21,6 +22,7 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
   if(id.endsWith('/automationModelClient')){const module={exports:{}};new Function('require','module',fs.readFileSync(require.resolve("../../backend/lib/build/automationModelClient"),'utf8'))(specifier=>inject(specifier.startsWith('.')?'./'+path.relative(path.dirname(file),path.resolve(path.dirname(require.resolve("../../backend/lib/build/automationModelClient")),specifier)):specifier),module);return module.exports;}
   if(id.endsWith('/db')||id.endsWith('/obsDb'))return db;
   if(id.endsWith('/testStepAutomation'))return utils;
+  if(id.endsWith('/stepParameterResolution'))return original(id);
   if(id.endsWith('/automationActorModelPolicy'))return original(id);
   if(id.endsWith('/llmTraceContext'))return original(id);
   if(id.endsWith('/automationCaseType')||id.endsWith('/automationRuntimeSpecialist')||id.endsWith('/automationApiParameterContract')||id.endsWith('/automationExpectedResultTemplate')||id.endsWith('/automationJsonOutputRetry'))return original(id);
@@ -45,6 +47,7 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
     return module.exports;
   }
   if(id.endsWith('/automationUpstreamEngineer')||id.endsWith('/automationUpstreamSectionSource')||id.endsWith('/automationBuildPipelineOptions')||id.endsWith('/automationBuildInputPreflight')||id.endsWith('/automationBuildEnvironment')||id.endsWith('/automationReadiness.service'))return original(id);
+  if(id.endsWith('/automationDraftVerification')||id.endsWith('/automationSavedBuildVerificationHooks'))return original(id);
   if(id.endsWith('/integration.service'))return {getActiveIntegrationByTypeForProject:async()=>integrationFixture===undefined?{base_url:'http://engine.fixture',config:{}}:integrationFixture};
   if(id.endsWith('/automationAssertionTimeout'))return original(id);
   if(id.endsWith('/automationGeneratedProgram')||id.endsWith('/automationGenerationGrounding')||id.endsWith('/automationBuildCompletion')||id.endsWith('/automationStartUrl')||id.endsWith('/automationKnowledgeContext')||id.endsWith('/automationPortableArtifact'))return original(id);
@@ -101,6 +104,43 @@ test('API requests retain authentication, query, cookies, redirects, schema and 
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,validations:[]},{expectedResult:'Order created',existingRequest:{method:'POST',url:request.url}}),/explicit response assertions/,'An existing request URL cannot bypass response assertions.');
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,validations:[{kind:'json_schema',expected:'{}'}]}),/nonempty JSON Schema/);
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,query:{region:'east'}}),/discarded/);
+});
+
+test('API Build preserves the authored endpoint and execution options while completing response assertions', async () => {
+ const url = 'https://api.fixture/orders';
+ const authored = {
+  method: 'POST', url, body_mode: 'json', body: '{"quantity":2}',
+  headers: [{ key: 'Content-Type', value: 'application/json' }],
+  query_params: [{ key: 'label', value: 'one' }, { key: 'label', value: 'two' }],
+  timeout_ms: 45_000, follow_redirects: false
+ };
+ const complete = { ...authored, validations: [{ kind: 'status', expected: '201' }] };
+ for (const mutation of [
+  { url: `${url}/other` }, { body: '{"quantity":3}' }, { timeout_ms: 1000 }, { follow_redirects: true },
+  { query_params: [{ key: 'label', value: 'one' }] },
+  { headers: [{ key: 'Content-Type', value: 'text/plain' }] }
+ ]) {
+  assert.throws(() => utils.validateGeneratedApiRequest({ ...complete, ...mutation }, { existingRequest: authored }), /Preserve authored|Preserve the authored/);
+ }
+ const requests = [];
+ const builder = loadBuilder({
+  requests,
+  response: attempt => ({
+   summary: 'Create the configured order',
+   steps: [{
+    step_id: 'draft-step-1', step_type: 'api',
+    api_request: attempt === 1 ? { ...complete, url: `${url}/other` } : complete
+   }]
+  })
+ });
+ const result = await builder.previewAutomationDraft({
+  project_id: 'project', app_type_id: 'app', user_id: 'actor',
+  draft: { title: 'Create an order', steps: [{ step_type: 'api', action: 'Create the order', expected_result: 'HTTP 201', api_request: authored }] }
+ });
+ assert.equal(requests.length, 2);
+ assert.match(JSON.stringify(requests[1]), /Preserve the authored request field url/);
+ assert.deepEqual(result.steps[0].api_request, utils.normalizeApiRequest(complete));
+ assert.equal(result.side_effects.target_requests, 0);
 });
 
 test('an explicitly API-only case in a Unified application dispatches only the API Engineer without opening a browser',async()=>{
@@ -190,7 +230,7 @@ test('API Gherkin fixtures require their real setup contract instead of a browse
  const requests=[];
  const builder=loadBuilder({requests,response:{blocked_steps:[{step_id:'draft-step-1',dependency_type:'external_context',reason:'The existing invoice needs a supplied setup request or seeded fixture reference.',required_context:['Authorized invoice fixture or setup API contract'],required_parameters:[]}]}});
  await assert.rejects(builder.previewAutomationDraft({draft:{title:'Read invoice',gherkin_document:'Feature: Invoice\nScenario: Read\nGiven an existing invoice\nWhen I GET /invoices/one\nThen status equals 200',steps:[{action:'an existing invoice',step_type:'manual',gherkin_keyword:'Given',gherkin_role:'scenario'},{action:'I GET /invoices/one',step_type:'manual',expected_result:'status equals 200',gherkin_keyword:'When',gherkin_role:'scenario'}]},project_id:'project',app_type_id:'app',user_id:'actor'}),error=>error.code==='AUTOMATION_DEPENDENCY_MISSING'&&/setup request|seeded fixture/.test(error.message));
- assert.equal(requests.length,1);assert.match(requests[0].messages[0].content,/"type": "api"/);
+ assert.equal(requests.length,1);assert.match(requests[0].messages[0].content,/"type":\s*"api"/);
 });
 
 test('offline workflow authors the whole case once, maps Web source separately and emits the shared executable artifact',async()=>{
@@ -248,10 +288,14 @@ test('private input literals in generated executable source fail explicitly rath
 
 test('workflow browser inspection uses upstream MCP, closes the session and publishes no section drafts',async()=>{
  const calls=[],requests=[];
- const builder=loadBuilder({requests,upstreamFixture:{
-  connectUpstreamPlaywright:async options=>{calls.push(['connect',options]);return {tools:nativeReadOnlyTools,call:async(name,args)=>{calls.push([name,args]);return {content:[]};},close:async()=>{calls.push(['closed']);}};}
+ const environmentFixture={id:'invoice-qa',name:'Invoice QA',project_id:'project',app_type_id:'app',base_url:'https://ui.fixture/invoice',variables:[
+  {key:'authorization',value:'PRIVATE_TEST_AUTHORIZATION'}]};
+ const dataSetFixture={id:'invoice-data',name:'Invoice samples',mode:'key_value',rows:[{key:'invoice_number',value:'INV-045'}]};
+ const builder=loadBuilder({requests,environmentFixture,dataSetFixture,upstreamFixture:{
+  connectUpstreamPlaywright:async options=>{calls.push(['connect',options]);return {tools:nativeReadOnlyTools,call:async(name,args)=>{calls.push([name,args]);return invoiceBrowserEvidence();},close:async()=>{calls.push(['closed']);}};}
  },browserFixture:{connectAutomationBrowser:async()=>assert.fail('Upstream builds cannot connect the custom browser controller.')},response:(_,request)=>readOnlyUpstreamResponse(request,{source:'await expect(page.getByRole("heading", {name:"Invoice"})).toBeVisible();'})});
- const result=await builder.previewAutomationDraft({draft:{title:'Invoice',description:'Review the supplied invoice',preconditions:['The review account has an existing invoice'],automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read the Invoice heading',expected_result:'Invoice is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
+ const evidence={workflow_sources:{objects:{candidates:[{locator:'[data-testid="invoice-heading"]'}],provenance:'static_repository_evidence_for_review'}}};
+ const result=await builder.previewAutomationDraft({draft:{title:'Invoice',description:'Review the supplied invoice',preconditions:['The review account has an existing invoice'],automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read the Invoice heading for @r.invoice_number',expected_result:'Invoice is visible'}]},supporting_evidence:evidence,test_environment_id:'invoice-qa',test_data_set_id:'invoice-data',project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
  assert.equal(calls[0][0],'connect');assert.equal(calls[1][0],'browser_navigate');
  assert.equal(calls.at(-1)[0],'closed');assert.equal(requests.length,2);
  assert.deepEqual(requests[0].tools,[{type:'function',function:{name:nativeReadOnlyTools[0].name,description:nativeReadOnlyTools[0].description,parameters:nativeReadOnlyTools[0].inputSchema}}]);
@@ -259,12 +303,17 @@ test('workflow browser inspection uses upstream MCP, closes the session and publ
  assert.deepEqual(requests[1].response_format,{type:'json_object'});assert.equal(Object.hasOwn(requests[1],'tools'),false,'Source generation remains a separate configured JSON completion.');
  const actor=JSON.parse(requests[0].messages.at(-1).content),source=JSON.parse(requests[1].messages.at(-1).content);
  assert.deepEqual(actor.context.case,{title:'Invoice',description:'Review the supplied invoice',preconditions:['The review account has an existing invoice']});
+ assert.deepEqual(actor.context.environment,{id:'invoice-qa',name:'Invoice QA',base_url:'https://ui.fixture/invoice'});
+ assert.deepEqual(actor.context.data_set,{id:'invoice-data',name:'Invoice samples',mode:'table',row_count:1});
+ assert.equal(actor.parameters['r.invoice_number'],'INV-045');
+ assert.deepEqual(JSON.parse(actor.context.supporting_evidence),evidence);
  assert.deepEqual(source.task_context,actor.context,'Inspected workflow source retains the same case preconditions as its native actor.');
  assert.equal(Object.hasOwn(actor.context.case,'steps'),false);
  assert.equal(result.browser_evidence.transport,'upstream_playwright_mcp');assert.equal(result.browser_evidence.observation_count,1);
  assert.equal(result.browser_evidence.interaction_mode,'read_only');assert.equal(result.build_engine,'upstream-playwright-v1');
  assert.equal(result.side_effects.cases_saved,0);assert.equal(result.side_effects.browser_actions,0);
  assert.equal(result.verification_status,'unverified','Inspection never claims case execution');
+ assert.doesNotMatch(JSON.stringify({requests,result}),/PRIVATE_TEST_AUTHORIZATION/);
 });
 
 test('an explicit workflow browser build performs native steps and returns one complete mapped artifact without browser presentation',async()=>{
@@ -299,6 +348,73 @@ test('an explicit workflow browser build performs native steps and returns one c
  const mappingCalls=requests.filter(request=>request.messages.at(-1).content.includes('Map the authoritative'));
  assert.equal(mappingCalls.length,0,'Complete native statements receive source-linked deterministic display mappings.');assert.equal(requests.filter(request=>request.tools).length,4);
  assert.equal(result.verification_status,'unverified','Developing the flow does not impersonate a saved-plan Run.');
+});
+
+test('workflow draft, instructions and export use the exact locator correction that passed verification', async t => {
+ const startUrl = 'https://ui.fixture/records';
+ const goto = `await page.goto("${startUrl}");`;
+ const click = 'await page.getByRole("button",{name:"Save"}).click();';
+ const check = 'await expect(page.getByRole("status")).toHaveText("Saved");';
+ const native = code => ({ content: [{ type: 'text', text: '### Ran Playwright code\n```js\n' + code + '\n```\n### Snapshot\n- button "Save" [ref=e1]\n- status "Saved"' }] });
+ const verificationRuns = [], writes = [];
+ t.mock.method(global, 'fetch', async (url, { body }) => {
+  assert.match(url, /engine\.fixture\/api\/v1\/automation\/verify$/);
+  const request = JSON.parse(body);
+  const [{ step_id, operations }] = request.sections;
+  verificationRuns.push(request);
+  const receipt = { schema_version: 1, verification_id: request.verification_id, browser: 'chromium', duration_ms: 25 };
+  const clickIndex = operations.findIndex(operation => operation.name === 'browser_click');
+  if (verificationRuns.length === 1) return Response.json({ ...receipt,
+   status: 'failed', verification_status: 'unverified', completed_operations: clickIndex, completed_interactions: 0, assertion_count: 0, replay_safe: true,
+   failure: { step_id, operation_index: clickIndex + 1, operation_kind: 'browser_click', code: 'AUTOMATION_VERIFICATION_LOCATOR_UNRESOLVED', action_outcome: 'not_attempted' },
+   snapshot: { source: 'playwright', observation_id: 'failed-snapshot', elements: [
+    { tag: 'button', accessible_role: 'button', accessible_name: 'Save', displayed: true, disabled: false,
+      in_viewport: true, locators_validated: true, locator_candidates: ['#new-save'] }
+   ] }
+  });
+  assert.equal(operations[clickIndex].arguments.locator, '#new-save');
+  assert.deepEqual(operations.at(-1), verificationRuns[0].sections[0].operations.at(-1));
+  return Response.json({ ...receipt,
+   status: 'passed', verification_status: 'verified', completed_operations: operations.length, completed_interactions: 1, assertion_count: 1, replay_safe: false
+  });
+ });
+ let actorCalls = 0;
+ const builder = loadBuilder({
+  dbWrites: writes,
+  environmentFixture: { id: 'qa', project_id: 'project', app_type_id: 'app', base_url: startUrl },
+  integrationFixture: { base_url: 'https://engine.fixture', config: { shared_secret: 'fixture-shared-secret' } },
+  upstreamFixture: { connectUpstreamPlaywright: async () => ({
+   tools: require('../../../platform/backend/test/fixtures/upstreamPlaywrightMcpTools.v0.0.84.json'),
+   call: async name => native(name === 'browser_navigate' ? goto : click), close: async () => {}
+  }) },
+  response: (_, request) => {
+   const text = request.messages.at(-1).content;
+   const repairPacket = text.slice(text.lastIndexOf('\n\n') + 2);
+   if (repairPacket.includes('"current_snapshot"')) {
+    const packet = JSON.parse(repairPacket);
+    return { step_id: packet.failure.step_id, operation_index: packet.failure.operation_index, locator: packet.current_snapshot.targets[0].ref };
+   }
+   if (request.tools) return actorCalls++ === 0 ? { click: true } : { done: true };
+   return { automation_code: [goto, click, check].join('\n') };
+  },
+  providerMessage: (_request, output) => output.click ? { tool_calls: [{
+   id: 'click', type: 'function', function: { name: 'browser_click', arguments: JSON.stringify({ target: 'e1' }) }
+  }] } : undefined
+ });
+ const result = await builder.previewAutomationDraft({
+  project_id: 'project', app_type_id: 'app', user_id: 'actor', test_environment_id: 'qa',
+  inspect_browser: true, allow_browser_actions: true, verification_mode: 'verify_repair',
+  draft: { title: 'Save a record', steps: [{ action: 'Click Save', expected_result: 'Saved status is visible' }] }
+ });
+ assert.equal(verificationRuns.length, 2, JSON.stringify({
+  verification: result.verification, live_validation: result.live_validation, source: result.steps[0]?.automation_code
+ }));
+ assert.equal(result.verification_status, 'verified');
+ assert.equal(result.verification.repair_count, 1);
+ assert.equal(result.steps[0].automation_code, verificationRuns[1].sections[0].automation_code);
+ assert.match(result.executable.code, /#new-save/);
+ assert.match(JSON.stringify(result.instructions), /#new-save/);
+ assert.deepEqual(writes, []);
 });
 
 test('workflow-owned preview phases use the real managed transport without imposing the final schema on tools, done, source or mapping',async t=>{
@@ -344,8 +460,10 @@ test('MCP inspection failures stop automation without a model fallback and close
  const draft={title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read Invoice',expected_result:'Invoice visible'}]};
  await assert.rejects(loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>{throw Object.assign(new Error('MCP unavailable'),{code:'MCP_UNAVAILABLE'});}}}).previewAutomationDraft({draft,project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'MCP_UNAVAILABLE'});
  assert.equal(requests.length,0);
- await assert.rejects(loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>({tools:nativeReadOnlyTools,call:async()=>({content:[]}),close:async()=>{closed.push(true);}})},response:()=>{throw new Error('provider unavailable');}}).previewAutomationDraft({draft,project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),/provider unavailable/);
- assert.deepEqual(closed,[true]);
+ await assert.rejects(loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>({tools:nativeReadOnlyTools,call:async()=>({content:[]}),close:async()=>{closed.push('empty entry');}})}}).previewAutomationDraft({draft,project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'AUTOMATION_BROWSER_ENTRY_UNAVAILABLE',effect_dispatched:false});
+ assert.equal(requests.length,0);
+ await assert.rejects(loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>({tools:nativeReadOnlyTools,call:async()=>invoiceBrowserEvidence(),close:async()=>{closed.push('provider failure');}})},response:()=>{throw new Error('provider unavailable');}}).previewAutomationDraft({draft,project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),/provider unavailable/);
+ assert.deepEqual(closed,['empty entry','provider failure']);
 });
 
 test('mixed workflow previews use one upstream browser session and native grounded API contracts without the custom browser loop',async()=>{
@@ -353,7 +471,7 @@ test('mixed workflow previews use one upstream browser session and native ground
  const apiRequest={method:'GET',url:'https://api.fixture/invoices/one',validations:[{kind:'status',expected:'200'}]};
  const builder=loadBuilder({requests,dbWrites:writes,
   browserFixture:{connectAutomationBrowser:async()=>assert.fail('Mixed browser flows cannot connect the custom browser controller.'),runAutomationBrowserAgent:async()=>assert.fail('Mixed browser flows cannot use the custom browser loop.')},
-  upstreamFixture:{connectUpstreamPlaywright:async()=>{calls.push('connect');return {tools:nativeReadOnlyTools,call:async name=>{calls.push(name);return {content:[]};},close:async()=>calls.push('close')};}},
+  upstreamFixture:{connectUpstreamPlaywright:async()=>{calls.push('connect');return {tools:nativeReadOnlyTools,call:async name=>{calls.push(name);return invoiceBrowserEvidence();},close:async()=>calls.push('close')};}},
   response:(_,request)=>readOnlyUpstreamResponse(request,{apiRequest,source:'await expect(page.getByRole("heading", {name:"Invoice one"})).toBeVisible();'})});
  const result=await builder.previewAutomationDraft({draft:{title:'Read and inspect an invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{step_type:'api',action:'GET https://api.fixture/invoices/one',expected_result:'HTTP 200'},{step_type:'web',action:'Read the Invoice one heading',expected_result:'Invoice one is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
  assert.deepEqual(calls,['connect','browser_navigate','close']);assert.deepEqual(writes,[]);
@@ -369,11 +487,47 @@ test('mixed workflow previews use one upstream browser session and native ground
 
 test('mixed workflow API retries remain grounded and never turn invalid API output into browser actions',async()=>{
  const requests=[],calls=[];
- const builder=loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>({tools:nativeReadOnlyTools,call:async name=>{calls.push(name);return {content:[]};},close:async()=>calls.push('close')})},
+ const builder=loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>({tools:nativeReadOnlyTools,call:async name=>{calls.push(name);return invoiceBrowserEvidence();},close:async()=>calls.push('close')})},
   browserFixture:{connectAutomationBrowser:async()=>assert.fail('Mixed API validation must stay on the upstream path.')},
   response:(_,request)=>readOnlyUpstreamResponse(request,{apiRequest:{method:'GET',url:'https://invented.fixture/invoices/one',validations:[{kind:'status',expected:'200'}]}})});
- await assert.rejects(builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{step_type:'api',action:'GET https://api.fixture/invoices/one',expected_result:'HTTP 200'},{step_type:'web',action:'Read Invoice',expected_result:'Invoice visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'AUTOMATION_UNGROUNDED_API_TARGET'});
+ await assert.rejects(builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{step_type:'api',action:'GET https://api.fixture/invoices/one',expected_result:'HTTP 200'},{step_type:'web',action:'Read Invoice',expected_result:'Invoice visible'}]},supporting_evidence:{story_attachments:[{excerpt:'An alternate URL is https://invented.fixture/invoices/one'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'AUTOMATION_UNGROUNDED_API_TARGET'});
  assert.equal(requests.length,3);assert.deepEqual(calls,['browser_navigate','close'],'Only the initial reachability check runs before invalid leading API authoring stops the case.');
+});
+
+test('mixed API planning passes earlier capture references to the current section and repairs a dropped binding', async () => {
+ const calls=[],requests=[],apiPrompts=[];
+ const actionUrl='https://api.fixture/invoices/@r.invoice/audit';
+ const first={method:'GET',url:'https://api.fixture/invoices/one',validations:[{kind:'status',expected:'200'}],captures:[{path:'$.id',parameter:'@r.invoice'}]};
+ const dependent={method:'GET',url:actionUrl,validations:[{kind:'status',expected:'200'}]};
+ const builder=loadBuilder({requests,upstreamFixture:{connectUpstreamPlaywright:async()=>({
+  tools:nativeReadOnlyTools,call:async name=>{calls.push(name);return invoiceBrowserEvidence();},close:async()=>calls.push('close')
+ })},response:(_,request)=>{
+  const content=request.messages.filter(message=>message.role==='user').at(-1).content;
+  const prompt=JSON.parse(content.startsWith('{')?content:content.slice(content.indexOf('{"task":')));
+  if(prompt.task?.startsWith('Generate only this authored API')){
+   apiPrompts.push(prompt);
+   const apiRequest=prompt.current_section.id==='capture'?first:
+    prompt.feedback?dependent:{...dependent,url:'https://api.fixture/invoices/guessed-id/audit'};
+   return readOnlyUpstreamResponse(request,{apiRequest});
+  }
+  return readOnlyUpstreamResponse(request,{source:'await expect(page.getByRole("heading", {name:"Invoice"})).toBeVisible();'});
+ }});
+ const result=await builder.previewAutomationDraft({draft:{title:'Audit the captured invoice',automation_start_url:'https://ui.fixture/invoice',steps:[
+  {id:'capture',step_type:'api',action:'GET https://api.fixture/invoices/one',expected_result:'HTTP 200',api_request:first},
+  {id:'audit',step_type:'api',action:`GET ${actionUrl}`,expected_result:'HTTP 200'},
+  {id:'heading',step_type:'web',action:'Read the Invoice heading',expected_result:'Invoice is visible'}
+ ]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
+ assert.deepEqual(apiPrompts.map(prompt=>prompt.current_section.id),['capture','audit','audit']);
+ assert.equal(apiPrompts[0].prior_api_captures,undefined);
+ for(const prompt of apiPrompts.slice(1)){
+  assert.deepEqual(prompt.prior_api_captures.references,['@r.invoice']);
+  assert.equal(prompt.prior_api_captures.availability,'test_run_only');
+  assert.equal(Object.hasOwn(prompt.parameters,'r.invoice'),false);
+ }
+ assert.match(apiPrompts[2].feedback,/Preserve @r\.invoice/);
+ assert.equal(result.steps[1].api_request.url,actionUrl);
+ assert.deepEqual(calls,['browser_navigate','close']);
+ assert.equal(result.side_effects.browser_actions,0);
 });
 
 test('a generated action without its authored expected-result assertion cannot become a validated workflow draft',async()=>{

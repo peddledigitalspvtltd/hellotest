@@ -275,6 +275,7 @@ async function performRun(run, controller) {
       run_id: run.input.workflow_trace?.run_id || null, node_id: run.input.workflow_trace?.node_id || null, session_id: null, agent_system:'repository'
     }, () => withConfiguration(() => assistant.respond({ user, project_id: run.project_id, app_type_id: run.app_type_id,
       agent_id: 'quality-evaluator', mode: 'agent', integration_id: run.input.llm_integration_id,
+      agentPresentation: run.input.workflow_trace ? require('./agentInvocation').workflow : undefined,
       prompt: run.input.goal || aiInstructionBlock(`ai.agentic.repository.${run.agent_type}`, "repository.reviewRequest"),
       smart_context: run.input.smart_context, inputs: run.input.evidence_scope, context_scopes: run.input.context_scopes || [], workflow_policy: { configuration_key: `ai.agentic.repository.${run.agent_type}`, agent_name: AGENTS.find(item=>item.id===run.agent_type).name, custom_task: true, model_budget:modelBudget,skills: [], allowed_tools: run.input.context_scopes?.length ? ['project_evidence','knowledge_search'] : [], context_scopes: run.input.context_scopes || [], guardrails: '',
         connected_input: { source, findings: sample, total_findings: findings.length, included_findings: sample.length, coverage_complete: batches.length === 1, batch: batchIndex + 1, batch_count: batches.length, prior_batch_summaries: reviews.slice(-3).map(item => ({ batch: item.batch, summary: cleanText(item.executive_summary,600) })) } }, signal })));

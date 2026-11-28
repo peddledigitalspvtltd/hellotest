@@ -9,14 +9,19 @@ const require=createRequire(new URL('../../../../testengine/backend/package.json
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const {expect}=createRequire(require.resolve(process.env.PLAYWRIGHT_MODULE||'playwright'))('playwright/test');
 const root=new URL('../../../platform/frontend/',import.meta.url);
-test('actual automation workspace presents runtime-specific authoring and recording for all four platforms',{timeout:150000},async()=>{
+test('automation workspace shows the appropriate authoring, build and recording controls for each case type',{timeout:150000},async()=>{
  const template=await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs',import.meta.url),'utf8');
  let fixture=runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
  fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>','element:<AutomationPage/>');
  fixture=fixture.replace("import '/src/catalog-list.css';", "import '/src/catalog-list.css';import '/src/product-experience.css';");
  fixture=fixture.replace('const client=new QueryClient',`const runtime=new URLSearchParams(location.search).get('runtime')||'web';
- api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:runtime==='api'?'web':runtime}];item.automated='yes';item.automation_status='ready';item.automation_start_url=runtime==='api'?null:'https://app.test';item.automation_case_type=runtime;
- steps.forEach(step=>{step.step_type=runtime;step.automation_code=runtime==='api'?'':runtime==='web'?'await page.goto("https://app.test");':'await '+runtime+'.tap("~login");';step.api_request=runtime==='api'?{method:'GET',url:'https://app.test/status',validations:[{kind:'status',expected:'200'}]}:null;});
+ api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:['api','unified'].includes(runtime)?'web':runtime}];item.automated='yes';item.automation_status='ready';item.automation_start_url=runtime==='api'?null:'https://app.test';item.automation_case_type=runtime;
+ steps.forEach((step,index)=>{
+   const type=runtime==='unified'?(index===0?'web':'api'):runtime;
+   step.step_type=type;
+   step.automation_code=type==='api'?'':type==='web'?'await page.goto("https://app.test");':'await '+type+'.tap("~login");';
+   step.api_request=type==='api'?{method:'GET',url:'https://app.test/status',validations:[{kind:'status',expected:'200'}]}:null;
+ });
  window.stepUpdates=[];api.testSteps.update=async(id,input)=>{window.stepUpdates.push(input);const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
  const client=new QueryClient`);
   fixture=fixture.replace(/import '\/src\/[^']+\.css';/g,'');
@@ -27,12 +32,12 @@ test('actual automation workspace presents runtime-specific authoring and record
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE});page=await browser.newPage({viewport:{width:1440,height:1000}});
   page.setDefaultTimeout(15000);
   const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',async route=>{if (await fulfillAutomationFixtureRequest(page, route)) return;errors.push('Unexpected API: '+route.request().url());return route.abort();});
-  for(const runtime of ['web','api','android','ios']){
+  for(const runtime of ['web','api','android','ios','unified']){
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?runtime=${runtime}`);
     assert.equal(await page.locator('.automation-runtime-guide').count(),0,'Informational setup panel is removed');
     await page.getByRole('tab',{name:/^Plan/}).click();
     await page.getByRole('button',{name:'Add section',exact:true}).click();
-    await expect(page.getByRole('dialog',{name:'Add section',exact:true}).getByLabel('New step type',{exact:true})).toHaveValue(runtime);
+    await expect(page.getByRole('dialog',{name:'Add section',exact:true}).getByLabel('New step type',{exact:true})).toHaveValue(runtime==='unified'?'web':runtime);
     await page.keyboard.press('Escape');
     if(runtime==='api'){
       await page.getByRole('tab',{name:'Source',exact:true}).click();await expect(page.locator('.automation-source-section').first()).toContainText('https://app.test/status');await page.getByRole('tab',{name:'Instructions',exact:true}).click();
@@ -76,7 +81,7 @@ test('actual automation workspace presents runtime-specific authoring and record
     await expect(page.getByRole('button',{name:'Build plan',exact:true})).toBeEnabled();
     await expect(page.getByLabel('Build instructions (optional)')).toHaveValue('');
     if(runtime==='api'){
-      await expect(page.getByRole('button',{name:'Automation Build Agent',exact:true})).toBeVisible();
+      await expect(page.getByRole('heading',{name:'Build automation',exact:true})).toBeVisible();
       await expect(page.getByText('API · HTTP requests and assertions',{exact:true})).toBeVisible();
       await expect(page.getByLabel('API base URL',{exact:true})).toHaveValue('');
       assert.equal(await page.getByLabel('Browser build mode',{exact:true}).count(),0);
@@ -84,6 +89,10 @@ test('actual automation workspace presents runtime-specific authoring and record
       assert.equal(await page.getByRole('button',{name:/Record & playback/}).count(),0);
     }
     else {
+      if(runtime==='unified'){
+        await expect(page.getByLabel('Browser build mode',{exact:true})).toBeVisible();
+        await expect(page.getByLabel('After generating',{exact:true})).toHaveCount(0);
+      }
       await page.getByRole('button',{name:/Record & playback/}).click();
       if(runtime==='ios'||runtime==='android'){
         await page.getByRole('button',{name:runtime==='ios'?'Record on iOS device':'Record on Android device',exact:true}).waitFor();

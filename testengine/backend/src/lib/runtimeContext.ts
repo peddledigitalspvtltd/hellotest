@@ -6,7 +6,10 @@ export type RuntimeExecutionContext = {
   capturedValues?: Record<string, string>;
 };
 
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)\s*(?::([^}]*))?\s*\}\}/gi;
+const unresolvedAiData = () => Object.assign(new Error("Generate the AI data value in the data utility before running the test."), {
+  code: "TEST_DATA_AI_GENERATION_REQUIRED"
+});
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
   "t.random": "{{randomString:3}}",
@@ -122,7 +125,7 @@ export const materializeTemplateValue = (value: unknown, now = new Date()): stri
       return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
     }
     if (kind === "yopmail") return `hellotest-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
-    if (kind === "aidata") return option.toLowerCase().includes("email") ? `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com` : `ai-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}`;
+    if (kind === "aidata") throw unresolvedAiData();
     return resolveDate(option || "YYYY-MM-DD", now);
   };
 
@@ -164,7 +167,11 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     for (const [key, value] of Object.entries(values || {})) {
       const scoped = normalizeScopedParameterKey(key, scope);
       if (!scoped) continue;
-      context.values[scoped] = envelope.parameters_frozen ? stringifyValue(value) : materializeTemplateValue(value);
+      if (envelope.parameters_frozen) {
+        const frozen = stringifyValue(value);
+        if (/\{\{\s*aiData\s*(?::[^{}]*)?\}\}/i.test(frozen)) throw unresolvedAiData();
+        context.values[scoped] = frozen;
+      } else context.values[scoped] = materializeTemplateValue(value);
     }
   };
   const entries = (values: Array<{ key: string; value: string }> = []) => Object.fromEntries(values.map((entry) => [entry.key, entry.value]));

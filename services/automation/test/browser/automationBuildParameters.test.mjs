@@ -13,7 +13,7 @@ const root=new URL('../../../platform/frontend/',import.meta.url);
 test('build data review keeps inherited defaults, accepts deliberate blanks, protects private bindings and queues only reviewed scoped changes', {timeout:180000}, async()=>{
  const template=await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs',import.meta.url),'utf8');
  let fixture=runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
- fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';","import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';import '/src/product-experience.css';")
+ fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';","import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';import {testingApi} from '/services/testing/frontend/api.client';import '/src/product-experience.css';")
   .replace("{path:'/test-cases',element:<TestCasesPage/>}","{path:'/automation',element:<AutomationPage/>}")
   .replace("initialEntries:['/test-cases?case=case1']","initialEntries:[new URLSearchParams(location.search).has('create')?'/automation?create=1&manual=manual1':new URLSearchParams(location.search).has('batch')?'/automation':'/automation?case=case1']");
  fixture=fixture.replace('const client=new QueryClient',`
@@ -22,6 +22,7 @@ test('build data review keeps inherited defaults, accepts deliberate blanks, pro
  steps.splice(0,steps.length,{id:'s1',test_case_id:'case1',step_order:1,step_type:'web',action:'Enter @r.name and @r.email',expected_result:'Configured account is displayed',automation_code:'',api_request:null});
  const manualSteps=steps.map(step=>({...step,id:'manual-s1',test_case_id:'manual1'}));const other={...item,id:'case2',display_id:'AT_14',title:'Second registration',manual_test_case_id:null,manual_test_case_ids:[]};let created=null;
  window.builds=[];window.creates=[];window.planReads=[];window.integrationReads=[];
+ window.aiDataRequests=[];testingApi.testDataSets.previewAiData=async input=>{window.aiDataRequests.push(input);return new Promise(resolve=>{window.resolveAiData=resolve;});};
  api.integrations.list=async input=>{window.integrationReads.push(input);return[{id:'placeholder-model',name:'Example model',model:'example',type:'llm',is_active:true},{id:'reviewed-model',name:'Reviewed model',model:'fixture-model',type:'llm',is_active:true}];};
  api.testCases.list=async()=>[item,other,manual,...(created?[created]:[])];api.testCases.listPage=async()=>({items:await api.testCases.list(),is_last:true,next_cursor:null});
  api.testCases.get=async id=>structuredClone(id==='manual1'?manual:id==='created1'?created:id==='case2'?other:item);
@@ -60,6 +61,21 @@ test('build data review keeps inherited defaults, accepts deliberate blanks, pro
   await page.waitForFunction(()=>window.builds.length===1);
   let request=await page.evaluate(()=>window.builds[0]);assert.deepEqual(request.parameter_values_by_case,{case1:{'t.account':'','r.name':'  Reviewed Name  ','r.email':'','r.password':'local-private-value'}});
   assert.deepEqual(request.parameter_plan_keys_by_case,{case1:'reviewed:case1'});assert.equal(await page.evaluate(()=>window.updates.length),0,'review never saves inherited/default/private values through case update');
+  phase='slow AI data generation';await start();await expect(dialog()).toBeVisible();
+  await row('r.email').locator('textarea').fill('{{aiData:fictional customer email}}');
+  await expect(dialog().getByRole('button',{name:'Continue with 3 blank values',exact:true})).toBeDisabled();
+  await row('r.name').locator('textarea').focus();
+  await expect(dialog().getByRole('button',{name:'Generating test data…',exact:true})).toBeDisabled();
+  await page.waitForFunction(()=>typeof window.resolveAiData==='function');
+  assert.equal(await page.evaluate(()=>window.builds.length),0);
+  const pool='{{oneOf:WyJjdXN0b21lckBleGFtcGxlLnRlc3QiXQ}}';
+  await page.evaluate(value=>window.resolveAiData({generation_mode:'llm',suggestions:[{value:'customer@example.test'}],randomized_template:value}),pool);
+  await expect(row('r.email').locator('textarea')).toHaveValue(pool);
+  await dialog().getByRole('button',{name:'Continue with 2 blank values',exact:true}).click();
+  await page.waitForFunction(()=>window.builds.length===1);
+  assert.equal(await page.evaluate(()=>window.builds[0].parameter_values_by_case.case1['r.email']),pool);
+  assert.equal(await page.evaluate(()=>window.aiDataRequests[0].prompt),'fictional customer email');
+  phase='cancel review';
   await start();await expect(dialog()).toBeVisible();await dialog().getByRole('button',{name:'Cancel build',exact:true}).click();await expect(dialog()).toBeHidden();
   await expect(page.locator('.automation-engineer-brief')).toHaveAttribute('open', '');
   assert.equal(await page.evaluate(()=>window.builds.length),0);await expect(page.getByRole('button',{name:'Build plan',exact:true})).toBeEnabled();

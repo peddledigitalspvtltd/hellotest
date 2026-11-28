@@ -10,8 +10,9 @@ const editorSpecification=value=>specification(String(value||'')
     '&nbsp;':' ','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'",'&amp;':'&',
     '&#39;':"'",'&#34;':'"','&#x27;':"'",'&#x22;':'"'
   })[entity.toLowerCase()]));
+const specificationRuntime = step => step.step_type === 'manual' ? 'web' : step.step_type || 'web';
 const sameSpecification=(left,right,normalize)=>normalize(left.action)===normalize(right.action)
-  &&normalize(left.expected_result)===normalize(right.expected_result)&&(left.step_type||'web')===(right.step_type||'web');
+  &&normalize(left.expected_result)===normalize(right.expected_result)&&specificationRuntime(left)===specificationRuntime(right);
 function matchManualCoverage(steps,manualSteps) {
   const coverage=new Map(),used=new Map();
   for(const manual of manualSteps){
@@ -37,6 +38,17 @@ function groundedManualCoverage(steps,manualCases=[]){
  }
  const manualCoverage=manualSteps.filter(step=>matched.has(step.id)).map(step=>({manual_step_id:step.id,manual_test_case_id:step.test_case_id,section_step_id:matched.get(step.id)}));
  return {manualSteps,manualSpecification:manualSteps,manualCoverage,steps:steps.map(step=>({...step,active_manual_step_ids:manualCoverage.filter(row=>row.section_step_id===step.id).map(row=>row.manual_step_id)})),unmappedManualStepIds:manualSteps.filter(step=>!matched.has(step.id)).map(step=>step.id)};
+}
+function requireGroundedManualCoverage(steps, manualCases, { beforeDispatch = true } = {}) {
+  const lineage = groundedManualCoverage(steps, manualCases);
+  if (lineage.unmappedManualStepIds.length) {
+    throw Object.assign(new Error('The saved Plan does not cover every linked manual step with the same action and expected result. Align the Plan with the linked manual case before building.'), {
+      code: 'AUTOMATION_MANUAL_COVERAGE_INCOMPLETE', statusCode: 422, nonRetryable: true,
+      failure_stage: 'context', active_manual_step_ids: lineage.unmappedManualStepIds,
+      ...(beforeDispatch ? { generation_provider_requests: 0, browser_actions: 0 } : {})
+    });
+  }
+  return lineage;
 }
 /** Validate and finalize each mapping before an optional save commits it to Plan. */
 async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,displayManualSteps=manualSteps,sequential=false,progressionPolicy='generated_saved',availableParameters=[],generate,parse=value=>value,validate,validateOutcome,feedbackInstruction,onProgress=async()=>{},onBeforeSaveSection=async()=>{},onSaveSection,onValidatedSection=async()=>({}),maxAttempts=MAX_COMPLETION_ATTEMPTS}) {
@@ -254,4 +266,4 @@ async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,
   const publicMessage=`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated.${validationFeedback.length?' '+validationFeedback.map(item=>item.message).join(' '):' Check the unfinished section mappings and linked manual coverage.'}`.slice(0,2000);
   throw Object.assign(new Error(`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated and ${coverage.size} of ${manualSteps.length} linked manual steps mapped after ${attemptsMade} requests. Existing instructions were retained.`),{code:'AUTOMATION_BUILD_INCOMPLETE',statusCode:422,publicMessage,validation_feedback:validationFeedback,completed_sections:accepted.size,saved_sections:saved.size,saved_step_ids:[...saved],total_sections:steps.length,pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),missing_manual_step_ids:manualSteps.filter(step=>!coverage.has(step.id)).map(step=>step.id)});
 }
-module.exports={completeAutomationBuild,MAX_COMPLETION_ATTEMPTS,matchManualCoverage,groundedManualCoverage};
+module.exports={completeAutomationBuild,MAX_COMPLETION_ATTEMPTS,matchManualCoverage,groundedManualCoverage,requireGroundedManualCoverage};

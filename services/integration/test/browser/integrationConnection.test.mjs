@@ -113,6 +113,58 @@ test('all integration forms test saved/draft settings, show outcomes, and discar
  } finally { await browser?.close(); await Promise.allSettled([unlink(html), unlink(tsx)]); }
 });
 
+test('LLM creation and editing save an explicit preferred default choice', { timeout: 60000 }, async () => {
+ const setup = `
+window.llmDefaultWrites = [];
+api.integrations.list = async () => structuredClone(profiles);
+api.integrations.create = async input => {
+  window.llmDefaultWrites.push(input);
+  const row = { ...input, id: 'new-llm' };
+  profiles.push(row);
+  return { id: row.id };
+};
+api.integrations.update = async (id, input) => {
+  window.llmDefaultWrites.push(input);
+  Object.assign(profiles.find(row => row.id === id), input);
+  return { updated: true };
+};
+`;
+ const name = 'preferred-llm-' + randomUUID();
+ const html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
+ let browser;
+ try {
+  await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  await writeFile(tsx, fixture.replace('createRoot(document.getElementById', setup + '\ncreateRoot(document.getElementById'));
+  browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5178'}/${name}.html`);
+  await page.getByRole('button', { name: 'New Integration', exact: true }).click();
+  await page.getByLabel('Integration type', { exact: true }).selectOption('ai');
+  await page.getByLabel('Provider', { exact: true }).selectOption('llm');
+  await page.getByLabel('Name', { exact: true }).fill('Preferred fixture model');
+  await page.getByLabel('Model', { exact: true }).fill('fixture-model');
+  await page.getByLabel('API Key', { exact: true }).fill('fixture-key');
+  const preferred = page.getByRole('checkbox', { name: 'Preferred default LLM', exact: true });
+  await preferred.check();
+  await page.getByRole('button', { name: 'Create integration', exact: true }).click();
+  await page.getByText('Integration created.', { exact: true }).waitFor();
+  const save = page.getByRole('button', { name: 'Save integration', exact: true });
+  await save.waitFor();
+  assert.equal(await preferred.isChecked(), true);
+  await page.getByLabel('Name', { exact: true }).fill('Updated fixture model');
+  await save.click();
+  await page.waitForFunction(() => window.llmDefaultWrites.length === 2);
+  assert.equal(await page.evaluate(() => Object.hasOwn(window.llmDefaultWrites[1], 'is_default')), false);
+  await preferred.uncheck();
+  await save.click();
+  await page.waitForFunction(() => window.llmDefaultWrites.length === 3);
+  assert.deepEqual(await page.evaluate(() => window.llmDefaultWrites.map(input => input.is_default ?? null)), [true, null, false]);
+ } finally {
+  await browser?.close();
+  await Promise.allSettled([unlink(html), unlink(tsx)]);
+ }
+});
+
 test('Credentials creation selects HTTP only and keeps MCP management in Agent Studio', { timeout: 60000 }, async () => {
  const setup = `
 agenticApi.workflowConnections.list = async () => [];

@@ -17,11 +17,9 @@ export function AutomationCaseRuns({ activeCase, appTypeId, automationLlmIntegra
     <TraceabilityRunHistory appTypeId={appTypeId || undefined} projectId={projectId} testCaseId={activeCase.id} compact/>
     {canRepair ? <details className="automation-run-profile" onToggle={event => { if (event.currentTarget.open) setOpenedRepair(true); }}>
       <summary>Automation Repair</summary>
-      {openedRepair ? <section className="automation-agent-workspace automation-maintenance-workspace" aria-label="Automation Repair">
-        <AiLifecycleReview key={activeCase.id} projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }}
-          renderAutomationRepair={summary => <AutomationRepairReview summary={summary}/>} features={["automation-repair"]}
-          integrations={asArray(automationLlmIntegrationsQuery.data)} title="Automation Repair"/>
-      </section> : null}
+      {openedRepair ? <AiLifecycleReview embedded key={activeCase.id} projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }}
+        renderAutomationRepair={summary => <AutomationRepairReview summary={summary}/>} features={["automation-repair"]}
+        integrations={asArray(automationLlmIntegrationsQuery.data)} title="Automation Repair"/> : null}
     </details> : null}
   </div>;
 }

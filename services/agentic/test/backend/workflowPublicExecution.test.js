@@ -32,7 +32,7 @@ test('workflow execution API exposes owned node I/O while retaining private line
   const registered = new Map();
   const app = { ...Object.fromEntries(['get','post','put','delete'].map(method=>[method,(path,...args)=>registered.set(`${method} ${path}`,args.at(-1))])),
     authenticate:async()=>{},validate:()=>{},requirePermission:()=>async()=>{} };
-  const internal = { id:'run',project_id:'project-a',node_results:[{node_id:'native',output:{data:[{owned:'case'}]},progress:{completed_items:[{owned:'progress'}],automation_checkpoint:{input_fingerprint:'private lineage fingerprint',stories:[{automation:[{executable:{code:'private checkpoint source'}}]}]}},execution_context:{data:[{story_id:'s',story_revision:'r',earlier_review:'private lineage'}]}}] };
+  const internal = { id:'run',project_id:'project-a',node_results:[{node_id:'native',node_type:'artifactTask',output:{data:[{owned:'case'}]},progress:{completed_items:[{owned:'progress'}],automation_checkpoint:{input_fingerprint:'private lineage fingerprint',stories:[{automation:[{executable:{code:'private checkpoint source'}}]}]}},execution_context:{data:[{story_id:'s',story_revision:'r',earlier_review:'private lineage'}]}}] };
   t.mock.method(projects,'getProject',async()=>({id:'project-a'}));
   t.mock.method(workflows,'getWorkflow',async()=>({id:'workflow',project_id:'project-a'}));
   t.mock.method(workflows,'getWorkflowRun',async()=>internal);
@@ -50,7 +50,7 @@ test('workflow execution API exposes owned node I/O while retaining private line
     assert.deepEqual(value.node_results[0].output,{data:[{owned:'case'}]});
     assert.equal(Object.hasOwn(value.node_results[0],'execution_context'),false);
     assert.equal(JSON.stringify(value).includes('private lineage'),false);
-    assert.deepEqual(value.node_results[0].progress,{completed_items:[{owned:'progress'}]});
+    assert.equal(Object.hasOwn(value.node_results[0],'progress'),false);
     assert.equal(JSON.stringify(value).includes('private checkpoint source'),false);
   }
   assert.equal(internal.node_results[0].execution_context.data[0].earlier_review,'private lineage','HTTP projection cannot mutate the recorded acceptance checkpoint');
@@ -138,7 +138,7 @@ test('workflow execution routes recheck automation source permission and feature
     assert.equal(run.node_results[0].output.data[0].title,'Readable manual case');
     assert.deepEqual(run.node_results[1].input,internal.node_results[1].input,'Source-free prior native task input remains readable');
     for(const index of [1,2,3]) assert.equal(run.node_results[index].output.automation_source_hidden,true);
-    assert.equal(run.node_results[1].progress.automation_source_hidden,true);
+    assert.equal(Object.hasOwn(run.node_results[1],'progress'),false);
     assert.equal(run.node_results[2].input.automation_source_hidden,true);
     assert.equal(run.node_results[3].input.automation_source_hidden,true,'A subsequent Automation Engineer also inherits the source permission boundary');
     assert.deepEqual(run.node_results[2].logs,[],'Derived free-text logs cannot bypass code permission');
@@ -196,7 +196,8 @@ test('native foreach histories redact generated source at every iteration and ke
   assert.equal(denied.node_results[0].iterations[0].output.data[0].title, 'Earlier manual case');
   const history = denied.node_results[1].iterations[0];
   for (const entry of [history, history.iterations[0]]) {
-    for (const field of ['input', 'output', 'progress', 'error_details']) assert.equal(entry[field].automation_source_hidden, true);
+    for (const field of ['input', 'output', 'error_details']) assert.equal(entry[field].automation_source_hidden, true);
+    assert.equal(Object.hasOwn(entry, 'progress'), false);
     assert.deepEqual(entry.logs, []);
     assert.equal(Object.hasOwn(entry, 'execution_context'), false);
     assert.deepEqual(entry.iteration_path, snapshot.iteration_path);
@@ -206,7 +207,7 @@ test('native foreach histories redact generated source at every iteration and ke
   const allowedHistory = allowed.node_results[1].iterations[0];
   assert.equal(allowedHistory.output.data[0].automation[0].executable.code, code);
   assert.equal(allowedHistory.iterations[0].input.input.automation[0].steps[0].automation_code, code);
-  assert.deepEqual(allowedHistory.progress.completed_items, [packet]);
+  assert.equal(Object.hasOwn(allowedHistory, 'progress'), false);
   assert.doesNotMatch(JSON.stringify(allowed), /private-lineage-marker|private-checkpoint-marker|execution_context|automation_checkpoint/);
   assert.equal(allowed.output_payload.results[0].output.data[0].automation[0].executable.code, code);
   assert.equal(JSON.stringify(internal), before, 'Projection must retain all saved acceptance/replay checkpoints internally');

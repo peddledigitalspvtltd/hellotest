@@ -1,0 +1,280 @@
+.page-content--automation > .modal-backdrop.automation-create-backdrop {
+  --create-dialog-top: max(1rem, min(5vh, 48px), env(safe-area-inset-top));
+  align-items: flex-start !important;
+  overflow: hidden !important;
+  padding-top: var(--create-dialog-top) !important;
+}
+
+.modal-backdrop.automation-create-backdrop > .resource-modal-card.automation-authoring-create {
+  --create-dialog-padding: clamp(14px, 2.8vw, 26px);
+  width: min(980px, 100%) !important;
+  max-height: calc(100dvh - var(--create-dialog-top) - max(1rem, env(safe-area-inset-bottom))) !important;
+  gap: 0;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  scrollbar-gutter: auto;
+}
+
+.automation-authoring-create > .resource-modal-header {
+  align-items: center;
+  margin: 0;
+  padding: 14px var(--create-dialog-padding) !important;
+}
+
+.automation-authoring-create > .resource-modal-header > .dialog-title {
+  margin: 0;
+}
+
+.automation-authoring-create .resource-form {
+  gap: 0;
+}
+
+.automation-authoring-create .resource-form-body {
+  display: block;
+  padding: 18px var(--create-dialog-padding) 22px;
+}
+
+.automation-create-fields {
+  display: grid;
+  gap: 22px;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.automation-create-identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.automation-create-columns {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 22px;
+}
+
+.automation-create-setup,
+.automation-create-plan-panel,
+.automation-create-disclosure-body,
+.automation-create-browser {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.automation-create-plan-panel {
+  border: 1px solid var(--app-border, var(--ui-border));
+  border-radius: var(--app-radius, var(--ui-radius));
+  padding: 14px;
+  background: var(--app-surface-muted, var(--ui-surface-subtle));
+}
+
+.automation-create-setup > h3,
+.automation-create-plan-panel > h3 {
+  margin: 0;
+  font-size: .875rem;
+  font-weight: 650;
+}
+
+.automation-create-setup > .automation-build-methods {
+  gap: 5px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--app-border, var(--ui-border));
+  border-radius: 8px;
+  background: var(--app-surface-muted, var(--ui-surface-subtle));
+}
+
+.automation-create-setup > .automation-build-methods > button {
+  flex: 1 1 auto;
+  justify-content: center;
+  min-height: 36px;
+  gap: 5px;
+  padding: 5px 7px;
+  border-color: transparent;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.automation-create-setup > .automation-build-methods > button:hover:not(:disabled),
+.automation-create-setup > .automation-build-methods > button[aria-pressed="true"] {
+  border-color: var(--app-border, var(--ui-border));
+  background: var(--app-surface, var(--ui-surface));
+}
+
+.automation-create-setup > .automation-build-methods > button[aria-pressed="true"] {
+  font-weight: 650;
+}
+
+.automation-authoring-create .form-field {
+  min-width: 0;
+  margin: 0;
+}
+
+.automation-authoring-create .form-field > textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+}
+
+.automation-create-disclosure {
+  min-width: 0;
+  border-top: 1px solid var(--app-border, var(--ui-border));
+}
+
+.automation-create-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: .8125rem;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.automation-create-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.automation-create-disclosure > summary::after {
+  width: .43rem;
+  height: .43rem;
+  margin-inline: auto 4px;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: rotate(45deg);
+  opacity: .65;
+  flex: 0 0 auto;
+  content: "";
+}
+
+.automation-create-disclosure[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+.automation-create-disclosure-body {
+  padding: 3px 0 7px;
+}
+
+.automation-create-source-preview > summary {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.automation-create-source-preview > summary > small {
+  color: var(--app-text-muted, var(--ui-text-muted));
+  font-weight: 400;
+}
+
+.automation-create-source-preview > ol {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding-inline-start: 22px;
+  overflow-wrap: anywhere;
+}
+
+.automation-create-plan-panel .automation-draft-plan {
+  gap: 12px;
+}
+
+.automation-create-plan-panel .automation-draft-plan > section {
+  min-width: 0;
+  margin: 0;
+}
+
+.automation-create-plan-panel .automation-draft-plan > section > header {
+  margin: 0 0 4px;
+}
+
+.automation-create-plan-panel .automation-draft-behavior > summary,
+.automation-create-plan-panel .automation-draft-behavior-fields {
+  overflow-wrap: anywhere;
+}
+
+.automation-create-api-import .api-source-intake {
+  padding: 0 0 5px;
+  border: 0;
+  background: transparent;
+}
+
+.automation-create-api-import .api-source-intake-controls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.automation-create-source-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.automation-create-error,
+.automation-create-import-status {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: .8125rem;
+}
+
+.automation-create-error {
+  color: var(--ui-red-text);
+}
+
+.automation-create-import-status {
+  color: var(--app-text-muted, var(--ui-text-muted));
+}
+
+.automation-authoring-create .resource-form-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  border-top: 1px solid var(--hellotest-dialog-border, var(--app-border));
+  padding: 11px var(--create-dialog-padding);
+  background: var(--hellotest-dialog-surface, var(--app-surface));
+}
+
+.automation-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+@media (max-width: 760px) {
+  .page-content--automation > .modal-backdrop.automation-create-backdrop {
+    --create-dialog-top: max(1rem, env(safe-area-inset-top));
+  }
+
+  .automation-create-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .automation-create-fields {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  .automation-create-identity,
+  .automation-create-api-import .api-source-intake-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .automation-authoring-create .resource-form-footer {
+    flex-wrap: wrap;
+  }
+
+  .automation-create-plan-panel {
+    padding: 10px;
+  }
+}

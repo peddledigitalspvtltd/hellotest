@@ -3,10 +3,11 @@ import type { AgenticWorkflowRun, AiArtifactAssuranceReview } from "@hellotest/p
 import { ArtifactAssuranceWorkspace } from "@hellotest/ai/frontend/components/ArtifactAssuranceWorkspace";
 import { useCapabilityAccess } from "@hellotest/platform/frontend/src/platform/hooks/useCapabilityAccess";
 import { agenticApi } from "../api.client";
-import { automationVerificationId, collectSprintDrafts, savedSprintCaseIds, sprintTaskRecords } from "./sprintDraftResults";
+import { automationExecutionIssue, automationVerificationId, collectSprintDrafts, savedSprintCaseIds, sprintTaskRecords } from "./sprintDraftResults";
 import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowDataView } from "./WorkflowDataView";
 import { WorkflowAutomationSections } from "./WorkflowAutomationSections";
+import { WorkflowTestDataDetails } from './WorkflowTestDataResult';
 import { WorkflowFailureResolution } from "./WorkflowFailureDetails";
 
 type PublicationReceipt = { id: string; story_id: string; case_index: number; kind: "manual" | "automation"; saved: boolean; requires_review: boolean };
@@ -58,23 +59,15 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
       {packet.story_assurance?.failure?.message && <div className="studio-notice" role="status"><strong>Story assurance needs review</strong><p>{packet.story_assurance.failure.message}</p></div>}
       {packet.test_case_generation?.failure?.message && <div className="studio-notice" role="status"><strong>Test Case generation needs review</strong><p>{packet.test_case_generation.failure.message}</p></div>}
       {packet.automation_progress && <div className="studio-notice" role="status">
-        <strong>Automation · {packet.automation_progress.processed} of {packet.automation_progress.total} processed</strong>
-        <p>{packet.automation_progress.completed} draft{packet.automation_progress.completed === 1 ? "" : "s"} · {packet.automation_progress.failed} failed · {packet.automation_progress.needs_input} need input</p>
-        <progress aria-label={`Automation progress for ${packet.story?.title || packet.story_id}`} max={Math.max(1, packet.automation_progress.total)} value={packet.automation_progress.processed} />
+        <strong>{packet.automation_progress.completed} automation draft{packet.automation_progress.completed === 1 ? "" : "s"} · {packet.automation_progress.failed} failed · {packet.automation_progress.needs_input} need input</strong>
       </div>}
       {packet.story_assurance?.analysis && <details><summary>Story quality metrics and evidence</summary><ArtifactAssuranceWorkspace analysis={packet.story_assurance.analysis} title="AI Story Assurance" reviewState="review-required" analysisSource="ai" criteriaKey="metric.assurance.story" /></details>}
       {packet.cases.map((draft, caseIndex) => <article key={`${packet.story_id}:${caseIndex}`}>
         <h4>{draft.title}</h4><p>{draft.description}</p>
         {draft.gherkin_document ? <pre>{draft.gherkin_document}</pre> : <ol>{draft.steps?.map((step, index) => <li key={index}><strong>{String(step.action || "")}</strong><p>Expected: {String(step.expected_result || "")}</p></li>)}</ol>}
         {draft.parameter_values && Object.keys(draft.parameter_values).length > 0 && <details><summary>Test data and parameters</summary><WorkflowDataView value={draft.parameter_values} defaultMode="json" jsonLabel="Test Case parameters JSON" copyJsonLabel="Copy Test Case parameters JSON" /></details>}
-        {packet.test_data?.[caseIndex] && <details><summary>Prepared data · {packet.test_data[caseIndex]?.source === "dataset" ? packet.test_data[caseIndex]?.test_data_set_name || "Test Data Set" : "Synthetic"} · {packet.test_data[caseIndex]?.status}</summary>
-          {packet.test_data[caseIndex]?.message && <p>{packet.test_data[caseIndex]?.message}</p>}
-          {packet.test_data[caseIndex]?.status === "ready" && Number(packet.test_data[caseIndex]?.existing_parameter_count) > 0 && packet.test_data[caseIndex]?.model_calls_attempted === 0 && !Object.keys(packet.test_data[caseIndex]?.parameter_values || {}).length
-            && <p>Using {packet.test_data[caseIndex]?.existing_parameter_count} existing case parameters; no additional generation required.</p>}
-          {packet.test_data[caseIndex]?.missing_parameters?.length ? <p>Needs input: {packet.test_data[caseIndex]!.missing_parameters!.join(", ")}</p> : null}
-          {packet.test_data[caseIndex]?.private_parameter_names?.length ? <p>Protected references: {packet.test_data[caseIndex]!.private_parameter_names!.join(", ")}</p> : null}
-          {packet.test_data[caseIndex]?.deterministic_fallbacks?.map((item, index) => <p key={index}>{item.parameter}: {item.reason}</p>)}
-          {packet.test_data[caseIndex]?.parameter_values && Object.keys(packet.test_data[caseIndex]!.parameter_values!).length > 0 && <WorkflowDataView value={packet.test_data[caseIndex]!.parameter_values} defaultMode="json" jsonLabel="Prepared case data JSON" copyJsonLabel="Copy prepared data JSON" />}
+        {packet.test_data?.[caseIndex] && <details><summary>Prepared data · {packet.test_data[caseIndex]?.source === "dataset" ? packet.test_data[caseIndex]?.test_data_set_name || "Test Data Set" : "Case data and synthetic samples"} · {packet.test_data[caseIndex]?.status === 'ready' ? 'Ready' : 'Needs input'}</summary>
+          <WorkflowTestDataDetails data={packet.test_data[caseIndex]!} />
         </details>}
         {packet.case_assurance_failures?.[caseIndex] && <div role="status" className="studio-notice"><strong>Test Case assurance needs review</strong><p>{packet.case_assurance_failures[caseIndex]?.message}</p></div>}
         <AutomationReadiness readiness={packet.case_assurance?.[caseIndex]?.assurance_review?.automation_readiness} built={packet.automation?.[caseIndex]?.validation?.status === "passed"} />
@@ -87,8 +80,8 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
             ? "The browser action outcome is unknown. Review and reconcile the current application state before retrying; completed drafts are retained."
             : "Completed drafts are retained. Review this case’s inputs and instructions before retrying."}</p>
         </div>)}
-        {packet.automation?.[caseIndex] && <details><summary>{packet.automation[caseIndex]?.live_validation?.status === "blocked"
-          ? "Draft generated · Live validation blocked · unverified"
+        {packet.automation?.[caseIndex] && <details><summary>{automationExecutionIssue(packet.automation[caseIndex])
+          ? `Draft generated · ${automationExecutionIssue(packet.automation[caseIndex])} · unverified`
           : automationVerificationId(packet.automation[caseIndex]) ? "Generated draft · Verified in an isolated browser check" : "Generated draft · Unverified"}</summary>
           {packet.automation[caseIndex]?.verification?.message && <p>{packet.automation[caseIndex]?.verification?.message}</p>}
           {automationVerificationId(packet.automation[caseIndex]) && <p>Verification receipt {automationVerificationId(packet.automation[caseIndex])}</p>}

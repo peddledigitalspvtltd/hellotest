@@ -42,6 +42,7 @@ function WorkflowNode({
 }) {
   const kind = String(data.kind || "agent") as WorkflowNodeKind;
   const status = String(data.runStatus || "");
+  const disabled = data.disabled === true;
   const onInsert = useContext(InsertionContext);
   const loops = useContext(LoopPresentation);
   const connectedPorts = useContext(ConnectedPortsContext);
@@ -63,6 +64,7 @@ function WorkflowNode({
       className={`studio-node ${selected ? "is-selected" : ""}`}
       data-kind={kind}
       data-status={status}
+      data-disabled={disabled || undefined}
       data-multi-output={ports.length > 0 || undefined}
       style={ports.length > 2 ? { minHeight: `${56 + ports.length * 34}px` } : undefined}
     >
@@ -76,14 +78,14 @@ function WorkflowNode({
         <small>{nodeKindLabels[kind] || kind}</small>
         <strong>{String(data.label || "Untitled step")}</strong>
         <span>
-          {status
+          {disabled ? "Disabled" : status
             ? status.replace(/_/g, " ")
             : EXECUTABLE_NODE_KINDS.has(kind)
               ? kind === "trigger"
                 ? "On configured trigger"
                 : kind === "output"
                   ? "Review the results"
-                  : "Open to configure"
+                  : onInsert ? "Open to configure" : "View step"
               : "Unsupported node"}
         </span>
       </div>

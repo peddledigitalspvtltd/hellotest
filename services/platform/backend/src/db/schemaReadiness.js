@@ -16,8 +16,12 @@
 // Existing databases must run the normal additive migration before verify.
 // Version 25 adds persistent login protection, immutable Story/run snapshots,
 // suite module membership and durable generation failure/stage contracts.
-const REQUIRED_SCHEMA_VERSION = 25;
+// Version 26 stores exact tool scope on manual MCP host credentials.
+// Version 27 persists a single preferred active LLM integration.
+const REQUIRED_SCHEMA_VERSION = 27;
 const MAIN_SCHEMA_CONTRACTS = [
+  ['integrations','is_default'],
+  ['mcp_credentials','tool_names'],
   ['auth_login_protection','email'],['auth_login_protection','failure_count'],['auth_login_protection','locked_until'],['auth_login_protection','last_notice_at'],
   ['execution_case_snapshots','requirement_snapshots'],['test_suites','module_ids'],['test_suites','module_membership'],
   ['feedback','linked_execution_result_id'],['feedback','linked_step_id'],

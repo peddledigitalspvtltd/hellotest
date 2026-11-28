@@ -1,11 +1,20 @@
+const { tokenFor } = require('@hellotest/platform/backend/src/utils/parameterNames');
+const { apiParameterBindingContext } = require('./automationApiParameterContract');
+
 const invalid = (message, code = 'AUTOMATION_UPSTREAM_API_INVALID') =>
   Object.assign(new Error(message), { code, statusCode: 422, nonRetryable: true });
 
 /** Generate one native HTTP contract inside a mixed plan without making a
  * request to the application. The same native normalizer is used for an API
  * plan built entirely from its authored specification. */
-async function generateApiSection({ step, startUrl, brief, context, authoredFlow, configuredContract, privateScope,
+async function generateApiSection({ step, startUrl, brief, context, authoredFlow, configuredContract, privateScope, earlierCaptures = [],
   complete, parse, normalize, validate, redact, guard }) {
+  const expected = apiParameterBindingContext(step, Object.fromEntries(earlierCaptures.map(name => [name, ''])));
+  const referenced = new Set([
+    ...expected.action, ...expected.expected_result, ...Object.values(expected.api_request).flat(),
+    ...(step.parameter_references || []).map(tokenFor)
+  ]);
+  const captureBindings = earlierCaptures.filter(name => referenced.has(tokenFor(name)));
   let feedback;
   for (let attempt = 0; attempt < 3; attempt++) {
     await guard();
@@ -15,6 +24,10 @@ async function generateApiSection({ step, startUrl, brief, context, authoredFlow
         task: 'Generate only this authored API section using its documented request and response assertions. Return the native automation JSON contract: {summary:"...",steps:[{step_id:"exact current id",step_type:"api",api_request:{...}}]}. Preserve the authored method, endpoint, parameter references and expected results. API requests are run by Test Engine when the complete plan is executed.',
         current_section: step, start_url: startUrl, brief, context, parameters: privateScope.parameterValues,
         private_parameter_tokens: privateScope.references, private_parameter_availability: privateScope.availability,
+        ...(captureBindings.length ? { prior_api_captures: {
+          references: captureBindings.map(tokenFor), availability: 'test_run_only',
+          instruction: 'Preserve these exact references when consuming earlier API captures. The build has no response values.'
+        } } : {}),
         configured_contract: configuredContract, authored_flow: authoredFlow, feedback
       }) }));
     } catch (error) {
@@ -25,7 +38,7 @@ async function generateApiSection({ step, startUrl, brief, context, authoredFlow
     }
     try {
       privateScope.assertArguments(proposal);
-      const build = await normalize(proposal, [step]);
+      const build = await normalize(proposal, [step], captureBindings);
       const update = build?.updates?.[0];
       if (build?.updates?.length !== 1 || update?.step?.id !== step.id || update.step_type !== 'api' || !update.api_request || update.automation_code) {
         throw invalid('Return exactly one complete native API request for the current authored section.');

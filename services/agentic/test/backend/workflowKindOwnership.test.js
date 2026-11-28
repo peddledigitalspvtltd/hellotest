@@ -59,3 +59,50 @@ test('connection preflight dispatches only the kind-owned protocol and validates
   await assert.rejects(registry.get('apiTool').preflight.connection({workflow,node:{data:{connectionId:'http',apiMethod:'POST'}}}),/method is not enabled/);
   await assert.rejects(registry.get('mcpTool').preflight.connection({workflow,node:{data:{connectionId:'mcp',mcpTool:'write'}}}),/Enable this tool/);
 });
+
+test('Browser Quality Agent nodes use the pinned environment and return only the validated assessment', async t => {
+  const adapter = registry.get('qualityAgent');
+  const quality = require('../../backend/services/qualityAgents.service');
+  const environments = require('@hellotest/testing/backend/services/testEnvironment.service');
+  const access = require('../../backend/workflows/artifactTasks');
+  let project = 'project';
+  t.mock.method(access, 'access', async (_user, projectId, permissions) => {
+    assert.equal(projectId, 'project'); assert.deepEqual(permissions, ['environment.view']);
+  });
+  t.mock.method(environments, 'getTestEnvironment', async id => {
+    assert.equal(id, 'qa');
+    return {project_id: project, app_type_id: 'app', base_url: 'https://qa.example.test'};
+  });
+  const calls = [];
+  t.mock.method(quality, 'createRun', async (request, _user, options) => {
+    calls.push({request, options});
+    return {id:'quality-run', kind:request.kind, status:'completed', outcome:'passed',
+      agent_assessment:{summary:'Final evidence assessment'}, metrics:{pages:1},
+      findings:[], limitations:[], stages:[{label:'Intermediate browser status'}], mission_progress:{percent:90}};
+  });
+  const run = {id:'workflow-run', project_id:'project', app_type_id:'app', iteration_path:['loop',0],
+    input_payload:{path:'/catalog', quality_review:{target_url:'https://wrong.example.test', options:{credential_ref:'drop',mission:{max_actions:2,allow_form_submission:true}}}}};
+  const node = {id:'journey', data:{kind:'qualityAgent', qualityAgentKind:'web', testEnvironmentId:'qa', qualityTargetPath:'$request.path'}};
+  const execute = () => adapter.execute({run, node, sources:[], user:{id:'actor'}, signal:new AbortController().signal});
+  const result = await execute();
+  assert.equal(result.quality_run_id,'quality-run');
+  assert.deepEqual(result.assessment,{summary:'Final evidence assessment'});
+  assert.doesNotMatch(JSON.stringify(result), /Intermediate browser status|mission_progress/);
+  assert.equal(calls[0].request.target_url,'https://qa.example.test/catalog');
+  assert.deepEqual(calls[0].request.options,{mission:{max_actions:2,allow_form_submission:false}});
+  assert.deepEqual(calls[0].options.workflowTrace,{run_id:'workflow-run',node_id:'journey'});
+  await execute();
+  assert.equal(calls[0].options.requestKey,calls[1].options.requestKey);
+  run.iteration_path = ['loop',1];
+  node.data.qualityAgentKind = 'security';
+  await execute();
+  assert.notEqual(calls[0].options.requestKey,calls[2].options.requestKey);
+  assert.deepEqual(calls[2].request.options,{});
+  run.input_payload.path = '//wrong.example.test/escape';
+  await assert.rejects(execute,/relative page path/);
+  delete run.input_payload.path;
+  await assert.rejects(execute,/mapped page path is unavailable/);
+  project = 'foreign';
+  await assert.rejects(execute,/workflow project and application/);
+  assert.equal(calls.length,3);
+});

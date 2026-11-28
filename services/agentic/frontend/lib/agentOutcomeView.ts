@@ -56,13 +56,15 @@ export function agentOutcomeReviewState(result: AgenticAssistantResult, citation
     || result.readiness?.status === 'insufficient_evidence' || issues.length || missingSources);
   const clean = result.no_changes_required === true && result.verification?.status === 'passed' && !issues.length;
   const incomplete = !artifacts.length && (result.outcome_contract?.mode === 'author' && !clean || issues.length > 0);
+  const repairTriage = result.automation_repair?.status === 'triaged';
   return {
     blocked,
-    label: artifacts.length ? 'Review & approve' : result.automation_repair ? 'Review repair' : incomplete ? 'Complete outcome' : 'Review conclusions',
-    title: artifacts.length ? 'Review proposed changes' : result.automation_repair ? 'Review the repair proposal' : incomplete ? 'Complete the requested outcome' : 'Review conclusions',
+    label: artifacts.length ? 'Review & approve' : repairTriage ? 'Review failure diagnosis' : result.automation_repair ? 'Review repair' : incomplete ? 'Complete outcome' : 'Review conclusions',
+    title: artifacts.length ? 'Review proposed changes' : repairTriage ? 'Review the recorded failure' : result.automation_repair ? 'Review the repair proposal' : incomplete ? 'Complete the requested outcome' : 'Review conclusions',
     description: artifacts.length
       ? 'Review each draft and its source evidence. Accepting a draft saves its reviewed fields in the destination module.'
-      : result.automation_repair ? 'Inspect the repair proposal and its validation evidence. Validation and application are managed in the repair workflow below.'
+      : repairTriage ? 'Review the failed step and its follow-up action.'
+        : result.automation_repair ? 'Inspect the repair proposal and its validation evidence. Validation and application are managed in the repair workflow below.'
         : incomplete ? 'No saveable draft was prepared. Resolve the missing evidence or completion requirements, then run the agent again.'
         : 'This outcome is an assessment. Use the findings and follow-up considerations to decide the next action.',
     blockedReason: blocked ? missingSources
@@ -84,12 +86,14 @@ export function agentOutcomeResult(result: AgenticAssistantResult) {
   const clean = result.no_changes_required === true && result.verification?.status === 'passed' && !result.outcome_issues?.length;
   const incomplete = !kinds.length && !result.automation_repair && (result.outcome_contract?.mode === 'author' && !clean || Boolean(result.outcome_issues?.length));
   const kind = kinds.length ? 'drafts' : result.automation_repair ? 'repair' : incomplete ? 'incomplete' : 'assessment';
+  const repairTriage = result.automation_repair?.status === 'triaged';
   return {
     kind,
-    title: kinds.length === 1 ? `${agentArtifactLabel(kinds[0])} outcome` : kinds.length > 1 ? 'Resulting drafts' : kind === 'repair' ? 'Repair outcome' : incomplete ? 'Outcome needs input' : 'Assessment outcome',
+    title: kinds.length === 1 ? `${agentArtifactLabel(kinds[0])} outcome` : kinds.length > 1 ? 'Resulting drafts' : repairTriage ? 'Failure diagnosis' : kind === 'repair' ? 'Repair outcome' : incomplete ? 'Outcome needs input' : 'Assessment outcome',
     body: typeof result.response === 'string' && result.response.trim() ? result.response : result.executive_summary || '',
     description: kinds.length ? 'Inspect the resulting draft in full, then review its evidence before saving.'
-      : kind === 'repair' ? 'Inspect the proposed repair and its recorded validation. Application remains a separate reviewed action.'
+      : repairTriage ? 'The selected Run identifies a follow-up for this failure.'
+        : kind === 'repair' ? 'Inspect the proposed repair and its recorded validation. Application remains a separate reviewed action.'
         : incomplete ? 'The requested deliverable is incomplete. The recorded assessment and missing inputs are shown below.'
           : clean ? 'The assessment found no supported change to make. Review its conclusion and evidence.'
             : 'Read the resulting assessment, supporting reports and evidence. Follow-up considerations are listed separately.'

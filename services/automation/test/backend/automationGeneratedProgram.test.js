@@ -184,6 +184,43 @@ test('saved source expected-result checks must be executable and joined to the s
  ])assert.equal(hasExecutableAssertion(code),false,code);
 });
 
+test('fixture-only checks and suppressed assertion failures cannot satisfy an expected result', () => {
+ const check = 'await expect(page.getByRole("status")).toHaveText("Saved");';
+ for (const source of [
+  'expect(true).toBe(true);',
+  'const configured = params["r.state"]; expect(configured).toBe("Saved");',
+  'await expect.poll(() => { return true; }).toBe(true);',
+  'const observed = await page.title(); expect(observed).toEqual(observed);',
+  'expect.equal("Saved", "Saved");',
+  `try { ${check} } catch { console.log("handled"); }`,
+  `try { ${check} } finally { return; }`,
+  `false && (await ${check.slice(6, -1)});`,
+  `true ? true : (await ${check.slice(6, -1)});`
+ ]) assert.equal(hasExecutableAssertion(source), false, source);
+ for (const source of [
+  'const observed = await page.title(); expect(observed).toEqual(params["r.title"]);',
+  `try { ${check} } catch (error) { throw error; }`,
+  `expect(true).toBe(true); ${check}`
+ ]) assert.equal(hasExecutableAssertion(source), true, source);
+});
+
+test('new browser source must propagate checks and prefer specific Playwright readiness signals', () => {
+ const {assertGeneratedBrowserSourceQuality} = require('../../backend/lib/build/automationGeneratedProgram');
+ for (const source of [
+  '// @hellotest-parameter-bindings expressions-v1\n// @hellotest-options optional\nawait page.locator("input").click();',
+  'await page.waitForTimeout(1000);',
+  'await page.waitForLoadState("networkidle");',
+  'await page.goto("/orders", {waitUntil: "networkidle"});',
+  'await page.locator("input").click({force: true});'
+ ]) assert.throws(() => assertGeneratedBrowserSourceQuality(source), {code:'AUTOMATION_GENERATED_SOURCE_QUALITY'});
+ assert.doesNotThrow(() => assertGeneratedBrowserSourceQuality('await page.getByRole("status").waitFor({state:"visible"}); await page.locator("input").click({force:false});'));
+ const action = 'await page.getByRole("button",{name:"Save"}).click();';
+ const check = 'await expect(page.getByRole("status")).toHaveText("Saved");';
+ const authored = { expectedResult:'The status shows Saved' };
+ assert.throws(() => assertGeneratedBrowserSourceQuality(`${check}\n${action}`, authored), /after the final action/);
+ assert.doesNotThrow(() => assertGeneratedBrowserSourceQuality(`${action}\n${check}`, authored));
+});
+
 test('generated bare native async assertions are joined without changing their checks',async()=>{
  const source='await page.locator("#save").click();\nexpect(page.locator("#status")).toHaveText("Saved");';
  const joined=joinGeneratedAssertions(source);

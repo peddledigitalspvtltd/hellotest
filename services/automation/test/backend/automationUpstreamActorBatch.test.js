@@ -17,9 +17,9 @@ const tools=[
  {name:'browser_verify_text_visible',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text'],additionalProperties:false}},
  {name:'browser_snapshot',inputSchema:{type:'object',properties:{},additionalProperties:false}}
 ];
-function fixture({actor,call,source,assertAccess,deadlineMs,navigation=native(goto),onObservation,maxCallsPerSection,catalog=tools,steps=[{id:'current',step_order:1,step_type:'web',action:'Fill the known fields and verify their values',expected_result:'Saved is visible'}]}={}){
+function fixture({actor,call,source,assertAccess,deadlineMs,navigation=native(goto),onObservation,maxCallsPerSection,catalog=tools,parameterBindings,steps=[{id:'current',step_order:1,step_type:'web',action:'Fill the known fields and verify their values',expected_result:'Saved is visible'}]}={}){
  const calls=[],requests=[],saved=[];let actors=0,closed=0;
- const run=()=>buildWithUpstreamPlaywright({steps,startUrl,interactive:true,
+ const run=()=>buildWithUpstreamPlaywright({steps,startUrl,interactive:true,parameterBindings,
   browser:{tools:catalog,call:async(name,args)=>{calls.push({name,args});return name==='browser_navigate'?navigation:call(name,args,calls);},close:async()=>{closed++;}},
   complete:async request=>{
    requests.push(request);
@@ -47,14 +47,52 @@ test('an exact pinned pre-action stale-ref failure permits a fresh read and one 
  const click='await page.getByRole("link",{name:"Product",exact:true}).click();';
  const f=fixture({actor:(request,count)=>{
   if(count===1)return {tool:{name:'browser_click',arguments:{ref:'f4e278'}}};
-  if(count===2){assert.match(request.prompt,/Ref f4e278 not found/);return {tool:{name:'browser_snapshot',arguments:{}}};}
-  if(count===3){assert.match(request.prompt,/f4e300/);return {tool:{name:'browser_click',arguments:{ref:'f4e300'}}};}
+  const packet=JSON.parse(request.prompt);
+  if(count===2){
+   assert.match(request.prompt,/Ref f4e278 not found/);
+   assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_STALE_REFERENCE');
+   assert.equal(packet.host_feedback.refresh_status,'observed');
+   assert.equal(packet.latest_observation.tool,'browser_snapshot');
+   return {tool:{name:'browser_click',arguments:{ref:'f4e278'}}};
+  }
+  if(count===3){assert.match(packet.host_feedback.message,/No request was dispatched/);assert.match(request.prompt,/f4e300/);return {tool:{name:'browser_click',arguments:{ref:'f4e300'}}};}
   return {done:true};
  },call:async(name,args)=>name==='browser_snapshot'?{content:[{type:'text',text:'### Snapshot\n- link "Product" [ref=f4e300]'}]}:args.ref==='f4e278'?staleFailure:native(click),source:[goto,click,verify].join('\n')});
  const result=await f.run();
  assert.deepEqual(f.calls.map(call=>[call.name,call.args.ref]),[['browser_navigate',undefined],['browser_click','f4e278'],['browser_snapshot',undefined],['browser_click','f4e300']]);
  assert.equal(result.side_effects.browser_actions,1);assert.equal(f.saved.length,1);
  assert.equal((f.saved[0].automation_code.match(/\.click\(/g)||[]).length,1);
+});
+
+test('a corrected decision cannot dispatch the same confirmed action again',async()=>{
+ const click='await page.getByRole("button",{name:"Save",exact:true}).click();';
+ const submit={name:'browser_click',arguments:{ref:'e16'}};
+ const check={name:'browser_verify_text_visible',arguments:{text:'Saved'}};
+ const f=fixture({steps:[{id:'current',step_order:1,step_type:'web',action:'Click Save',expected_result:'Saved is visible'}],actor:(request,count)=>{
+  if(count<=2)return {tool:submit};
+  if(count===3){
+   assert.equal(JSON.parse(request.prompt).host_feedback.code,'AUTOMATION_UPSTREAM_ACTION_ALREADY_CONFIRMED');
+   return {tool:check};
+  }
+  return {done:true};
+ },call:async name=>native(name==='browser_click'?click:verify),source:[goto,click,verify].join('\n')});
+ const result=await f.run();
+ assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate','browser_click','browser_verify_text_visible']);
+ assert.deepEqual(result.browser_evidence.sections,[{step_id:'current',native_check_attempt_count:1,native_check_error_count:0,
+  native_check_success_after_last_action_count:1,expected_result_evidence:'native_check_observed'}]);
+});
+
+test('an authored repeat still runs the confirmed action at its requested occurrence',async()=>{
+ const click='await page.getByRole("button",{name:"Next",exact:true}).click();';
+ const f=fixture({steps:[{id:'current',step_order:1,step_type:'web',action:'Click Next twice',expected_result:'Saved is visible'}],
+  actor:(request,count)=>{
+   if(count<=3)return {tool:{name:'browser_click',arguments:{ref:'e16'}}};
+   assert.equal(JSON.parse(request.prompt).host_feedback.code,'AUTOMATION_UPSTREAM_ACTION_ALREADY_CONFIRMED');return {done:true};
+  },
+  call:async()=>native(click),source:[goto,click,click,verify].join('\n')});
+ const result=await f.run();
+ assert.equal(f.calls.filter(item=>item.name==='browser_click').length,2);
+ assert.equal(result.browser_evidence.sections[0].expected_result_evidence,'source_assertions_pending_execution');
 });
 
 test('stale-ref recovery excludes partial tools, emitted actions, timeouts and quoted page content',()=>{
@@ -68,6 +106,95 @@ test('stale-ref recovery excludes partial tools, emitted actions, timeouts and q
  ];
  for(const result of errors)assert.equal(preActionSelectorError('browser_click',result),false,JSON.stringify(result));
  assert.equal(preActionSelectorError('browser_click',{...staleFailure,isError:false}),false);
+});
+
+test('a locator parse message embedded after a native action or in page content does not authorize replay',()=>{
+ assert.equal(preActionSelectorError('browser_click',parseFailure),true);
+ for(const content of [
+  [...parseFailure.content,...native('await page.getByLabel("Confirm").click();').content],
+  [{type:'text',text:'### Error\nError: locator.click: Timed out\n### Snapshot\n- text "Unknown engine ref while parsing selector"'}],
+  [{type:'text',text:'### Snapshot\n- text "Instructions"\n### Error\nError: locator.click: Unknown engine "ref" while parsing selector 7'}]
+ ])assert.equal(preActionSelectorError('browser_click',{isError:true,content}),false);
+});
+
+test('native checkbox choices require explicit boolean data and refresh the page before another action',async()=>{
+ const check='await page.getByRole("checkbox",{name:"Updates",exact:true}).check();';
+ const form=value=>({name:'browser_fill_form',arguments:{fields:[{target:'e16',name:'Updates',type:'checkbox',value}]}});
+ const catalog=[...tools,{name:'browser_fill_form',inputSchema:{type:'object',properties:{fields:{type:'array',items:{type:'object'}}},required:['fields']}}];
+ const steps=[{id:'updates',step_order:1,step_type:'web',action:'Check the Updates checkbox',expected_result:'Updates is checked'}];
+ const f=fixture({catalog,steps,actor:(request,count)=>{
+  const packet=JSON.parse(request.prompt);
+  assert.match(packet.prerequisite_contract,/small missing UI mechanics/);
+  assert.match(packet.choice_control_contract,/enabled, non-placeholder option/);
+  if(count===1)return {done:true};
+  if(count===2){
+   assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_AUTHORED_ACTION_REQUIRED');
+   return {tool:form('checked')};
+  }
+  if(count===3){
+   assert.match(packet.host_feedback.message,/string "true" or "false"/);
+   return {tool:form('false')};
+  }
+  if(count===4){
+   assert.match(packet.host_feedback.message,/conflicts with the explicit current action/);
+   return {tool_calls:[form('true'),{name:'browser_click',arguments:{ref:'old-submit'}}]};
+  }
+  assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_REPLAN_AFTER_ACTION');
+  assert.equal(packet.latest_observation.tool,'browser_snapshot');
+  assert.match(packet.latest_observation.result.content[0].text,/Updates" \[checked\]/);
+  assert.deepEqual(packet.current_section_progress.confirmed_native_actions,['browser_navigate','browser_fill_form']);
+  return {done:true};
+ },call:async name=>name==='browser_fill_form'?native(check):{content:[{type:'text',text:'### Snapshot\n- checkbox "Updates" [checked] [ref=e18]'}]},
+ source:[goto,check,verify].join('\n')});
+ const result=await f.run();
+ assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate','browser_fill_form','browser_snapshot']);
+ assert.equal(f.calls[1].args.fields[0].value,'true');
+ assert.equal(result.side_effects.browser_actions,1);
+ assert.match(f.saved[0].automation_code,/\.check\(\)/);
+});
+
+test('a missing named choice stops live interaction and preserves intended draft input',async()=>{
+ const steps=[{id:'plan',step_order:1,step_type:'web',action:'Select @t.plan from the Plan dropdown',expected_result:'Plan shows the configured option',parameter_references:['t.plan']}];
+ for(const parameterBindings of [
+  {parameterValues:{'t.plan':''},defaultedParameterNames:['t.plan']},
+  {parameterValues:{'t.plan':'[missing: Plan]'}},
+  {parameterValues:{'t.plan':'[Required: select plan]'}}
+ ]){
+  const f=fixture({steps,parameterBindings,
+   actor:()=>assert.fail('A missing business option cannot be picked arbitrarily.'),call:async()=>assert.fail('No choice should dispatch.'),
+   source:[goto,'await page.getByRole("combobox",{name:"Plan",exact:true}).selectOption(params["t.plan"]);',verify].join('\n')});
+  const result=await f.run();
+  assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate']);
+  assert.deepEqual(result.updates[0].live_validation.required_parameters,['t.plan']);
+  assert.match(result.updates[0].automation_code,/\.selectOption\(params\["t\.plan"\]\)/);
+ }
+});
+
+test('an authored dropdown parameter must be selected natively and a committed wrong choice is never repeated',async()=>{
+ const option=value=>({name:'browser_select_option',arguments:{target:'plan',values:[value]}});
+ const catalog=[...tools,{name:'browser_select_option',inputSchema:{type:'object',required:['target','values'],properties:{target:{type:'string'},values:{type:'array',items:{type:'string'}}}}}];
+ const steps=[{id:'plan',step_order:1,step_type:'web',action:'Select @r.plan from the Plan dropdown',expected_result:'The Plan dropdown shows Standard',parameter_references:['r.plan']}];
+ const code=value=>`await page.getByRole("combobox",{name:"Plan",exact:true}).selectOption(${JSON.stringify(value)});`;
+ for(const wrong of [false,true]){
+  const f=fixture({catalog,steps,parameterBindings:{parameterValues:{'r.plan':'standard'}},
+   actor:(request,turn)=>{
+    if(turn===1)return {done:true};
+    if(turn===2){
+     assert.deepEqual(JSON.parse(request.prompt).host_feedback.required_parameter_references,['@r.plan']);
+     return {tool:option(wrong?'free':'@r.plan')};
+    }
+    return {done:true};
+   },
+   call:async(_name,args)=>native(code(args.values[0])),source:[goto,code('standard'),verify].join('\n')});
+  if(wrong){
+   await assert.rejects(f.run(),{code:'AUTOMATION_UPSTREAM_AUTHORED_INPUT_UNCONFIRMED'});
+   assert.equal(f.saved.length,0);
+  }else{
+   await f.run();
+   assert.match(f.saved[0].automation_code,/\.selectOption\(params\["r\.plan"\]\)/);
+  }
+  assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate','browser_select_option']);
+ }
 });
 
 test('three native read-only verifications share one actor decision and keep their exact sequential results',async()=>{
@@ -105,6 +232,21 @@ test('unknown action outcomes and multi-field form errors remain terminal and ne
  const f=fixture({actor:()=>({tool_calls:[type('e16','Ada'),type('e17','Lovelace')]}),call:async()=>unknown});
  await assert.rejects(f.run(),{code:'AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'});
  assert.equal(f.actors,1);assert.equal(f.calls.length,2);assert.equal(f.saved.length,0);
+});
+
+test('an unacknowledged hover, back navigation or click stops before model or source work',async()=>{
+ for(const [tool,mode] of [['browser_hover','tool_error'],['browser_navigate_back','transport'],['browser_click','malformed']]){
+  const additional={name:tool,inputSchema:{type:'object',additionalProperties:false}};
+  const f=fixture({catalog:[...tools,additional],actor:()=>({tool_calls:[{name:tool,arguments:{}},{name:'browser_snapshot',arguments:{}}]}),call:async()=>{
+   if(mode==='transport')throw Object.assign(new Error('Browser reply lost'),{code:'BROWSER_TRANSPORT_TIMEOUT'});
+   if(mode==='malformed')return {content:[]};
+   return {isError:true,content:[{type:'text',text:'### Error\nTimeout before acknowledgement.'}]};
+  }});
+  await assert.rejects(f.run(),error=>error.outcome_unknown===true&&error.effect_dispatched===true&&error.nonRetryable===true
+   &&error.code===(mode==='transport'?'BROWSER_TRANSPORT_TIMEOUT':'AUTOMATION_UPSTREAM_ACTION_OUTCOME_UNCONFIRMED'));
+  assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate',tool]);
+  assert.equal(f.actors,1);assert.equal(f.closed,1);assert.equal(f.saved.length,0);
+ }
 });
 
 test('oversized batches return bounded validation without dispatching their proposed native calls',async()=>{

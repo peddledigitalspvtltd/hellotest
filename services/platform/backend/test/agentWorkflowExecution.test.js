@@ -71,6 +71,38 @@ test("readiness rejects orphaned branches, non-manual triggers and circular grap
   assert.ok(runtime.readiness(graph).blockers.some(item => /cycle/.test(item.message)));
 });
 
+test('disabled workflow nodes bypass unconfigured work and preserve the connected output', async t => {
+  setup(t);
+  const connections = require('../../../agentic/backend/workflows/connections');
+  const preflight = t.mock.method(connections, 'resolve', async () => { throw new Error('Disabled connection must not resolve'); });
+  const graph = { ...workflow(),
+    nodes: [node('request', 'trigger'), node('effect', 'apiTool', { disabled: true, apiMethod: 'POST' }),
+      node('branch', 'condition', { disabled: true, conditionValue: '[invalid' }),
+      node('other', 'output'), node('finish', 'output', { disabled: true })],
+    edges: [{ source: 'request', target: 'effect' }, { source: 'effect', target: 'branch' },
+      { source: 'branch', target: 'other', sourceHandle: 'false' }, { source: 'branch', target: 'finish', sourceHandle: 'true' }] };
+  const input = { flag: false, value: null, items: [] };
+  assert.equal((await runtime.checkReadiness(graph, '', user, input)).ready, true);
+  assert.match(runtime.readiness(graph, 'effect').blockers[0].message, /Enable this node/);
+  const active = structuredClone(graph);
+  active.nodes[1].data.disabled = false;
+  assert.equal(runtime.readiness(active).ready, false);
+  active.nodes[1].data.disabled = 'yes';
+  assert.equal(runtime.readiness(active).ready, false);
+  const done = await finished((await runtime.start(graph, { input_payload: input }, user)).id);
+  assert.equal(done.status, 'completed');
+  assert.equal(preflight.mock.callCount(), 0);
+  for (const id of ['effect', 'branch', 'finish']) {
+    const result = done.node_results.find(row => row.node_id === id);
+    assert.equal(result.status, 'skipped');
+    assert.equal(result.attempts, 0);
+    assert.equal(result.bypassed, true);
+    assert.deepEqual(result.output.data, input);
+  }
+  assert.equal(done.node_results.find(row => row.node_id === 'other').bypassed, undefined);
+  assert.deepEqual(done.output_payload.results, [{ node_id: 'finish', output: { data: input } }]);
+});
+
 test("real review execution persists the snapshot, invokes the registered specialist and collects actual evidence", async t => {
   const { requests } = setup(t);
   const graph = workflow(); graph.nodes[1].data.sampleOutput = "Fabricated sample";
@@ -575,7 +607,9 @@ test('disabled skills never reach the model and each AI loop review remains trac
   assert.deepEqual(requests.map(request=>request.workflow_policy.connected_input.request),[{items:['a','b']},{items:['a','b']}]);
   assert.deepEqual(done.output_payload.review_session_ids,['item-review-1','item-review-2']);
   assert.deepEqual(done.node_results.at(-1).output.reviews.map(item=>item.item_index),[0,1]);
-  assert.equal(done.node_results[1].logs.filter(item=>item.event==='attempt_started').length,2);
+  assert.equal(done.node_results[1].progress,undefined);
+  assert.deepEqual(done.node_results[1].logs.map(item=>item.event),['node_started','node_completed']);
+  assert.ok(requests.every(request => request.agentPresentation.stream === false));
 });
 
 test('all HTTP node variants preserve null, false and empty array output as downstream input',async t=>{

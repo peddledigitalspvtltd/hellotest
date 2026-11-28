@@ -16,6 +16,15 @@ test('legacy unscoped inputs use inherited test data while explicit namespaces r
  assert.equal(interpolateText('person@example.test',context),'person@example.test');
 });
 
+test('the runtime rejects unresolved AI intents and consumes an authored pool', () => {
+ const case_parameters = {'t.customer':'{{aiData:customer email}}'};
+ for (const parameters_frozen of [true, false]) {
+  assert.throws(() => buildInitialContext({case_parameters, parameters_frozen}), {code:'TEST_DATA_AI_GENERATION_REQUIRED'});
+ }
+ const pool = Buffer.from(JSON.stringify(['customer@example.test'])).toString('base64url');
+ assert.equal(buildInitialContext({case_parameters:{'t.customer':`{{oneOf:${pool}}}`}}).values['t.customer'], 'customer@example.test');
+});
+
 test('reviewed case inputs beat source data without blocking later explicit run values and captures',()=>{
  const envelope={parameters_frozen:true,case_parameters:{'t.name':'Reviewed Person','r.empty':''},configuration:{variables:[{key:'t.name',value:'Configuration Person'},{key:'r.empty',value:'configuration default'}]},
   data_set:{mode:'table',parameter_data_layers:{case:{rows:[{'t.name':'Dataset Person','r.empty':'dataset default'}]}}},data_policy:{version:2,case:{parameter_overrides:['t.name','r.empty']},suite:{},run:{}}};

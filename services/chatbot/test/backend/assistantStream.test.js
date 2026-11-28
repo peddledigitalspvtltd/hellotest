@@ -75,6 +75,15 @@ test("only a saved answer contract streams evidence cards before checked answer 
   assert.deepEqual(deltas.map(delta => [delta.section_index, delta.section_count]), [[0, 2], [1, 2]]);
   assert.ok(deltas.every(delta => delta.verification === "complete"));
   assert.deepEqual(JSON.parse(run.frames[3].split("data: ")[1]), complete);
+
+  const finalOnly = fixture();
+  finalOnly.req.query = { delivery: "final" };
+  await streamAssistant(finalOnly.req, finalOnly.reply, async ({ onProgress }) => {
+    onProgress({ contract_type: "RetrievalEvent", stage: "GENERATION" });
+    return complete;
+  });
+  assert.deepEqual(finalOnly.frames.map(frame => frame.match(/^event: ([^\n]+)/)?.[1]), ["progress", "result"]);
+  assert.deepEqual(JSON.parse(finalOnly.frames[1].split("data: ")[1]), complete);
 });
 
 test("a slow reader is awaited before closing the complete answer", async () => {

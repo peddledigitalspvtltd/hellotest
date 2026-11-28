@@ -11,6 +11,7 @@ import { expect as playwrightExpect } from "playwright/test";
 import { compressBrowserVideo, deliverEngineArtifacts } from "./engineArtifacts.js";
 import { assertAutomationAsyncOwnership } from "./automationAsyncOwnership.js";
 import { automationRecoveryDecision, type AutomationRecoveryReason, type AutomationRecoverySummary } from "./automationRecoveryPolicy.js";
+import { classifyWebFailure, observeFailedWebPage } from "./automationFailureObservation.js";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -25,7 +26,7 @@ import {
   type Page,
   type Video
 } from "playwright";
-import type { EngineArtifactRef, EngineRunEnvelope, EngineRunStep, EngineStepOutcomeStatus, EngineWebEngineProvider } from "../contracts/hellotest.js";
+import type { EngineArtifactRef, EngineRunEnvelope, EngineRunStep, EngineStepOutcomeStatus, EngineWebEngineProvider, HelloTestWebFailureReport } from "../contracts/hellotest.js";
 import {
   buildInitialContext,
   interpolateText,
@@ -86,6 +87,7 @@ type WebStepDetail = {
   readiness_waits?: WebReadinessWait[];
   capture_warnings?: string[];
   recovery?: AutomationRecoverySummary;
+  first_failure?: HelloTestWebFailureReport;
 };
 
 type WebStepExecutionResult = {
@@ -271,6 +273,7 @@ type WebSession = {
   text: (target: string, options?: WebElementOptions & { trim?: boolean }) => Promise<string>;
   value: (target: string, options?: WebElementOptions) => Promise<string>;
   screenshot: (label: string) => Promise<StepEvidence>;
+  observeFailure?: (deadline: number, stopped: () => boolean) => Promise<HelloTestWebFailureReport["page"]>;
   markDiagnostics: () => WebDiagnosticsMarker;
   collectDiagnostics: (marker: WebDiagnosticsMarker, captures: Record<string, string>, durationMs: number) => Promise<WebStepDetail>;
   bindings: () => Pick<WebExecutionBindings, "page" | "playwrightPage" | "driver">;
@@ -1959,6 +1962,10 @@ class PlaywrightWebSession implements WebSession {
 
   getTimeoutPolicy() { return this.timeouts; }
 
+  observeFailure(deadline: number, stopped: () => boolean) {
+    return this.browserPage ? observeFailedWebPage(this.browserPage, this.envelope.environment?.base_url || "", deadline, stopped) : Promise.resolve(undefined);
+  }
+
   async collectDiagnostics(marker: WebDiagnosticsMarker, captures: Record<string, string>, durationMs: number) {
     const readinessWaits = this.readinessWaits.slice(marker.readiness_wait_index ?? 0).slice(-20);
     this.readinessReportedIndex = Math.max(this.readinessReportedIndex, this.readinessWaits.length);
@@ -3304,6 +3311,8 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
       let retryLimit: number | undefined;
       let retriesPerformed = 0;
       let finalError: Error | null = null;
+      let firstFailureReport: HelloTestWebFailureReport | undefined;
+      let failurePageObservation: Promise<HelloTestWebFailureReport["page"]> | undefined;
       const diagnosticsMarker = session.markDiagnostics();
       const startedAtMs = Date.now();
       const captureWarnings: string[] = [];
@@ -3319,7 +3328,9 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
       };
       const collectWebDetail = async (): Promise<WebStepDetail> => {
         const firstFailure = lineResults.find(result => result.status === "failed" && result.attempt === 1);
-        return { ...await session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0)), ...(captureWarnings.length ? { capture_warnings: [...captureWarnings] } : {}), recovery: {
+        const page = await failurePageObservation;
+        if (firstFailureReport && page) firstFailureReport.page = page;
+        return { ...await session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0)), ...(captureWarnings.length ? { capture_warnings: [...captureWarnings] } : {}), ...(firstFailureReport ? { first_failure: firstFailureReport } : {}), recovery: {
           strategy: "read_only_assertion_retry",
           status: recoverySucceeded ? "recovered" : !finalError ? "not_needed" : retriesPerformed ? "failed" : "blocked",
           attempts: retriesPerformed + 1,
@@ -3355,6 +3366,11 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         };
       } catch (error) {
         finalError = error instanceof Error ? error : new Error(String(error || "Web automation step failed"));
+        const trace = lineResults.find(result => result.status === "failed" && result.attempt === 1);
+        // Begin observing before a retry, without making its dispatch wait on diagnostics.
+        failurePageObservation = session.observeFailure?.(recoveryDeadline, () => stopped).catch(() => undefined);
+        firstFailureReport = { schema: "web-failure-report/1", code: classifyWebFailure(finalError),
+          ...(trace ? { line: trace.line, operation_duration_ms: trace.duration_ms } : {}) };
       }
 
       let completedRetries = 0;

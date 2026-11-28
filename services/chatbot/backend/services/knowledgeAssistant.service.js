@@ -12,6 +12,7 @@ const knowledgeAuthorization = require("@hellotest/knowledge/backend/services/kn
 const { getCompletionContent: completionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { modelFailureCode, modelFailureMessage } = require("@hellotest/platform/backend/src/utils/knowledgeAssistantErrors");
 const readToolLoop = require('./assistant/readToolLoop');
+const { assembleContext, interleaveEvidence, refinementBudgets } = require('./assistant/contextAssembly');
 const {
   fingerprint,
   normalizeText,
@@ -125,7 +126,7 @@ const listAvailableLlmIntegrations = async ({ projectId, userId } = {}) => {
   const normalizedProjectId = normalizeId(projectId);
   if (!normalizedProjectId) throw createError("project_id is required.");
   const integrations = await integrationService.getIntegrations({ type: "llm", is_active: true });
-  let defaultIntegrationId = null;
+  let autoSelectedId = null;
   try {
     const configured = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
       userId,
@@ -135,9 +136,9 @@ const listAvailableLlmIntegrations = async ({ projectId, userId } = {}) => {
       allowMissing: true
     });
     knowledgeRagService.assertLlmIntegrationProjectScope(configured, normalizedProjectId);
-    if (isUsableAssistantIntegration(configured)) defaultIntegrationId = configured.id;
+    if (isUsableAssistantIntegration(configured)) autoSelectedId = configured.id;
   } catch {
-    defaultIntegrationId = null;
+    autoSelectedId = null;
   }
   return integrations
     .filter((integration) => {
@@ -145,7 +146,8 @@ const listAvailableLlmIntegrations = async ({ projectId, userId } = {}) => {
       return isUsableAssistantIntegration(integration) && (!scopedProjectId || scopedProjectId === normalizedProjectId);
     })
     .sort((left, right) => (
-      Number(right.id === defaultIntegrationId) - Number(left.id === defaultIntegrationId)
+      Number(right.id === autoSelectedId) - Number(left.id === autoSelectedId)
+      || Number(right.is_default === true) - Number(left.is_default === true)
       || Number(Boolean(integrationScope(right))) - Number(Boolean(integrationScope(left)))
     ))
     .map((integration) => ({
@@ -154,7 +156,8 @@ const listAvailableLlmIntegrations = async ({ projectId, userId } = {}) => {
       model: integration.model,
       scope: integrationScope(integration) ? "project" : "workspace",
       project_id: integrationScope(integration) || null,
-      is_default: integration.id === defaultIntegrationId
+      is_default: integration.is_default === true,
+      is_automatic_selection: integration.id === autoSelectedId
     }));
 };
 
@@ -464,6 +467,7 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
     messages: [
       { role: "system", content: [
         aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.10"),
+        "Write one coherent response to the original question using the combined evidence. Put the answer in supported_claims in reader-facing order. Lead with the direct answer and combine overlapping observations into single findings with their citations. Use structured presentation when it helps the reader. Mention tool or retrieval status only when it materially limits the answer.",
         ...(!contextPacket.evidence.length?[require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap]:[])
       ].join(" ") + aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.27") + JSON.stringify(modelRequest.output_schema) },
       { role: "user", content: JSON.stringify(data) }
@@ -1117,7 +1121,6 @@ const gatherContext = async ({ sessionRow, user, userMessage, sanitizedQuestion,
     return { context: failedContext(request), failed: true };
   });
   const usedCalls = (context) => Number(context?.budget?.tool_calls_reserved ?? context?.budget?.tool_calls_used ?? 0);
-  const quality = (context) => [context.hits.length, Number(context.packet?.retrieval?.evidence_sufficiency?.score || 0)];
 
   const planIntent = async () => {
     execution.emit("INTENT_ANALYSIS", "started", { message: "Understanding your intent and deciding which project information is needed." });
@@ -1177,7 +1180,9 @@ const gatherContext = async ({ sessionRow, user, userMessage, sanitizedQuestion,
     let readToolResult = { status:'skipped', reason:'no_read_tool_plan', calls:[], results:[], tool_calls_used:0, planner_calls:0, rejected_calls:0, evidence:[], relationships:[], source_ids:[], gaps:[] };
     let intentModelCalls = execution.current().modelStats.calls;
     const toolBudget = Math.max(0,totalCalls-intentModelCalls-retrievalToolCalls-2);
-    if (planned.readTools?.length && toolBudget > 0 && readToolLoop.ANALYTICAL_INTENTS.has(planned.intentClass)) {
+    const pinnedEvidence = mergedFilters.as_of || mergedFilters.agent_id || Object.keys(mergedFilters.evidence_scope || {}).length
+      || ['source_ids', 'source_kinds', 'collection_ids', 'requested_scopes'].some(key => asArray(mergedFilters[key]).length);
+    if (planned.readTools?.length && toolBudget > 0 && readToolLoop.ANALYTICAL_INTENTS.has(planned.intentClass) && !pinnedEvidence) {
       const gatewayForTools = require('@hellotest/mcp/backend/gateway');
       readToolResult = await readToolLoop.run({ intentClass:planned.intentClass, proposedCalls:planned.readTools,
         maxCalls:toolBudget, deadlineAt:execution.current().turn.deadlineAt-ANSWER_FINALIZATION_RESERVE_MS, signal:execution.current()?.signal,
@@ -1188,28 +1193,14 @@ const gatherContext = async ({ sessionRow, user, userMessage, sanitizedQuestion,
               throw createError('A read tool cannot switch the active application.',403,'MCP_CONTEXT_SCOPE_MISMATCH');
             if(sessionRow.app_type_id)scopedArgs.app_type_id=sessionRow.app_type_id;
           }
+          if (name === 'hellotest_database_query' && sessionRow.app_type_id)
+            throw createError('This projection cannot enforce the selected application scope.', 403, 'MCP_CONTEXT_SCOPE_MISMATCH');
           return gatewayForTools.callReadTool({userId:user.id,projectId:sessionRow.project_id,name,args:scopedArgs,
             signal:options.signal,timeoutMs:options.timeoutMs,traceScope:require('@hellotest/platform/backend/src/utils/llmTraceContext').current(integration)});
         },
         continuePlan:(observations,options)=>requestReadToolContinuation({integration,question:sanitizedQuestion.text,observations,signal:options.signal,timeoutMs:options.timeoutMs})
       });
       intentModelCalls=execution.current().modelStats.calls;
-      if(readToolResult.evidence.length){
-        const toolHits=readToolResult.evidence.map(hit=>({...hit,evidence_id:hit.citation?.id||hit.evidence_id}));
-        const allHits=[...new Map([...context.hits,...toolHits].filter(hit=>hit.citation?.id||hit.evidence_id)
-          .map(hit=>[hit.citation?.id||hit.evidence_id,hit])).values()];
-        const mergedPacket=knowledgeContracts.buildContextPacket({retrievalRequest,evidence:allHits,relationships:[...asArray(context.packet.relationships),...readToolResult.relationships],
-          authorization:{project_scope_enforced:true,source_acl_enforced:true},
-          retrieval:{...context.retrieval,read_tool_evidence_count:toolHits.length,read_tool_calls:readToolResult.calls}});
-        const contextGraphTools=require('@hellotest/mcp/backend/contextTraceTools');
-        const recordedPacket=await contextGraphTools.rememberContext({projectId:sessionRow.project_id,user},mergedPacket,
-          {appTypeId:sessionRow.app_type_id,request:{conversation:{session_id:sessionRow.id}},signal:execution.current()?.signal});
-        const retained=new Set(recordedPacket.evidence.map(item=>item.evidence_id));
-        context.hits=allHits.filter(hit=>retained.has(hit.citation?.id||hit.evidence_id));
-        context.packet=recordedPacket;
-        context.retrieval={...context.retrieval,...recordedPacket.retrieval,context_packet:recordedPacket,
-          returned_count:context.hits.length,read_tool_evidence_count:toolHits.length};
-      }
     }
     retrieval.read_tool_loop={status:readToolResult.status,intent_class:planned.intentClass||'lookup',
       calls:readToolResult.calls.map(({name,status,error_code})=>({name,status,...(error_code?{error_code}:{})})),
@@ -1220,31 +1211,37 @@ const gatherContext = async ({ sessionRow, user, userMessage, sanitizedQuestion,
     // many passages it found; and the plan only justifies a second read if it adds something the first lacked.
     const hitMatchesKind = (hit, kind) => hit.source_kind === kind
       || (hit.source_kind === "live_project" && LIVE_SCOPE_BY_SOURCE_KIND[kind] && String(hit.source_id || "").endsWith(`-${LIVE_SCOPE_BY_SOURCE_KIND[kind]}`));
-    const sufficiency = first.failed ? null : assessEvidenceSufficiency(context.hits, { contextRoute: context.route, question: sanitizedQuestion.text, informationNeeds: intentPlan?.information_needs });
-    const kindGaps = asArray(intentPlan?.source_kinds).filter((kind) => !context.hits.some((hit) => hitMatchesKind(hit, kind)));
+    const firstHits = interleaveEvidence(context.hits, readToolResult.evidence);
+    const sufficiency = firstHits.length ? assessEvidenceSufficiency(firstHits, { contextRoute: context.route, question: sanitizedQuestion.text, informationNeeds: intentPlan?.information_needs }) : null;
+    const kindGaps = asArray(intentPlan?.source_kinds).filter((kind) => !firstHits.some((hit) => hitMatchesKind(hit, kind)));
     const alreadySearched = new Set(asArray(context.retrieval?.query_chain).map((query) => String(query).trim().toLowerCase()));
     const newQueries = asArray(intentPlan?.queries).filter((query) => !alreadySearched.has(String(query).trim().toLowerCase()));
     // Usable evidence with no planned gap is enough to stop. (The engine's own stricter "strong" bar is about
     // thoroughness inside one read; here the question is whether the plan would add anything the user needs.)
     const sufficient = Boolean(sufficiency) && sufficiency.status === "covered" && asArray(sufficiency.uncovered_needs).length === 0 && kindGaps.length === 0;
     const planAddsSomething = kindGaps.length > 0 || asArray(sufficiency?.uncovered_needs).length > 0 || newQueries.length > 0;
-    retrievalToolCalls = usedCalls(context);
     // A second read must leave the draft AND its single repair attempt a call each.
     const remainingCalls = totalCalls - intentModelCalls - retrievalToolCalls - readToolResult.tool_calls_used - 2;
     retrieval.parallel_planning = { first_round_sufficient: sufficient, plan_available: Boolean(intentPlan), plan_adds_something: planAddsSomething,
       source_kind_gaps: kindGaps, refined_with_plan: false, first_round_hits: context.hits.length };
-    if (intentPlan && !sufficient && planAddsSomething && remainingCalls >= 2 && retrievalDeadline() > 1_500) {
+    const remainingRetrieval = refinementBudgets(retrievalRequest.budgets, context);
+    let refinedContext;
+    if (intentPlan && !sufficient && planAddsSomething && remainingCalls >= 2 && retrievalDeadline() > 1_500
+      && remainingRetrieval.max_rounds > 0 && remainingRetrieval.max_queries > 0 && remainingRetrieval.max_candidates > 0) {
       // The first round was not enough: read again with the plan's queries and source kinds.
-      const refinedRequest = { ...retrievalRequest, budgets: { ...retrievalRequest.budgets, max_tool_calls: remainingCalls } };
-      const refined = await settleRetrieval(retrieveWith(intentPlan, remainingCalls), refinedRequest);
-      if (!refined.failed) {
-        const [firstHits, firstScore] = quality(context), [refinedHits, refinedScore] = quality(refined.context);
-        retrievalToolCalls += usedCalls(refined.context);
-        if (refinedHits > firstHits || refinedHits === firstHits && refinedScore >= firstScore) {
-          context = refined.context; contextRequest = refinedRequest;
-          retrieval.parallel_planning.refined_with_plan = true;
-        }
-      }
+      const refinedRequest = { ...retrievalRequest, budgets: { ...retrievalRequest.budgets, ...remainingRetrieval, max_tool_calls: remainingCalls } };
+      const refined = await settleRetrieval(retrieveWith(intentPlan, remainingCalls, remainingRetrieval), refinedRequest);
+      retrievalToolCalls += usedCalls(refined.context);
+      refinedContext = refined.context;
+      retrieval.parallel_planning.refined_with_plan = !refined.failed;
+    }
+    if (refinedContext || readToolResult.evidence.length) {
+      const contextGraphTools = require("@hellotest/mcp/backend/contextTraceTools");
+      const combined = assembleContext({request:retrievalRequest,initial:context,refined:refinedContext,toolResult:readToolResult,informationNeeds:intentPlan?.information_needs});
+      const recorded = await contextGraphTools.rememberContext({projectId:sessionRow.project_id,user},combined.packet,
+        {appTypeId:sessionRow.app_type_id,request:{conversation:{session_id:sessionRow.id}},signal:execution.current()?.signal});
+      contextRequest = retrievalRequest;
+      context = gateway.contextFromPacket(recorded, contextRequest);
     }
   } else {
     execution.emit("INTENT_ANALYSIS", "completed", { message: "Understood the intent using the bounded project evidence rules." });

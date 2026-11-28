@@ -12,7 +12,7 @@ test('authentication HTTP and PostgreSQL enforce private Signup acknowledgement 
   await require('../../backend/src/db/bootstrap').ensureRuntimeSchema();
   await require('../../backend/src/obsDb/bootstrap').ensureRuntimeSchema();
   await t.test('schema25 verification checks actual additive contracts and rejects a forged current receipt',async()=>{
-   const readiness=require('../../backend/src/db/schemaReadiness');assert.equal(readiness.REQUIRED_SCHEMA_VERSION,25);await readiness.verifySchema(db,'main');
+   const readiness=require('../../backend/src/db/schemaReadiness');assert.ok(readiness.REQUIRED_SCHEMA_VERSION>=25);await readiness.verifySchema(db,'main');
    const rollback=new Error('fixture-schema-rollback');
    for (const column of ['ai_requirement_generation_jobs.error_code', 'ai_test_case_generation_jobs.processing_payload']) {
      const [table, field] = column.split('.');

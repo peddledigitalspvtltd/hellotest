@@ -1,4 +1,3 @@
-import { ApiAutomationSourceIntake } from "../../components/ApiAutomationSourceIntake";
 import { AutomationBuildVerificationSettings } from "../../components/AutomationBuildVerificationSettings";
 import { AiLlmSelect } from "@hellotest/ai/frontend/components/AiLlmSelect";
 import { QualityMetricStrip } from "@hellotest/dashboard/frontend/components/QualityMetricStrip";
@@ -7,11 +6,11 @@ import { AutomationBrowserBuildMode } from "../../components/AutomationBrowserBu
 import { AutomationRunReviewDialog } from "../../components/AutomationRunReviewDialog";
 import { AutomationCreateSuiteAction } from "../../components/AutomationCreateSuiteAction";
 import "../../components/AutomationWorkspace.css";
-import { AUTOMATION_CASE_TYPES, getDefaultAutomationStepType } from "../../lib/automationRuntime";
+import { AUTOMATION_CASE_TYPES } from "../../lib/automationRuntime";
 import { automationCatalogEvidence } from "../../lib/automationCatalogEvidence";
 import { EMPTY_AUTOMATION_CATALOG_FILTERS } from "../../lib/automationSelectionState";
 import { IconSettings } from "@tabler/icons-react";
-import { AddIcon, MousePointerIcon, OpenIcon, PencilIcon, PlayIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { AddIcon, OpenIcon, PlayIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogActionMenu } from "@hellotest/platform/frontend/src/shared/components/CatalogActionMenu";
 import { CatalogCardDescription } from "@hellotest/platform/frontend/src/shared/components/CatalogCardDescription";
 import { CatalogSearchFilter } from "@hellotest/platform/frontend/src/shared/components/CatalogSearchFilter";
@@ -25,17 +24,15 @@ import { LoadingState } from "@hellotest/platform/frontend/src/shared/components
 import { PageHeader } from "@hellotest/platform/frontend/src/shared/components/PageHeader";
 import { Panel } from "@hellotest/platform/frontend/src/shared/components/Panel";
 import { RepositoryAgentSetup, RepositoryAgentStatus } from "@hellotest/automation/frontend/components/RepositoryInspectControls";
-import { RichTextContent, richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import { ToastMessage } from "@hellotest/platform/frontend/src/shared/components/ToastMessage";
-import { AutomationCaseMetadata, AutomationDraftPlan } from "../../components/AutomationCaseMetadata";
-import { isAutomationPrecondition } from "../../lib/automationPlan";
 import { TileCardCaseIcon, TileCardFact, TileCardIconFrame, TileCardProgress, TileCardRunsIcon, TileCardStepsIcon, getTileCardTone } from "@hellotest/platform/frontend/src/shared/components/TileCardPrimitives";
 import { TileBrowserPane } from "@hellotest/platform/frontend/src/shared/components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "@hellotest/platform/frontend/src/shared/components/TileCardSkeletonGrid";
 import { WorkspaceMasterDetail } from "@hellotest/platform/frontend/src/platform/components/WorkspaceMasterDetail";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
 import { buildHistoryStatusBreakdown } from "@hellotest/platform/frontend/src/shared/lib/tileProgressBreakdown";
+import { AutomationCreateCaseDialog } from "./AutomationCreateCaseDialog";
 import type { AutomationCasesController } from './useAutomationCasesController';
 export function AutomationCasesView({controller,engineer=false}:{controller:AutomationCasesController;engineer?:boolean}){
 const {
@@ -124,30 +121,6 @@ const {
     createAutomationCase,
     batchBuildReadinessQuery,
     isCreateAutomationOpen,
-    closeCreateAutomation,
-    createAutomationDialogRef,
-    metadataOptions,
-    updateAutomationCreateMetadata,
-    automationCreateMetadata,
-    automationCreateManualCaseIds,
-    automationCreationMode,
-    setAutomationCreationMode,
-    canRecordCreation,
-    automationCreateRuntimeTypes,
-    automationCreateStartUrlRequired,
-    setAutomationCreateStartUrl,
-    automationCreateStartUrl,
-    automationCreateStartUrlValidation,
-    importedApiPlanReady,
-    automationCreateSteps,
-    createSourcesQuery,
-    creationIncompatibleRuntimes,
-    includeLinkedBehavior,
-    creationAllowedStepTypes,
-    applyApiSourceDraft,
-    automationCreateParameters,
-    setAutomationCreateSteps,
-    canCreateAutomationCase,
     parameterReviewDialog,
 }=controller;
 const selectionBusy=automationActionTargetIds.some(id=>authoring.caseState(id).phase!=='idle');
@@ -307,7 +280,7 @@ return (<div className={`page-content page-content--automation${""}`}>
             <div className="automation-plan-behavior-fields">{batchHasUrlRuntime ? <label className="form-field"><span>{batchStartUrlRequired ? "Start URL (required)" : "API base URL (optional)"}</span><input aria-label={batchStartUrlRequired ? "Build start URL" : "API base URL"} type="url" required={batchStartUrlRequired} onChange={(event) => setBatchStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={batchStartUrl}/><small className="muted">{batchStartUrlRequired ? "Review the application URL for this build, including retries." : "API-only plans may use their configured request URLs."}</small>{batchStartUrl.trim() && batchStartUrlValidation ? <small role="alert">{batchStartUrlValidation}</small> : null}</label> : null}<label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt}/><small className="muted">Leave empty to queue now.</small></label></div>
             <details><summary>Additional guidance & execution context</summary><div className="stack-list"><AiLlmSelect integrations={asArray(automationLlmIntegrationsQuery.data)} value={buildAgentSelection.integrationId} onChange={integrationId => setBuildAgentSelection(current => ({ ...current, integrationId }))} disabled={scheduleAiAutomation.isPending} scopeKey={projectId}/><label className="form-field"><span>Guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} rows={3} value={builderContext}/></label><ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId}/></div></details>
             {batchStartUrlRequired ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={scheduleAiAutomation.isPending}/> : null}
-            {batchStartUrlRequired && batchBuildReadinessQuery.data?.every(plan => plan.runtimes.every(runtime => runtime === "web")) ? <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} hasEnvironment={Boolean(selectedExecutionEnvironmentId)} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/> : null}
+            {batchStartUrlRequired && batchBuildReadinessQuery.data?.every(plan => plan.runtimes.every(runtime => runtime === "web")) ? <AutomationBuildVerificationSettings browserLocation={buildBrowserLocation} mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} hasEnvironment={Boolean(selectedExecutionEnvironmentId)} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/> : null}
             <p className="muted">Each build includes its saved steps, expected results, accessible stories, reusable objects and selected execution context.</p>
             {batchBusy?<p role="status">Finish or reconcile the selected case’s current authoring operation before starting another build.</p>:null}
             <section className="automation-batch-readiness" aria-label="Selected build plans">
@@ -319,76 +292,7 @@ return (<div className={`page-content page-content--automation${""}`}>
         </div>
       </div> : null}
 
-      {isCreateAutomationOpen && canCreateAutomationDraft ? (<div className="modal-backdrop modal-backdrop--scroll" onClick={closeCreateAutomation} role="presentation">
-          <div aria-modal="true" aria-labelledby="automation-create-dialog-title" className="modal-card resource-modal-card automation-create-dialog automation-authoring-create" onClick={(event) => event.stopPropagation()} ref={createAutomationDialogRef} role="dialog" tabIndex={-1}>
-            <div className="resource-modal-header">
-              <div className="resource-modal-title">
-                <h2 className="dialog-title" id="automation-create-dialog-title">{engineer ? "Set up an automation build" : "Create automation case"}</h2>
-                <p>{engineer ? "Link a manual Test Case, or describe the behavior to automate. Choose where the Engineer should run." : "Name the behavior. Choose how to build it."}</p>
-              </div>
-              <DialogCloseButton label="Close create automation case" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation}/>
-            </div>
-            <form className="resource-form" onSubmit={(event) => { event.preventDefault(); createAutomationCase.mutate(); }}>
-              <div className="resource-form-body">
-                <fieldset disabled={createAutomationCase.isPending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-                  <div className="automation-create-columns">
-                    <div className="stack-list">
-                      <AutomationCaseMetadata {...metadataOptions} compact disabled={createAutomationCase.isPending} onChange={updateAutomationCreateMetadata} value={{ ...automationCreateMetadata, manualCaseIds: automationCreateManualCaseIds }}/>
-                      <section className="automation-creation-method stack-list" aria-label="Creation method">
-                        <strong>Build method</strong>
-                        <div className="automation-build-methods">
-                          {canUseAutomationAi ? (<button aria-pressed={automationCreationMode === "ai"} disabled={!canUseAutomationAi} onClick={() => setAutomationCreationMode("ai")} type="button"><SparkIcon />AI agent</button>) : null}
-                          {canRecordCreation ? (<button aria-pressed={automationCreationMode === "record"} disabled={!canUseRecorder} onClick={() => setAutomationCreationMode("record")} type="button"><MousePointerIcon />Record flow</button>) : null}
-                          <button aria-pressed={automationCreationMode === "blank"} onClick={() => setAutomationCreationMode("blank")} type="button"><PencilIcon />Author steps</button>
-                        </div>
-                        {automationCreateRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>{automationCreateStartUrlRequired ? "Start URL (required)" : "API base URL (optional)"}</span><input aria-label={automationCreateStartUrlRequired ? "Automation case start URL" : "API base URL"} type="url" required={automationCreateStartUrlRequired} onChange={(event) => setAutomationCreateStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={automationCreateStartUrl}/><small className="muted">{automationCreateStartUrlRequired ? "Saved with this case and used when generating or retrying its automation." : "Optional for API-only cases."}</small>{automationCreateStartUrl.trim() && automationCreateStartUrlValidation ? <small role="alert">{automationCreateStartUrlValidation}</small> : null}</label> : null}
-                        {automationCreationMode === "ai" && !importedApiPlanReady ? (<div className="automation-agent-brief automation-create-ai">
-                            <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission}/></label>
-                            {automationCreateRuntimeTypes.includes("web") ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={createAutomationCase.isPending}/> : null}
-                            <ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} hideDataSet selectedEnvironmentId={selectedExecutionEnvironmentId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} onConfigurationChange={setSelectedExecutionConfigurationId} selectedDataSetId={automationCreateMetadata.dataSetId} onDataSetChange={dataSetId => updateAutomationCreateMetadata({ dataSetId })}/>
-                            {automationCreateRuntimeTypes.length > 0 && automationCreateRuntimeTypes.every(runtime => runtime === "web") ? <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} hasEnvironment={Boolean(selectedExecutionEnvironmentId)} disabled={scheduleAiAutomation.isPending || createAutomationCase.isPending}/> : null}
-                            <details className="automation-ai-options"><summary><IconSettings size={14}/>Build settings</summary><div className="automation-ai-options-body"><AiLlmSelect integrations={asArray(automationLlmIntegrationsQuery.data)} value={buildAgentSelection.integrationId} onChange={integrationId => setBuildAgentSelection(current => ({ ...current, integrationId }))} disabled={createAutomationCase.isPending} scopeKey={projectId}/><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext}/></label>
-                            <label className="form-field"><span>Schedule build (optional)</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt}/><small>Leave blank to queue the build after the case is saved.</small></label>
-                            </div></details>
-                            {!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) ? <p className="muted">Describe the requested flow in Build instructions or the case description. The agent will create its steps before automating them.</p> : null}
-                          </div>) : <p className="muted">{automationCreationMode === "record" ? "The saved case opens in Build with Record flow selected." : "The saved case opens with its preconditions and steps ready to edit."}</p>}
-                      </section>
-                    </div>
-                    <div className="automation-create-plan-panel">
-                      <div><strong>Behavior plan</strong><p className="muted">{includeLinkedBehavior ? "Linked manual steps become part of this plan." : "Link a manual case for coverage, then add the API requests here."}</p></div>
-                      {automationCreateManualCaseIds.length && createSourcesQuery.isPending ? <LoadingState label="Loading source Test Case plans"/> : null}
-                      {automationCreateManualCaseIds.length && createSourcesQuery.isError ? <div className="empty-state compact" role="alert"><span>Source steps could not be loaded.</span><button className="ghost-button compact" onClick={() => void createSourcesQuery.refetch()} type="button">Retry source plans</button></div> : null}
-                      {automationCreateManualCaseIds.map((sourceId) => {
-            const source = createSourcesQuery.data?.find((item) => item.testCase.id === sourceId);
-            if (!source)
-                return null;
-            const preconditions = source.steps.filter(isAutomationPrecondition).length;
-            return <details className="automation-create-source-disclosure" key={sourceId}>
-                          <summary><span><strong>{source.testCase.title}</strong><small>{preconditions} precondition{preconditions === 1 ? "" : "s"} · {source.steps.length - preconditions} step{source.steps.length - preconditions === 1 ? "" : "s"}</small></span></summary>
-                          {source.steps.length ? <ol className="stack-list">{source.steps.map((step) => <li key={step.id}>
-                            {step.group_name ? <small>{step.group_name}</small> : null}
-                            <RichTextContent value={step.action || ""}/>
-                            {step.expected_result ? <div><small>Expected result</small><RichTextContent value={step.expected_result}/></div> : null}
-                          </li>)}</ol> : <p className="muted">This source has no authored steps yet.</p>}
-                        </details>;
-        })}
-                      {creationIncompatibleRuntimes.length ? <p role="alert">The selected case type does not support {creationIncompatibleRuntimes.join(", ")} steps in this plan. Choose Unified or update the source steps.</p> : null}
-                      {creationAllowedStepTypes.includes("api") ? <ApiAutomationSourceIntake disabled={createAutomationCase.isPending} hasSteps={automationCreateSteps.length > 0} onApply={applyApiSourceDraft}/> : null}
-                      {importedApiPlanReady ? <p className="inline-message" role="status">These API contracts will be saved as ordered request steps for review. Configure their parameters and assertions in the saved case; the source requests will not be regenerated by AI.</p> : null}
-                      <AutomationDraftPlan allowedStepTypes={creationAllowedStepTypes} defaultStepType={getDefaultAutomationStepType([], automationCreateMetadata.automationCaseType)} availableParameters={automationCreateParameters.definitions} parameterValues={automationCreateParameters.values} onChange={setAutomationCreateSteps} value={automationCreateSteps}/>
-                    </div>
-                  </div>
-                </fieldset>
-              </div>
-              <div className="resource-form-footer">
-                <button className="ghost-button" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} type="button">Cancel</button>
-                {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || !automationCreateMetadata.automationCaseType || Boolean(creationIncompatibleRuntimes.length) || createAutomationCase.isPending || Boolean(automationCreateStartUrlValidation) || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(automationCreateMetadata.description).trim())))} type="submit">
-                  <AddIcon /><span>{createAutomationCase.isPending ? "Creating..." : importedApiPlanReady ? "Create API case" : automationCreationMode === "ai" ? agentScheduledAt ? "Create & schedule" : "Create & build" : automationCreationMode === "record" ? "Create & record" : "Create case"}</span>
-                </button>) : null}
-              </div>
-            </form>
-          </div>
-        </div>) : null}
+      {isCreateAutomationOpen && canCreateAutomationDraft ? <AutomationCreateCaseDialog controller={controller} engineer={engineer} /> : null}
       {parameterReviewDialog}
     </div>);
 }

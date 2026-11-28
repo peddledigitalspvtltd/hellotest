@@ -10,7 +10,8 @@ export const TEST_DATA_GENERATOR_TEMPLATES = {
   timestamp: "{{date:ISO}}"
 } as const;
 
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)\s*(?::([^}]*))?\s*\}\}/gi;
+const AI_DATA_TOKEN_PATTERN = /\{\{\s*aiData\s*(?::([^{}]*))?\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATOR_ALIAS_TEMPLATES: Record<string, string> = {
   random: "{{randomString:3}}",
@@ -73,27 +74,27 @@ function generateYopmailAddress(rawPrefix: string | undefined, now: Date) {
   return `${prefix}-${timestamp}-${randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
 }
 
-function generateAiData(rawPrompt: string | undefined, now: Date) {
-  const prompt = String(rawPrompt || "value").toLowerCase();
-  const suffix = randomCharacters(6, "abcdefghijklmnopqrstuvwxyz0123456789");
+export function hasAiDataTemplate(value: unknown) {
+  return /\{\{\s*aiData\b/i.test(String(value ?? ""));
+}
 
-  if (prompt.includes("email")) {
-    return `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${suffix}@yopmail.com`;
+export async function resolveAiDataTemplate(source: string, generate: (intent: string) => Promise<string>, staticSample = false) {
+  const tokens = [...source.matchAll(AI_DATA_TOKEN_PATTERN)];
+  const intents = tokens.map(token => token[1]?.trim() || "");
+  if (!tokens.length || hasAiDataTemplate(source.replace(AI_DATA_TOKEN_PATTERN, "")) || intents.some(intent => intent.length < 3 || intent.length > 2_000)) {
+    throw new Error("Describe the test data after aiData: and close the template with }}.");
   }
 
-  if (prompt.includes("phone") || prompt.includes("mobile")) {
-    return `9${randomCharacters(9, "0123456789")}`;
+  const generated = new Map<string, string>();
+  const evaluate = staticSample ? evaluateTestDataTemplate : (value: string) => value;
+  let result = "", cursor = 0;
+  for (const [index, token] of tokens.entries()) {
+    const intent = intents[index];
+    if (!generated.has(intent)) generated.set(intent, await generate(intent));
+    result += evaluate(source.slice(cursor, token.index)) + generated.get(intent)!;
+    cursor = token.index + token[0].length;
   }
-
-  if (prompt.includes("name")) {
-    return `AI User ${suffix.toUpperCase()}`;
-  }
-
-  if (prompt.includes("address")) {
-    return `${randomCharacters(3, "123456789")} HelloTest Test Street`;
-  }
-
-  return `ai-${suffix}`;
+  return result + evaluate(source.slice(cursor));
 }
 
 function decodeGeneratedValuePool(rawValue: string | undefined) {
@@ -118,7 +119,7 @@ export function hasTestDataGeneratorTemplate(value: unknown) {
 export function evaluateTestDataTemplate(value: unknown, now = new Date()): string {
   GENERATOR_TOKEN_PATTERN.lastIndex = 0;
   GENERATOR_ALIAS_PATTERN.lastIndex = 0;
-  const evaluateToken = (_: string, rawKind: string, rawOption: string | undefined) => {
+  const evaluateToken = (token: string, rawKind: string, rawOption: string | undefined) => {
     const kind = rawKind.toLowerCase();
     const option = String(rawOption || "").trim();
 
@@ -135,7 +136,7 @@ export function evaluateTestDataTemplate(value: unknown, now = new Date()): stri
     }
 
     if (kind === "aidata") {
-      return generateAiData(option, now);
+      return token;
     }
 
     if (kind === "oneof") {

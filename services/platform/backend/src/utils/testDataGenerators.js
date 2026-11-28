@@ -1,7 +1,7 @@
 const { randomBytes } = require("crypto");
 const { normalizeParameterLayer } = require("./stepParameterResolution");
 
-const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
+const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)\s*(?::([^}]*))?\s*\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATOR_ALIAS_TEMPLATES = {
   random: "{{randomString:3}}",
@@ -70,29 +70,6 @@ const generateYopmailAddress = (option, now) => {
   return `${prefix}-${stamp}-${randomFromAlphabet(6, "abcdefghijklmnopqrstuvwxyz0123456789")}@yopmail.com`;
 };
 
-const generateAiData = (option, now) => {
-  const prompt = String(option || "value").toLowerCase();
-  const suffix = randomFromAlphabet(6, "abcdefghijklmnopqrstuvwxyz0123456789");
-
-  if (prompt.includes("email")) {
-    return `ai-${resolveDate("YYYYMMDDHHmmss", now)}-${suffix}@yopmail.com`;
-  }
-
-  if (prompt.includes("phone") || prompt.includes("mobile")) {
-    return `9${randomFromAlphabet(9, "0123456789")}`;
-  }
-
-  if (prompt.includes("name")) {
-    return `AI User ${suffix.toUpperCase()}`;
-  }
-
-  if (prompt.includes("address")) {
-    return `${randomFromAlphabet(3, "123456789")} HelloTest Test Street`;
-  }
-
-  return `ai-${suffix}`;
-};
-
 const decodeGeneratedValuePool = (rawValue) => {
   try {
     const values = JSON.parse(Buffer.from(String(rawValue || ""), "base64url").toString("utf8"));
@@ -115,7 +92,11 @@ const materializeTemplateToken = (_, kind, rawOption, now) => {
     const option = String(rawOption || "").trim();
     if (kind.toLowerCase() === "randomnumber") return generateRandomNumber(option);
     if (kind.toLowerCase() === "randomstring") return generateRandomString(option);
-    if (kind.toLowerCase() === "aidata") return generateAiData(option, now);
+    if (kind.toLowerCase() === "aidata") {
+      throw Object.assign(new Error("Generate the AI data value in the data utility before running the test."), {
+        statusCode: 422, code: "TEST_DATA_AI_GENERATION_REQUIRED"
+      });
+    }
     if (kind.toLowerCase() === "oneof") {
       const pool = decodeGeneratedValuePool(option);
       return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";

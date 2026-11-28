@@ -33,6 +33,53 @@ test('durable acceptance is idempotent by actor/project/key; changed payload con
   await assert.rejects(()=>f.service.createRun({...input,target_url:'https://qa.example.test/changed'},user,{requestKey:'request-1'}),e=>e.statusCode===409);
   await assert.rejects(()=>f.service.createRun({...input,idempotency_key:'different'},user,{requestKey:'request-1'}),/must match/);
 });
+
+test('a workflow security review uses the passive preset and records a terminal nonstreamed assessment', async () => {
+  let trace;
+  const f = fixture({assessQualityRun:async (_request,_actor,_engine,current) => {
+    trace=current;
+    return {summary:'Passive observation assessed'};
+  }});
+  const streamed = [];
+  f.store.appendStreamEvent = async (_row,event) => streamed.push(event);
+  const run = await f.service.createRun({...input, kind:'security', execution_mode:'agent',
+    options:{mission:{max_actions:12,allow_form_submission:true}}},user,
+    {requestKey:'workflow-security',workflowTrace:{run_id:'workflow-run',node_id:'security-check'}});
+  assert.equal(run.options.mission,undefined);
+  await f.service.processQueuedRuns();
+  const completed = await f.service.getRun(run.id,user);
+  assert.equal(completed.status,'completed');
+  assert.deepEqual(completed.agent_assessment,{summary:'Passive observation assessed'});
+  assert.deepEqual(trace.workflowTrace,{run_id:'workflow-run',node_id:'security-check'});
+  assert.equal(trace.onEvent,undefined);
+  assert.equal(trace.onProgress,undefined);
+  assert.deepEqual(streamed.map(event=>event.type),['done']);
+  assert.equal(JSON.parse(f.calls[0].init.body).options.mission,undefined);
+});
+
+test('workflow Web Journey blocks a model-selected input action before engine dispatch', async () => {
+  const calls = [];
+  const f = fixture({
+    decideMission:async()=>({action:'click',element_id:'element-1',summary:'Unsupported model action'}),
+    http:async (url,init) => {
+      calls.push(url);
+      if(url.endsWith('/capabilities')) return Response.json({missions:{supported:true}});
+      if(url.endsWith('/cancel')) return Response.json({});
+      const request = JSON.parse(init.body);
+      return Response.json({contract_version:'1.0',id:'engine-quality-run',client_run_id:request.client_run_id,
+        scope:request.scope,kind:request.kind,target_url:request.target_url,state:'running',stages:[],findings:[],metrics:{},artifacts:[],limitations:[],
+        decision_request:{sequence:1,url:request.target_url,title:'Checkout',text:'Checkout review',elements:[]}});
+    }
+  });
+  const run=await f.service.createRun({...input,execution_mode:'agent',options:{max_pages:5}},user,
+    {workflowTrace:{run_id:'workflow-run',node_id:'journey'}});
+  assert.equal(run.options.max_pages,1);
+  await f.service.processQueuedRuns();
+  const terminal=await f.service.getRun(run.id,user);
+  assert.equal(terminal.status,'failed');
+  assert.equal(terminal.error.code,'QUALITY_AGENT_ACTION_SCOPE');
+  assert.ok(!calls.some(url=>url.endsWith('/decision')));
+});
 test('run, history, catalog and artifact scope is checked before remote access',async()=>{
   const f=fixture(),run=await f.service.createRun(input,user);
   for(const operation of [()=>f.service.getRun(run.id,{id:'other'}),()=>f.service.listRuns({project_id:'project-b'},user),()=>f.service.catalog({project_id:'project-b'},user),()=>f.service.getArtifact(run.id,'evidence',{id:'other'}),()=>f.service.createRun({...input,app_type_id:'app-b'},user)])await assert.rejects(operation,e=>e.statusCode===403);

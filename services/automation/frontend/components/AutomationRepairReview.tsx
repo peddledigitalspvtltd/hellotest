@@ -10,7 +10,14 @@ type Detail={status:string;source_current:boolean;build:string;verification:{sta
 export function AutomationRepairReview({summary}:{summary:AutomationRepairSummary}) {
   const [open,setOpen]=useState(false);
   const api=summary.patch?.kind==='replace_api_url';
-  return <section className="quality-evidence-panel" aria-label="Automation repair verification"><header><div><span className="quality-evidence-eyebrow">Typed repair · Assertions preserved</span><h3>Automation repair</h3></div><span className="quality-evidence-status">{summary.status.replace(/_/g,' ')}</span></header><p>{summary.detail}</p>
+  const triage=summary.triage;
+  return <section className="quality-evidence-panel" aria-label="Automation repair verification"><header><h3>Automation repair</h3><span className="quality-evidence-status">{summary.status.replace(/_/g,' ')}</span></header>
+    {triage&&<>
+      <p><strong>{triage.classification}</strong> · Step {triage.step_order}{triage.line?` · Line ${triage.line}`:''}</p>
+      {triage.observed_candidate_count!==undefined&&<p>Locator candidates on the failed screen: {triage.observed_candidate_count}</p>}
+      <p>{triage.next_action}</p>
+    </>}
+    {summary.detail!==triage?.next_action&&<p>{summary.detail}</p>}
     {summary.patch&&<><p>{summary.patch.rationale}</p><div className="repair-code-grid"><div><strong>{api?'Current API endpoint':'Current section'}</strong><pre>{summary.patch.before}</pre></div><div><strong>{api?'Proposed API endpoint':'Proposed section'}</strong><pre>{summary.patch.after}</pre></div></div><p className="repair-revision">Patch {summary.patch.hash}</p></>}
     {summary.id&&summary.project_id&&<details className="quality-evidence-details" onToggle={event=>setOpen(event.currentTarget.open)}><summary>Validate and apply repair</summary>{open&&<RepairValidation id={summary.id} projectId={summary.project_id}/>}</details>}
   </section>;

@@ -7,7 +7,7 @@ function assertNodeRegistry(registry) {
   for (const [kind, descriptor] of Object.entries(registry.kinds)) {
     if (descriptor.kind !== kind || !EXECUTOR_FAMILIES.includes(descriptor.executor) || typeof descriptor.executable !== 'boolean'
       || typeof descriptor.label !== 'string' || !descriptor.label || descriptor.schema?.type !== 'object'
-      || descriptor.schema?.properties?.kind?.const !== kind || !['always','http_write','never'].includes(descriptor.exclusive)
+      || descriptor.schema?.properties?.kind?.const !== kind || !['always','http_write','repository_review','never'].includes(descriptor.exclusive)
       || !Array.isArray(descriptor.handles) || !descriptor.ui || !descriptor.defaults) throw new Error(`Invalid workflow node descriptor: ${kind}.`);
   }
   return registry;

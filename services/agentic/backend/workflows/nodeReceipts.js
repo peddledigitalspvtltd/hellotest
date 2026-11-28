@@ -3,6 +3,7 @@ const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof v
 const digest=value=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 function summary(result,hash){
  return {node_id:result.node_id,kind:result.node_type,status:result.status,result_hash:hash,
+ ...(result.bypassed===true?{bypassed:true,...(result.bypass_handle===undefined?{}:{bypass_handle:result.bypass_handle})}:{}),
  matched:result.node_type==='condition'?result.output?.matched:undefined,
  ...(result.output?.routes?{routes:Object.fromEntries(Object.entries(result.output.routes).map(([key,items])=>[key,items.length>0]))}:{}),
  ...(result.output?.loop_mode==='workflow'?{loop_mode:'workflow'}:{}),

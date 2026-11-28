@@ -10,7 +10,7 @@ function buildFailureProgress(error, { modelStarted = false } = {}) {
   if (Object.hasOwn(providerFailureMessages, code)) stage = 'model';
   else if (Object.hasOwn(prerequisiteFailureMessages, code)) stage = 'context';
   else if (Object.hasOwn(retainedSubjectFailureMessages, code)) stage = 'context';
-  else if (['AUTOMATION_DEPENDENCY_MISSING','AUTOMATION_FLOW_PLAN_INVALID','AUTOMATION_FLOW_PLAN_CONTEXT_INVALID','AUTOMATION_FLOW_BRIEF_REQUIRED','AUTOMATION_REPAIR_PLAN_REQUIRED','AUTOMATION_MANUAL_ORDER_CONFLICT','AUTOMATION_GOAL_OBLIGATIONS_INVALID'].includes(code)) stage = 'context';
+  else if (['AUTOMATION_DEPENDENCY_MISSING','AUTOMATION_FLOW_PLAN_INVALID','AUTOMATION_FLOW_PLAN_CONTEXT_INVALID','AUTOMATION_FLOW_BRIEF_REQUIRED','AUTOMATION_REPAIR_PLAN_REQUIRED','AUTOMATION_MANUAL_ORDER_CONFLICT','AUTOMATION_MANUAL_COVERAGE_INCOMPLETE','AUTOMATION_GOAL_OBLIGATIONS_INVALID'].includes(code)) stage = 'context';
   else if (error?.automation_stage === 'save') stage = 'save';
   else if (code === 'AUTOMATION_BROWSER_STARTUP_FAILED') stage = 'browser_startup';
   else if (/^(?:AUTOMATION_BROWSER_|AUTOMATION_SEMANTIC_REVIEW_|BROWSER_)/.test(code || '') || ['AUTOMATION_BUILD_DEADLINE','AUTOMATION_MCP_CAPABILITY_MISSING'].includes(code) || !modelStarted) stage = 'browser';

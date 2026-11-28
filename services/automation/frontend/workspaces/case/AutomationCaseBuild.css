@@ -1,0 +1,203 @@
+.page-content--automation .automation-agent-workspace.automation-case-build {
+  container: automation-case-build / inline-size;
+  gap: 14px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.automation-agent-workspace.automation-case-build > .automation-build-header {
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.automation-agent-workspace.automation-case-build .automation-build-header > h3 {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.35;
+  letter-spacing: normal;
+}
+
+.automation-agent-workspace.automation-case-build .automation-build-header > .automation-quality-launch {
+  margin-inline-start: auto;
+}
+
+.automation-case-build .automation-build-header > .automation-build-methods {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 3px;
+  flex-wrap: nowrap;
+}
+
+.automation-case-build .automation-build-methods > button {
+  min-inline-size: 0;
+  min-block-size: 40px;
+  padding: 6px 10px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.automation-case-build .automation-build-methods > button svg {
+  flex: 0 0 auto;
+}
+
+.automation-case-build .automation-ai-layout {
+  gap: 14px;
+}
+
+.automation-case-build .automation-engineer-brief > summary {
+  min-block-size: 44px;
+  padding: 8px 14px;
+}
+
+.automation-case-build .automation-engineer-brief > summary > .automation-ai-status {
+  display: inline-flex;
+  margin-inline-start: auto;
+}
+
+.automation-case-build .automation-engineer-brief > summary:has(.automation-ai-status)::after {
+  margin-inline-start: 0;
+}
+
+.automation-case-build .automation-engineer-brief .automation-ai-studio {
+  gap: 14px;
+  min-inline-size: 0;
+  padding: 14px;
+  border-block-start: 1px solid var(--app-border, var(--ui-border));
+  background: transparent;
+}
+
+.automation-case-build__target,
+.automation-case-build__record-target,
+.automation-case-build__browser,
+.automation-case-build__settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  align-items: start;
+  gap: 10px 14px;
+}
+
+.automation-case-build :is(.automation-case-build__target, .automation-case-build__record-target, .automation-case-build__browser, .automation-case-build__settings-fields) > .form-field {
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.automation-case-build .automation-case-build__context > button {
+  justify-content: flex-start;
+  min-inline-size: 0;
+  min-block-size: 38px;
+  text-align: start;
+  white-space: normal;
+}
+
+.automation-case-build .automation-case-build__context > button span {
+  overflow-wrap: anywhere;
+}
+
+.automation-case-build .automation-case-build__hint {
+  margin: 0;
+  color: var(--app-text-muted, var(--ui-text-muted));
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.automation-case-build .automation-case-build__feedback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--app-surface-muted, var(--ui-surface-subtle));
+  color: var(--app-text-muted, var(--ui-text-muted));
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.automation-case-build .automation-case-build__feedback[role="alert"] {
+  color: var(--ui-red-text);
+}
+
+.automation-case-build .automation-agent-setup .agent-command-composer__submit-group {
+  flex-wrap: wrap;
+  max-inline-size: 100%;
+}
+
+.automation-case-build .automation-agent-setup .agent-command-composer {
+  border-radius: 10px;
+}
+
+.automation-case-build .automation-ai-options {
+  border-block-start: 1px solid var(--app-border, var(--ui-border));
+}
+
+.automation-case-build .automation-ai-options > summary {
+  min-block-size: 36px;
+  padding-block: 6px 0;
+  font-size: 0.8125rem;
+}
+
+.automation-case-build .automation-ai-options-body {
+  gap: 12px;
+  padding-block: 8px 0;
+}
+
+.automation-case-build > .automation-recording-workspace {
+  min-inline-size: 0;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--app-surface, var(--ui-surface));
+}
+
+.automation-case-build > .automation-recording-workspace > details {
+  border-block-end: 0;
+  padding-block: 0;
+}
+
+.automation-case-build > .automation-recording-workspace > details > summary {
+  min-block-size: 38px;
+  padding-block: 10px;
+}
+
+.automation-case-build > .automation-recording-workspace > details[open] > div {
+  padding-block-start: 0;
+}
+
+.automation-case-build__record-data {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@container automation-case-build (max-width: 670px) {
+  .automation-case-build .automation-build-header > .automation-build-methods {
+    order: 1;
+    flex: 1 0 100%;
+  }
+
+  .automation-case-build .automation-build-methods > button {
+    min-block-size: 44px;
+  }
+}
+
+@container automation-case-build (max-width: 420px) {
+  .automation-case-build .automation-build-methods > button {
+    padding-inline: 5px;
+  }
+
+  .automation-case-build .agent-command-composer__submit-group > button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

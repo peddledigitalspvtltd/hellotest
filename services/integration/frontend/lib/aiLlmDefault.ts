@@ -1,4 +1,5 @@
-export type AiLlmOption = { id: string; name: string; model?: string | null; is_active?: boolean; type?: string };
+export type AiLlmOption = { id: string; name: string; model?: string | null; is_active?: boolean; type?: string;
+  is_default?: boolean; project_id?: string | null; config?: Record<string, unknown> | null };
 
 export function resolveAiLlmDefault({ preferences, usageKey, projectId, integrations }: {
   preferences?: Record<string, unknown>;
@@ -6,6 +7,11 @@ export function resolveAiLlmDefault({ preferences, usageKey, projectId, integrat
   projectId?: string | null;
   integrations?: readonly AiLlmOption[];
 }) {
+  if (!integrations) return "";
+  const active = integrations.filter((item) => {
+    const owner = item.project_id || item.config?.project_id;
+    return item.is_active !== false && (!item.type || item.type === "llm") && (!owner || owner === projectId);
+  });
   const overrides = preferences?.ai_prompt_registry_llm_overrides as Record<string, unknown> | undefined;
   const entries = Array.isArray(preferences?.ai_last_successful_llm) ? preferences.ai_last_successful_llm : [];
   const successes = entries.filter((entry) => entry && typeof entry.integration_id === "string"
@@ -14,7 +20,8 @@ export function resolveAiLlmDefault({ preferences, usageKey, projectId, integrat
   // Agent Studio owns all agent profiles. A legacy admin provider must never
   // become an explicit node selection merely by opening the agent UI.
   const configured = usageKey.startsWith('ai.agentic.') ? undefined : overrides?.[usageKey];
-  const ids = [configured, ...successes.filter((entry) => entry.usage_key === usageKey).map((entry) => entry.integration_id), ...successes.map((entry) => entry.integration_id)];
+  const ids = [configured, active.find((item) => item.is_default)?.id,
+    ...successes.filter((entry) => entry.usage_key === usageKey).map((entry) => entry.integration_id), ...successes.map((entry) => entry.integration_id)];
   return ids.find((id): id is string => typeof id === "string" && Boolean(id.trim())
-    && (!integrations || integrations.some((item) => item.id === id && item.is_active !== false && (!item.type || item.type === "llm")))) || "";
+    && active.some((item) => item.id === id)) || "";
 }

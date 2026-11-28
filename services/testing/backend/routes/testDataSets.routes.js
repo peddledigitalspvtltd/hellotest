@@ -13,6 +13,7 @@ module.exports = async function (fastify) {
       prompt: { required: true, type: "string", minLength: 3, maxLength: 2000 },
       field_context: { required: false, type: "string" },
       sample_count: { required: false, type: "number" },
+      single_value: { required: false, type: "boolean" },
       prompt_instruction: { required: false, type: "string" },
       integration_id: { required: false, type: "string", maxLength: 255 },
       additional_context: { required: false, type: "string", maxLength: 12000 }
@@ -30,6 +31,7 @@ module.exports = async function (fastify) {
       prompt: req.body.prompt,
       fieldContext: req.body.field_context,
       sampleCount: req.body.sample_count,
+      singleValue: req.body.single_value,
       promptInstruction: req.body.prompt_instruction,
       integrationId: req.body.integration_id,
       additionalContext: req.body.additional_context,

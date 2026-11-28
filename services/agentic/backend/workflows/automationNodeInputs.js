@@ -1,6 +1,6 @@
 const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
 const { resolveAutomationDraftSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
-const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+const { normalizeParameterKey, normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { referenceKey, referencedParameterNames, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/parameters');
 const { fail } = require('./endpointPolicy');
 
@@ -63,16 +63,19 @@ function validateNodeOptions(data = {}) {
   if (data.automationSource != null && !['sprint', 'manual_case'].includes(data.automationSource)) throw fail('Choose Sprint Test Case or a saved manual Test Case as the automation source.', 422);
   if (data.automationManualCaseId && !validId(data.automationManualCaseId)) throw fail('Select a valid manual Test Case.', 422);
   if (!['perform_steps', 'read_only', 'offline'].includes(browserMode)) throw fail('Choose perform steps, read-only inspection or offline generation for Automation Engineer.', 422);
-  const verificationMode = data.automationVerificationMode || 'generate_only';
-  if (!['generate_only', 'verify'].includes(verificationMode)) throw fail('Choose whether to run the generated automation.', 422);
-  if (runtime !== 'api' && verificationMode === 'verify' && (browserMode !== 'perform_steps' || !data.testEnvironmentId)) throw fail('Running generated automation requires Perform the test steps and a selected Test Environment.', 422);
+  const verificationChoice = data.automationVerificationMode || 'generate_only';
+  if (!['generate_only', 'verify', 'verify_repair', 'verify_cli'].includes(verificationChoice)) throw fail('Choose whether to run the generated automation.', 422);
+  const verificationMode = verificationChoice === 'verify_cli' ? 'verify' : verificationChoice;
+  const verificationDriver = runtime !== 'api' && verificationChoice === 'verify_cli' ? 'playwright_test_cli' : 'native';
+  if (runtime !== 'api' && verificationMode !== 'generate_only' && (browserMode !== 'perform_steps' || !data.testEnvironmentId)) throw fail('Running generated automation requires Perform the test steps and a selected Test Environment.', 422);
   if (data.automationPassword != null && data.automationPassword !== '') throw fail('Store the Automation password in a protected credential and select it on the node.', 422);
   if (data.automationUsername != null && (typeof data.automationUsername !== 'string' || data.automationUsername.length > 255 || /[\r\n]/.test(data.automationUsername))) throw fail('Supply an Automation username of up to 255 characters without line breaks.', 422);
   if (data.automationCredentialId && (typeof data.automationCredentialId !== 'string' || !/^[\w-]{1,160}$/.test(data.automationCredentialId))) throw fail('Select a protected Automation credential.', 422);
   if (data.testEnvironmentId && (typeof data.testEnvironmentId !== 'string' || !/^[\w-]{1,160}$/.test(data.testEnvironmentId))) throw fail('Select a valid Test Environment.', 422);
   const startUrl = checkedStartUrl(data.automationStartUrl);
   return { startUrl, runtime, browserMode: runtime === 'api' ? 'offline' : browserMode,
-    verificationMode: runtime === 'api' ? 'generate_only' : verificationMode, values: parameterData(data.automationData), username: data.automationUsername,
+    verificationMode: runtime === 'api' ? 'generate_only' : verificationMode, requestedVerification: verificationMode,
+    verificationDriver, values: parameterData(data.automationData), username: data.automationUsername,
     credentialId: data.automationCredentialId || null, testEnvironmentId: data.testEnvironmentId || null };
 }
 
@@ -90,8 +93,10 @@ function caseRuntime(draft, appTypeKind, options) {
     blocked_steps: [{ reason, required_context: ['Select the matching Automation Agent or choose automatic runtime selection.'] }]
   });
   const interactive = hasWeb && options.browserMode === 'perform_steps';
+  const verificationMode = interactive && nativeSteps.every(step => step.step_type === 'web') ? options.verificationMode : 'generate_only';
   return { nativeSteps, interactive, inspectBrowser: hasWeb && options.browserMode !== 'offline',
-    verificationMode: interactive && nativeSteps.every(step => step.step_type === 'web') ? options.verificationMode : 'generate_only' };
+    verificationMode, requestedVerification: options.requestedVerification,
+    verificationDriver: verificationMode !== 'generate_only' ? options.verificationDriver : 'native' };
 }
 
 // Credential authority is scoped to the application origin and checked again
@@ -127,7 +132,10 @@ function environmentPrivateParameterNames(environment) {
 }
 async function resolveNodeInputs({ run, node, user, access, startUrlFallback }) {
   const options = validateNodeOptions(node.data);
-  const values = options.testEnvironmentId ? {} : { ...options.values }, privateValues = {};
+  const values = options.testEnvironmentId ? Object.fromEntries(Object.entries(options.values)
+    .filter(([name, value]) => name.startsWith('t.') && !SENSITIVE.test(name) && !referenceKey(value))) : { ...options.values };
+  const privateValues = {};
+  if (options.testEnvironmentId && Object.keys(values).length) await access(user, run.project_id, ['data.view']);
   const environment = await selectedEnvironment({ run, node, user, access, options });
   const configuredStartUrl = Object.hasOwn(node.data || {},'automationStartUrl') ? options.startUrl
     : checkedStartUrl(run.input_payload?.automation_start_url);
@@ -148,7 +156,8 @@ async function resolveNodeInputs({ run, node, user, access, startUrlFallback }) 
     privateValues['t.password'] = password;
     if (!Object.hasOwn(values, 't.username')) values['t.username'] = credentialUsername;
   }
-  return { startUrl, runtime: options.runtime, browserMode: options.browserMode, verificationMode: options.verificationMode, values, privateValues, credentialId: options.testEnvironmentId ? null : options.credentialId, testEnvironmentId: options.testEnvironmentId,
+  return { startUrl, runtime: options.runtime, browserMode: options.browserMode, verificationMode: options.verificationMode,
+    requestedVerification: options.requestedVerification, verificationDriver: options.verificationDriver, values, privateValues, credentialId: options.testEnvironmentId ? null : options.credentialId, testEnvironmentId: options.testEnvironmentId,
     environmentParameterNames: environmentParameterNames(environment), environmentPrivateParameterNames: environmentPrivateParameterNames(environment) };
 }
 
@@ -176,14 +185,19 @@ async function resolveCaseNodeInputs({ run, node, user, access, story }) {
 
 // Remap authored reference lexemes once. Parameter values stay literal at run
 // time; storing "@r.password" as the value of t.password would type that text.
-function bindDraftParameters(draft, steps, bindings = {}) {
+function bindDraftParameters(draft, steps, bindings = {}, legacyBindings = {}) {
   const rewrite = value => {
     if (typeof value === 'string') return value.replace(/\bparams\s*\[\s*(["'])(?:\\.|[^\\\r\n])*?\1\s*\]|(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?(\[(?:\\.|[^\\\]\r\n])+\]|[A-Za-z][A-Za-z0-9_-]*)/gi,
-      match => { const target = bindings[referenceKey(match)]; return target ? match.startsWith('@') ? parameterReference(target) : `params[${JSON.stringify(target)}]` : match; });
+      match => {
+        const name = referenceKey(match);
+        const legacy = match.startsWith('@') && !/^@[tsr]\./i.test(match) ? legacyBindings[name] : null;
+        const target = bindings[legacy || name] || legacy;
+        return target ? match.startsWith('@') ? parameterReference(target) : `params[${JSON.stringify(target)}]` : match;
+      });
     if (Array.isArray(value)) return value.map(rewrite);
     return value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, rewrite(item)])) : value;
   };
-  const parameterValues = Object.fromEntries(Object.entries(draft.parameter_values || {}).filter(([name]) => !Object.hasOwn(bindings, Object.keys(normalizeParameterLayer({ [name]: '' }, 't'))[0])));
+  const parameterValues = Object.fromEntries(Object.entries(draft.parameter_values || {}).filter(([name]) => !Object.hasOwn(bindings, normalizeParameterKey(name, 't'))));
   const mappedSteps = steps.map(step => ({ ...step, action: rewrite(step.action), expected_result: rewrite(step.expected_result),
     ...(step.api_request ? { api_request: rewrite(step.api_request) } : {}) }));
   return { ...draft, parameter_values: parameterValues, steps: mappedSteps,
@@ -192,12 +206,20 @@ function bindDraftParameters(draft, steps, bindings = {}) {
 }
 
 function caseInputs(draft, steps, inputs) {
-  let parameterValues = { ...(draft.parameter_values || {}), ...inputs.values };
+  const missingMarker = value => typeof value === 'string' && /^\[\s*(?:missing|required)\s*:[^\]\r\n]*\]$/i.test(value.trim());
+  const authoredValues = normalizeParameterLayer(draft.parameter_values, 't');
+  // Node data and credentials fill gaps. An authored blank can exercise a
+  // negative case and retains the same precedence as any other case value.
+  const fillsGap = ([key]) => !Object.hasOwn(authoredValues, key) || missingMarker(authoredValues[key]);
+  const nodeValues = Object.fromEntries(Object.entries(inputs.values || {}).filter(fillsGap));
+  const privateValues = Object.fromEntries(Object.entries(inputs.privateValues || {}).filter(fillsGap));
+  const storedValues = Object.fromEntries(Object.entries(draft.parameter_values || {})
+    .filter(([name]) => !Object.hasOwn(nodeValues, normalizeParameterKey(name, 't')) && !Object.hasOwn(privateValues, normalizeParameterKey(name, 't'))));
+  let parameterValues = { ...storedValues, ...nodeValues };
   const normalizedValues = normalizeParameterLayer(parameterValues, 't');
   const environmentNames = new Set(inputs.environmentParameterNames || []);
   const environmentPrivateNames = new Set(inputs.environmentPrivateParameterNames || [...environmentNames].filter(name => SENSITIVE.test(name)));
   const bindings = {};
-  const missingMarker = value => typeof value === 'string' && /^\[\s*(?:missing|required)\s*:[^\]\r\n]*\]$/i.test(value.trim());
   for (const key of new Set([...Object.keys(normalizedValues), ...referencedParameterNames(steps)])) {
     if (!key.startsWith('t.') || Object.hasOwn(normalizedValues, key) && !missingMarker(normalizedValues[key])) continue;
     const environmentKey = `r.${key.slice(2)}`;
@@ -206,17 +228,17 @@ function caseInputs(draft, steps, inputs) {
   const boundDraft = bindDraftParameters({ ...draft, parameter_values: parameterValues }, steps, bindings);
   parameterValues = boundDraft.parameter_values;
   steps = boundDraft.steps;
-  const runtimeValues = { ...parameterValues, ...inputs.privateValues };
-  const privateNames = [...new Set([...(boundDraft.test_data_options?.private_parameter_names || []), ...Object.keys(inputs.privateValues), ...environmentPrivateNames])];
+  const runtimeValues = { ...parameterValues, ...privateValues };
+  const privateNames = [...new Set([...(boundDraft.test_data_options?.private_parameter_names || []), ...Object.keys(privateValues), ...environmentPrivateNames])];
   const environmentMetadata = { variables: [...environmentNames].map(key => ({ key, value: '', is_secret: environmentPrivateNames.has(key) })) };
   const resolver = createBrowserParameterResolver({ testCase: boundDraft, caseValues: runtimeValues, environment: environmentMetadata, privateParameterNames: privateNames, steps, materialize: false });
   const normalizedBoundValues = normalizeParameterLayer(parameterValues, 't');
-  const publicParameterValues = Object.fromEntries(Object.entries(resolver.publicParameterValues).filter(([key]) => Object.hasOwn(normalizedBoundValues, key)));
+  const publicParameterValues = Object.fromEntries(Object.entries(resolver.exportParameterValues).filter(([key]) => Object.hasOwn(normalizedBoundValues, key)));
   return { draft: { ...boundDraft, parameter_values: parameterValues, test_data_options: { ...(boundDraft.test_data_options || {}), private_parameter_names: privateNames,
     ...(inputs.testEnvironmentId ? { test_environment_id: inputs.testEnvironmentId } : {}) },
     automation_start_url: inputs.startUrl || draft.automation_start_url || undefined, steps,
     ...(inputs.testEnvironmentId ? { test_environment_id: inputs.testEnvironmentId } : {}) },
-    runtimeValues: inputs.privateValues,
+    runtimeValues: privateValues,
     // The source classifier sees actual protected availability without copying
     // those values into the durable draft or its lineage fingerprint.
     inputDraft: { ...boundDraft, parameter_values: runtimeValues, steps },

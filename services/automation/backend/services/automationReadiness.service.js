@@ -43,7 +43,7 @@ function inspectExecutablePlan(steps, { requireExpectedAssertions = true } = {})
       }
       new vm.Script(`(async function () {\n${body}\n})`, { filename: `automation-step-${step.id || "unknown"}.js` });
       if (requireExpectedAssertions && stepType === 'web' && String(step.expected_result || '').trim() && !hasExecutableAssertion(body)) {
-        issues.push(`${prefix}: the expected result needs an executable assertion in its saved instructions.`);
+        issues.push(`${prefix}: the expected result needs an executable assertion that checks application state and propagates failure.`);
       }
     }
     catch (error) { issues.push(error.code==='AUTOMATION_RUNNER_MATCHER_UNSUPPORTED'?`${prefix}: ${error.message}`:`${prefix}: invalid JavaScript (${error.message}).`); }

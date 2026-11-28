@@ -40,6 +40,7 @@ const answer = (provider = false) => ({ assistant_message: { id: "answer-" + Dat
 window.qa = { mode: "stream", calls: [], finish: null, deliver: null, progress: null, cancelled: 0 };
 api.knowledgeRepo.assistant.streamMessage = async (id, input, options) => {
   window.qa.calls.push({ id, ...input });
+  window.qa.delivery = options.answerDelivery;
   window.qa.progress = options.onProgress;
   options.onProgress({ contract_type: "RetrievalEvent", contract_version: "1.0", stage: "LEXICAL_SEARCH", status: "COMPLETE", message: "Found one release review.", metrics: { elapsed_ms: 520 } });
   if (window.qa.mode === "timeout") throw new KnowledgeStreamError("Service deadline exceeded", "DEADLINE_EXCEEDED");
@@ -54,6 +55,7 @@ api.knowledgeRepo.assistant.streamMessage = async (id, input, options) => {
     window.qa.progress = (value) => emit("progress", value);
     window.qa.deliver = () => {
       const text = checked.assistant_message.content;
+      emit("answer_sources", { contract_type: "AnswerSources", contract_version: "1.0", verification: "complete", answer_id: checked.assistant_message.id, citations: [citation] });
       emit("answer_delta", { contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete", answer_id: checked.assistant_message.id, sequence: 0, text: text.slice(0, 24) });
       emit("answer_delta", { contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete", answer_id: checked.assistant_message.id, sequence: 1, text: text.slice(24) });
     };
@@ -122,6 +124,9 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     assert.equal(await page.locator(".grounded-assistant-message.is-user").count(), 1);
     await page.evaluate(() => window.qa.progress({ contract_type: "RetrievalEvent", contract_version: "1.0", sequence: 4, stage: "GENERATION", status: "IN_PROGRESS", error_code: "MODEL_TIMEOUT", metrics: { model_attempt: 3, model_max_attempts: 3, retry_delay_ms: 300, elapsed_ms: 5500 } }));
     await page.locator(".grounded-assistant-progress-heading").getByText("Retrying answer model · attempt 3 of 3", { exact: true }).waitFor();
+    await page.getByRole("list", { name: "Retrieval activity" }).waitFor({ state: "detached" });
+    await page.locator(".grounded-assistant-progress-details > summary").click();
+    await page.getByRole("list", { name: "Retrieval activity" }).waitFor();
     assert.equal(await page.locator(".grounded-assistant-progress-timeline li").getByText("Retrying answer model · attempt 2 of 3", { exact: true }).count(), 1);
     assert.equal(await page.locator(".grounded-assistant-progress-timeline li").getByText("Retrying answer model · attempt 3 of 3", { exact: true }).count(), 1);
     if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-progress.png"), animations: "disabled" });
@@ -130,7 +135,8 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-retry-390.png"), animations: "disabled" });
     await page.setViewportSize({ width: 1440, height: 1050 });
     await page.evaluate(() => window.qa.deliver());
-    assert.equal(await page.locator(".is-delivering").count(), 0, "Legacy answer chunks do not expose a partial preview");
+    assert.equal(await page.evaluate(() => window.qa.delivery), "final", "The UI requests the complete answer without duplicate frames");
+    assert.equal(await page.getByRole("article", { name: "Answer delivery" }).count(), 0, "Legacy evidence and answer frames do not expose a partial preview");
     assert.equal(await page.locator(".grounded-assistant-message.is-assistant").count(), 0, "The answer appears together with its completed contract");
     assert.equal(await page.getByRole("region", { name: "Answer progress" }).isVisible(), true);
     await page.evaluate(() => window.qa.finish());

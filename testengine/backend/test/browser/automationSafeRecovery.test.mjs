@@ -25,6 +25,7 @@ test('playback never replays mutations or captures after a failed check and reta
 
   const submitted = await session.runStep(step('submit', 'await page.getByRole("button", { name: "Submit" }).click();\nawait expect(page.locator("output")).toHaveText("Ready");'));
   assert.equal(submitted.status, 'failed');
+  assert.equal(submitted.web_detail.first_failure.code, 'assertion_mismatch', submitted.note);
   assert.equal(submissions, 1, submitted.note);
   assert.equal(submitted.recovery_attempted, false);
   assert.deepEqual(submitted.web_detail.recovery, { strategy: 'read_only_assertion_retry', status: 'blocked', attempts: 1, source_changed: false, reason: 'section_not_read_only', retry_limit: 2, first_failure_attempt: 1, first_failure_line: 2 });
@@ -39,6 +40,7 @@ test('playback never replays mutations or captures after a failed check and reta
 
   const permanent = await session.runStep(step('ambiguous', 'await expect(page.locator("output, button")).toHaveText("Ready");'));
   assert.equal(permanent.status, 'failed');
+  assert.equal(permanent.web_detail.first_failure.code, 'locator_ambiguous', permanent.note);
   assert.equal(permanent.recovery_attempted, false);
   assert.match(permanent.note, /strict mode violation/);
   const invalidSelector = await session.runStep(step('invalid-selector', 'await expect(page.locator("[")).toHaveText("Ready");'));
@@ -55,7 +57,7 @@ test('playback never replays mutations or captures after a failed check and reta
 
   // Navigation is a separate, non-retried step. A later read-only assertion can
   // recover after its initial native timeout without rerunning that navigation.
-  assert.equal((await session.runStep(step('eventual-page', `await page.goto(${JSON.stringify(base + '/eventual')});`))).status, 'passed');
+  assert.equal((await session.runStep(step('eventual-page', `await page.goto(${JSON.stringify(base + '/eventual')}, { waitUntil: "domcontentloaded" });`))).status, 'passed');
   const draft = step('eventual-read', 'const status = page.locator("output");\nawait expect(status).toHaveText("Ready");');
   const changedDraft = setTimeout(() => { draft.automation_code = 'await page.goto("/"); await page.getByRole("button", { name: "Submit" }).click();'; }, 50);
   const delayed = await session.runStep(draft);
@@ -93,4 +95,36 @@ test('closing a run while a safe retry is waiting cannot start another assertion
   assert.equal(result.web_detail.recovery.attempts, 1);
   assert.equal(result.web_detail.recovery.reason, 'run_stopped');
   assert.match(result.note, /run ended|closed/);
+});
+
+test('runner records bounded unique test IDs from the failed screen without reading page or form content', { timeout: 15_000 }, async t => {
+  const app = Fastify();
+  app.get('/', async (_request, reply) => reply.type('text/html').send('<button data-testid="start-action">Start</button>'));
+  app.get('/review', async (_request, reply) => reply.type('text/html').send(`<!doctype html>
+    <title>PRIVATE_PAGE_TITLE</title>
+    <button data-testid="confirm-order">Private Person Name</button>
+    <input data-testid="order-email" value="PRIVATE_INPUT_VALUE">
+    <input data-testid="order-password" type="password" value="PRIVATE_PASSWORD">
+    <button data-testid="not-visible" hidden>Hidden</button>
+    <button data-testid="duplicate-control">Visible duplicate</button><div id="host"></div>
+    <script>document.getElementById('host').attachShadow({mode:'open'}).innerHTML='<button data-testid="duplicate-control">Other duplicate</button>'</script>`));
+  const base = await app.listen({ host: '127.0.0.1', port: 0 });
+  const { createWebRunSession } = await import('../../dist/lib/webEngine.js');
+  const session = createWebRunSession({ engine_run_id: 'failure-observation', browser: 'chromium', headless: true,
+    web_engine: { active: 'playwright' }, environment: { base_url: base }, run_timeout_seconds: 15,
+    timeouts: { assertion_timeout_ms: 100 }, artifact_policy: { trace_mode: 'off', video_mode: 'off', screenshot_on_failure: false, screenshot_on_success: false }, steps: [] });
+  t.after(async () => { await session.stop('failed'); await app.close(); });
+  await session.start();
+  const navigate = await session.runStep({ id: 'review-page', order: 1, step_type: 'web', action: 'Open review', automation_code: `await page.goto(${JSON.stringify(`${base}/review?customer=PRIVATE_QUERY`)});` });
+  assert.equal(navigate.status, 'passed', navigate.note);
+  assert.equal(navigate.web_detail.first_failure, undefined);
+  const fail = await session.runStep({ id: 'review-check', order: 2, step_type: 'web', action: 'Find confirmation', automation_code: 'await expect(page.getByTestId("old-confirm")).toBeVisible();' });
+  assert.equal(fail.status, 'failed', fail.note);
+  const report = fail.web_detail.first_failure;
+  assert.equal(report.schema, 'web-failure-report/1');
+  assert.equal(report.code, 'locator_missing', fail.note);
+  assert.equal(report.line, 1);
+  assert.equal(report.page.at_environment_start, false);
+  assert.deepEqual(report.page.candidates, [{ test_id: 'confirm-order', control: 'button' }, { test_id: 'order-email', control: 'input' }]);
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE|Person Name|start-action|duplicate-control/);
 });

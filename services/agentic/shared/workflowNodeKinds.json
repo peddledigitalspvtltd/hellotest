@@ -8,8 +8,47 @@
     "max_loop_node_executions": 1000
   },
   "kinds": {
+    "qualityAgent": {
+      "kind": "qualityAgent",
+      "agent_output": "final",
+      "label": "Browser Quality Agent",
+      "description": "Run a bounded Browser Quality Agent on a project application and return its validated assessment.",
+      "executor": "operation",
+      "executable": true,
+      "specialist": false,
+      "exclusive": "always",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "kind": { "const": "qualityAgent" }
+        },
+        "additionalProperties": true
+      },
+      "handles": [],
+      "dynamicHandles": null,
+      "targetHandles": [],
+      "ui": {
+        "icon": "webAgent",
+        "panel": "operation",
+        "paletteGroup": "AI reviews and source analysis"
+      },
+      "defaults": {
+        "label": "Browser Quality Agent",
+        "kind": "qualityAgent",
+        "summary": "Collect focused browser evidence and return the final assessment.",
+        "retryCount": "0",
+        "timeoutMs": "170000",
+        "onError": "stop",
+        "redactSecrets": "true",
+        "qualityAgentKind": "web",
+        "testEnvironmentId": "",
+        "qualityTargetPath": "",
+        "qualityGoal": ""
+      }
+    },
     "artifactTask": {
       "kind": "artifactTask",
+      "agent_output": "final",
       "label": "Native AI task",
       "description": "Pass revision-pinned Story packets through native assurance, Test Case authoring and validated automation contracts",
       "executor": "operation",
@@ -52,6 +91,7 @@
     },
     "customAI": {
       "kind": "customAI",
+      "agent_output": "final",
       "label": "Custom AI",
       "description": "Review connected input with your own prompt and model",
       "executor": "operation",
@@ -149,12 +189,13 @@
     },
     "repositoryAgent": {
       "kind": "repositoryAgent",
+      "agent_output": "final",
       "label": "Source analysis",
       "description": "Analyze GitHub source with a repository agent",
       "executor": "repository",
       "executable": true,
       "specialist": true,
-      "exclusive": "always",
+      "exclusive": "repository_review",
       "schema": {
         "type": "object",
         "properties": {
@@ -224,6 +265,7 @@
     },
     "agent": {
       "kind": "agent",
+      "agent_output": "final",
       "label": "Workspace specialist",
       "description": "Ask a workspace specialist for an evidence-backed review and artifact proposals, with permitted agent handoffs",
       "executor": "specialist",
@@ -284,6 +326,7 @@
     },
     "llmAgent": {
       "kind": "llmAgent",
+      "agent_output": "final",
       "label": "Specialist review",
       "description": "Reason over intent, RAG context, and upstream output",
       "executor": "specialist",
@@ -643,6 +686,7 @@
     },
     "loop": {
       "kind": "loop",
+      "agent_output": "loop-review",
       "label": "Loop over items",
       "description": "Process batches through connected steps, then collect their results",
       "executor": "operation",

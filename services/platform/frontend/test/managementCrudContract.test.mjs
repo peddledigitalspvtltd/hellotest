@@ -332,7 +332,7 @@ test("project platform icons and compressed attachments stay selected, scoped, a
   assert.match(editor, /DialogCloseButton label="Close add link dialog"/);
   assert.match(editor, /Enter a valid http, https, or mailto link/);
   assert.match(editor, /title: "Attach files"/);
-  assert.match(page, /gzip compressed on upload/);
+  assert.match(page, /PDF, Word, Excel, and other files/);
   assert.match(page, /entityType="project"/);
   assert.match(page, /section === "attachments"/);
   assert.match(page, /<Panel title="Project attachments"/);

@@ -82,7 +82,10 @@ export function useAutomationCaseDetailController(defaultTab?: Parameters<typeof
             return;
         const requestedCase = findByRoutableId(automatedCases, requestedCaseId);
         if (testCasesQuery.isLoading
-            || testCasesQuery.isFetching) {
+            || testCasesQuery.isFetching
+            || (requestedCaseId && !requestedCase)) {
+            // A first or refreshed catalog may arrive after the saved-case URL.
+            // Leave the route eligible until the scoped case can be resolved.
             return;
         }
         // Consume a URL selection once. React can render a local close/open before

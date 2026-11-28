@@ -187,6 +187,6 @@ export type FlagSnapshot = {
   optional_dependencies?: Record<string, string[]>;
   permission_features?: Record<string, string[]>;
 };
-export type Integration = { id: string; type: string; name: string; base_url?: string; model?: string; is_active: boolean; updated_at: string };
+export type Integration = { id: string; type: string; name: string; base_url?: string; model?: string; is_active: boolean; is_default?: boolean; updated_at: string };
 export type IntegrationType = { value: string; label: string; description: string; defaults?: Record<string, unknown> };
 export type AuditEvent = { id: string; action: string; summary: string; target_type?: string; actor_name?: string; actor_email?: string; created_at: string };

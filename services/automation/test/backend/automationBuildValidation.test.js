@@ -138,13 +138,13 @@ test('Engineer prompt keeps current source provenance and separate unverified re
   const prompt = buildPrompt({ testCase: { title: 'Signup' }, steps: [{ id: 'step-1', step_order: 1, action: 'Submit signup', expected_result: 'Account confirmation appears' }], cacheRows: [],
     knowledgeRows: { knowledge: [{ evidence_id: 'K-fragment-7', source_id: 'source-2', title: 'Signup acceptance', content: 'Account confirmation is required.', freshness: { current: true, status: 'CURRENT', source_version: 'revision-12' }, scores: { fused: 0.93 } }] },
     buildContext: { retrieval: { transport: 'mcp', reviewed_context: { kind: 'user_reviewed_supplement', trust: 'unverified_user_input', content: 'Review the account confirmation.', current_evidence_ids: ['K-fragment-7'] } } }, capturedActions: [], capturedNetwork: [] });
-  assert.match(prompt, /"evidence_id": "K-fragment-7"/);
-  assert.match(prompt, /"source_version": "revision-12"/);
+  assert.match(prompt, /"evidence_id":\s*"K-fragment-7"/);
+  assert.match(prompt, /"source_version":\s*"revision-12"/);
   assert.match(prompt, /retrieval_ranking_only_not_factual_confidence/);
-  assert.match(prompt, /"reviewed_context": \{/);
-  assert.match(prompt, /"trust": "unverified_user_input"/);
-  assert.match(prompt, /"action": "Submit signup"/);
-  assert.match(prompt, /"expected_result": "Account confirmation appears"/);
+  assert.match(prompt, /"reviewed_context":\s*\{/);
+  assert.match(prompt, /"trust":\s*"unverified_user_input"/);
+  assert.match(prompt, /"action":\s*"Submit signup"/);
+  assert.match(prompt, /"expected_result":\s*"Account confirmation appears"/);
 });
 
 test("builder context masks private keyed data even without an explicit secret flag",()=>{

@@ -12,6 +12,7 @@ const scheduling = require('../workflows/workflowScheduling');
 const flowOperations = require('../workflows/flowOperations');
 const mergeOperations = require('../workflows/mergeOperations');
 const loopBudget = require('../workflows/workflowLoopBudget');
+const { isAutomaticSprintPublication } = require('../workflows/sprintPipeline');
 const { isDeepStrictEqual } = require('node:util');
 const { mapWithConcurrency } = require('@hellotest/platform/backend/src/utils/boundedConcurrency');
 
@@ -20,7 +21,9 @@ const { mapWithConcurrency } = require('@hellotest/platform/backend/src/utils/bo
 const operations = require("../workflows/nodeOperations");
 const nodeRegistry = require('../workflows/nodeRegistry');
 const { policy: specialistPolicy } = require("../workflows/specialistPolicy");
+const agentInvocation = require("../agents/agentInvocation");
 const { contextFor, appendInputs, mergeInputs, mergeExecutionContext } = operations._internals;
+const { inputValue } = require('../workflows/nodes/shared/values');
 const events = require("../workflows/runtimeEvents");
 const MODE = "review";
 const MAX_DURATION_MS = 180_000;
@@ -50,8 +53,7 @@ const processing = workflow => ({ mode: workflow.settings?.processing_mode === '
 const nodeName = (node) => text(node.data?.label) || node.id;
 const hydrate = (run) => run && ({ ...run, execution_mode: parse(run.workflow_snapshot, {}).execution_mode || "preview", workflow_snapshot: parse(run.workflow_snapshot, {}), input_payload: parse(run.input_payload, {}), output_payload: parse(run.output_payload, {}), node_results: parse(run.node_results, []) });
 const publicationRecoveryNeeded = run => run?.execution_mode === MODE && ['cancelled','interrupted','failed'].includes(run.status)
-  && run.workflow_snapshot?.settings?.template_id === 'sprint-automator'
-  && run.workflow_snapshot?.settings?.library_publication_mode === 'automatic';
+  && isAutomaticSprintPublication(run.workflow_snapshot?.settings);
 
 const store = {
   get: async (id) => hydrate(await db.prepare("SELECT * FROM agentic_workflow_runs WHERE id = ?").get(id)),
@@ -203,6 +205,10 @@ function readiness(workflow, targetNodeId = "") {
   catch (failure) { add(null, failure.publicMessage || failure.message); }
   let nodes = array(workflow.nodes);
   let edges = array(workflow.edges);
+  let bodies = {};
+  if (ordered.length) bodies = graphContract.loopBodies(nodes, edges);
+  const inactive = new Set(nodes.filter(node => node.data?.disabled === true)
+    .flatMap(node => [node.id, ...(Object.hasOwn(bodies, node.id) ? bodies[node.id] : [])]));
   const connectionKeys = new Set();
   for (const edge of edges) {
     const key = JSON.stringify([edge.source, edge.target, edge.sourceHandle || "", edge.targetHandle || ""]);
@@ -211,8 +217,7 @@ function readiness(workflow, targetNodeId = "") {
   }
   if (targetNodeId) {
     if (typeof targetNodeId !== "string" || !nodes.some(node => node.id === targetNodeId)) add(null, "Select an existing node to execute.");
-    let bodies = {};
-    try { bodies = graphContract.loopBodies(nodes, edges); } catch { /* The full graph error is already reported. */ }
+    if (inactive.has(targetNodeId)) add(null, "Enable this node before executing it directly.");
     if (Object.values(bodies).some(ids => ids.includes(targetNodeId))) add(null, 'Execute the enclosing Loop Over Items step to run a body with its batch context.');
     const required = new Set([targetNodeId]);
     const visit = id => edges.filter(edge => edge.target === id && !scheduling.isReturn(edge)).forEach(edge => {
@@ -254,6 +259,9 @@ function readiness(workflow, targetNodeId = "") {
     const incoming = edges.filter(edge => edge.target === node.id && !scheduling.isReturn(edge));
     const outgoing = edges.filter(edge => edge.source === node.id);
     if (!SUPPORTED_KINDS.has(kind)) add(node, `Unsupported ${kind} step. Replace it with a registered executable node.`);
+    if(connectionPolicy?.incoming==='forbidden'&&incoming.length)add(node,'The request trigger cannot have incoming connections.');
+    if(connectionPolicy?.outgoing==='forbidden'&&outgoing.length)add(node,'Output steps must finish a branch.');
+    if (inactive.has(node.id)) continue;
     if (data.requiresApproval || data.approvalRequired || data.toolPolicy === "approval-required") add(node, "Approval gates are preview-only. Remove this gate before executing a read-only review.");
     if (data.parallel === true || data.concurrency != null && (!numericScalar(data.concurrency) || Number(data.concurrency)!==1) || data.maxConcurrency != null && (!numericScalar(data.maxConcurrency) || Number(data.maxConcurrency)!==1)) add(node, "Configure independent branch concurrency in Workflow settings → Node processing. Per-node fan-out is unsupported; remove parallel, concurrency and maxConcurrency from this step.");
     if (!nodeDefinition?.allowsCredentialReference && text(data.credentialId)) add(node, "Node credentials bind external tools and are preview-only. Remove the credential binding for a specialist evidence review.");
@@ -261,9 +269,7 @@ function readiness(workflow, targetNodeId = "") {
     if (["topK", "maxContextChars", "maxOutputChars", "maxCompletionTokens"].some(key => data[key] != null && String(data[key]).trim())) add(node, "Custom model limits are preview-only. Clear model tuning to use the specialist's bounded retrieval and validated output.");
     if (data.redactSecrets === false || data.redactSecrets === "false") add(node, "Secret redaction is required for executed reviews.");
     if (data.logLevel && !["standard", "audit"].includes(data.logLevel)) add(node, "Use Standard or Audit logging. Debug payload logging is preview-only.");
-    if(connectionPolicy?.incoming==='forbidden'&&incoming.length)add(node,'The request trigger cannot have incoming connections.');
     if(connectionPolicy?.incoming==='required'&&!incoming.length)add(node,'Connect this step to the request trigger or an earlier step.');
-    if(connectionPolicy?.outgoing==='forbidden'&&outgoing.length)add(node,'Output steps must finish a branch.');
     if(connectionPolicy?.outgoing==='required'&&node.id!==targetNodeId&&!outgoing.length)add(node,'Connect this branch to an Output step.');
     if (text(data.inputExpression) || data.inputMode === "manualReferences") add(node, "Expression inputs are preview-only. Clear the expression and use connected step outputs.");
     if (!nodeDefinition?.acceptsLoopPolicy && (text(data.loopSourceKey) || Number(data.loopMaxIterations) > 0)) add(node, "Loop policies are preview-only; remove this step's loop configuration.");
@@ -294,7 +300,8 @@ function readiness(workflow, targetNodeId = "") {
   return { ready: blockers.length === 0, execution_mode: MODE, target_node_id: targetNodeId || null, blockers, warnings,
     processing: processing(workflow), limits: { max_steps: 100, max_specialists: 4, timeout_ms: workflowDuration(workflow), input_limit_bytes: MAX_INPUT_BYTES, max_parallel_nodes: processing(workflow).max_parallel_nodes,
       max_loop_batches: loopBudget.LIMITS.batches, max_loop_node_executions: loopBudget.LIMITS.node_executions },
-    steps: ordered.map(node => ({ node_id: node.id, name: nodeName(node), kind: kindOf(node), specialist_id: node.data?.agentId || null })) };
+    steps: ordered.map(node => ({ node_id: node.id, name: nodeName(node), kind: kindOf(node), specialist_id: node.data?.agentId || null,
+      ...(inactive.has(node.id) ? { disabled: true } : {}) })) };
 }
 
 async function requireRunAccess(user, projectId, { allowDisabled = false } = {}) {
@@ -307,7 +314,7 @@ async function checkReadiness(workflow,targetNodeId='',user,inputPayload) {
   const hasInput=inputPayload!==undefined,payload=object(inputPayload),trigger=workflow.nodes.find(node=>nodeRegistry.get(kindOf(node))?.executor==='trigger');
   const inputBlocker=message=>report.blockers.push({node_id:trigger?.id||null,node_name:trigger?nodeName(trigger):null,message});
   if(hasInput){if(!inputPayload||typeof inputPayload!=='object'||Array.isArray(inputPayload))inputBlocker('Workflow input must be a JSON object.');else if(Buffer.byteLength(JSON.stringify(payload))>MAX_INPUT_BYTES)inputBlocker('Workflow input is limited to 16 KB.');}
-  const selected=report.steps.map(step=>({node:workflow.nodes.find(node=>node.id===step.node_id),definition:nodeRegistry.get(step.kind)}));
+  const selected=report.steps.filter(step=>!step.disabled).map(step=>({node:workflow.nodes.find(node=>node.id===step.node_id),definition:nodeRegistry.get(step.kind)}));
   const checkedInputs=new Set(),warnings=new Set();
   const context={workflow,user,payload,hasInput,hasNativeInput:selected.some(({definition,node})=>definition.inputContract?.(node)==='nativeStory'),
     checkInputOnce(key,check){if(checkedInputs.has(key))return;checkedInputs.add(key);try{check();}catch(failure){inputBlocker(failure.publicMessage||failure.message);}},
@@ -461,7 +468,9 @@ async function executeNode(run, node, user, signal, onAttempt, onProgress = asyn
       return effect ? require('../workflows/operationJournal').invoke({run,node,user,input:compactUpstream(run,node)},dispatch) : dispatch();
     }); }
   catch (failure) {
-    if (failure.code === "DEADLINE_EXCEEDED" && !signal.aborted) throw Object.assign(error(`${nodeName(node)} reached its step timeout. Increase the timeout or reduce the work in this step.`, 504), { code: "NODE_TIMEOUT" });
+    if (failure.code === "DEADLINE_EXCEEDED" && !signal.aborted && !failure.outcome_unknown && !failure.effect_dispatched) {
+      throw Object.assign(error(`${nodeName(node)} reached its step timeout. Increase the timeout or reduce the work in this step.`, 504), { code: "NODE_TIMEOUT" });
+    }
     throw failure;
   }
 }
@@ -472,13 +481,16 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
 }
 async function executeRegisteredNodeTask(run,node,user,signal,onAttempt,onProgress,onEvent,state={}) {
   const registered=nodeRegistry.get(kindOf(node)),data=object(node.data),kind=kindOf(node),sources=compactUpstream(run,node);
-  const context={run,node,user,signal,sources,onAttempt,onProgress,onEvent,requireRunAccess,
+  const context={run,node,user,signal,sources,onAttempt,onProgress,onEvent,requireRunAccess,agentPresentation:agentInvocation.forWorkflowNode(kind,data),
     review:(itemRun,itemNode)=>executeNode(itemRun,itemNode,user,signal,attempt=>onAttempt(attempt,{item_index:itemRun.iteration_index}),onProgress,event=>onEvent({...event,item_index:itemRun.iteration_index})),
     executeConnectedLoop:()=>executeLoopBody(run,node,user,signal,state.persist,onProgress)};
   if(registered.executor==='flow')return execution.bounded(nodeSignal=>registered.implementation.execute({...context,context:contextFor(run,sources),signal:nodeSignal}),{timeoutMs:Number(data.timeoutMs)||30000,signal});
   if(registered.executor!=='operation')return registered.implementation.execute(context);
   if(registered.connectedLoop?.(data))return registered.implementation.execute(context);
   if(registered.specialistAlias)return registered.implementation.execute(context);
+  // Imported native tasks may lack the timeout normally populated by the
+  // Studio. Give them the same bounded budget for model and browser stages.
+  const timeoutMs = Number(data.timeoutMs) || (kind === 'artifactTask' ? Number(registered.defaults.timeoutMs) : 30_000);
   return execution.bounded(async nodeSignal=>{
     const retries=!['loop','customAI'].includes(kind)&&events.canRetry(kind,data)?Number(data.retryCount||0):0;
     for(let attempt=0;;attempt++){
@@ -491,7 +503,52 @@ async function executeRegisteredNodeTask(run,node,user,signal,onAttempt,onProgre
         await execution.bounded(()=>new Promise(resolve=>setTimeout(resolve,delay)),{timeoutMs:delay+1000,signal:nodeSignal});
       }
     }
-  },{timeoutMs:Number(data.timeoutMs)||30000,signal});
+  },{timeoutMs,signal});
+}
+
+function skipLoopBody(run, node, completedAt, reason) {
+  if (!graphContract.isLoop(node)) return;
+  for (const id of graphContract.loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges)[node.id]) {
+    const child = run.node_results.find(item => item.node_id === id);
+    child.status = 'skipped';
+    child.skip_reason = reason;
+    child.completed_at = completedAt;
+  }
+}
+
+function assertNodeOutputLimit(run, payload) {
+  const limit = run.workflow_snapshot.nodes.some(node => node.data?.kind === "artifactTask") ? 2 * 1024 * 1024 : 128 * 1024;
+  if (Buffer.byteLength(JSON.stringify(payload)) > limit) {
+    throw error(`Node output exceeded ${limit / 1024} KB. Reduce the Sprint scope or number of cases per Story.`, 422);
+  }
+}
+
+function bypassStep(run, node, result) {
+  const upstream = compactUpstream(run, node);
+  const sources = upstream.map(source => source.status === 'failed' && source.output === undefined
+    ? { ...source, output: { error: source.error, error_details: source.error_details } } : source);
+  const kind = kindOf(node);
+  const data = sources.length === 1 ? inputValue(sources[0].output) : mergeInputs(sources).data;
+  const output = kind === 'trigger' ? { request: run.input_payload } : { data: data === undefined ? {} : data };
+  const lineage = sources.length === 1 ? sources[0].execution_context : mergeExecutionContext(sources);
+  assertNodeOutputLimit(run, lineage ? { output, context: lineage } : output);
+  result.status = 'skipped';
+  result.skip_reason = 'Node disabled. Connected input passed through.';
+  result.bypassed = true;
+  result.completed_at = new Date().toISOString();
+  result.output = output;
+  if (lineage) result.execution_context = lineage;
+
+  if (graphContract.isLoop(node)) {
+    result.bypass_handle = 'done';
+    skipLoopBody(run, node, result.completed_at, 'The enclosing loop is disabled.');
+  } else if (kind === 'condition' || kind === 'dataOperation' && node.data.dataOperation === 'switch') {
+    const outgoing = run.workflow_snapshot.edges.filter(edge => edge.source === node.id
+      && kindOf(run.workflow_snapshot.nodes.find(item => item.id === edge.target)) !== 'errorHandler');
+    result.bypass_handle = kind === 'condition'
+      ? outgoing.some(edge => edge.sourceHandle !== 'false') ? 'true' : 'false'
+      : outgoing.find(edge => edge.sourceHandle === 'fallback')?.sourceHandle ?? outgoing[0]?.sourceHandle ?? null;
+  }
 }
 
 async function runStep(run, node, user, signal, persist, shouldRun) {
@@ -505,10 +562,13 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
     result.skip_reason = kindOf(node) === "errorHandler" ? "No upstream failure to recover." : "No selected upstream branch reached this node.";
     result.completed_at = new Date().toISOString();
     events.log(result, { event: "node_skipped", message: result.skip_reason });
-    if (kindOf(node) === 'loop' && node.data.loopAction === 'workflow') for (const id of graphContract.loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges)[node.id]) {
-      const child = run.node_results.find(item => item.node_id === id);
-      child.status = 'skipped'; child.skip_reason = 'The loop branch was not selected.'; child.completed_at = result.completed_at;
-    }
+    skipLoopBody(run, node, result.completed_at, 'The loop branch was not selected.');
+    await persist();
+    return { routed: true };
+  }
+  if (node.data?.disabled === true) {
+    result.status = "running";
+    bypassStep(run, node, result);
     await persist();
     return { routed: true };
   }
@@ -527,27 +587,36 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   };
   events.log(result, { event: "node_started", message: "Started the node with its connected input." });
   await persist();
+  const agentPresentation = agentInvocation.forWorkflowNode(kindOf(node), node.data);
   try {
     const returned = await executeNode(run, node, user, signal,
       async (attempt, detail = {}) => {
         result.attempts += 1;
-        events.log(result, { event: "attempt_started", attempt, ...detail, message: `${detail.item_index == null ? "" : `Item ${detail.item_index + 1}: `}attempt ${attempt} started.` });
+        if (agentPresentation.diagnostics) events.log(result, { event: "attempt_started", attempt, ...detail, message: `${detail.item_index == null ? "" : `Item ${detail.item_index + 1}: `}attempt ${attempt} started.` });
         await persist();
       },
       async progress => {
+        if (!agentPresentation.progress) {
+          // Automation replays consume this revision-bound server checkpoint.
+          // Exclude draft packets, per-section status and model chatter.
+          if (progress.automation_checkpoint) {
+            result.progress = { automation_checkpoint: progress.automation_checkpoint };
+            await persist();
+          }
+          return;
+        }
         if (progress.current_item && progress.current_item !== result.progress?.current_item) events.log(result, { event: "item_started", item_index: progress.current_item - 1, message: `Processing item ${progress.current_item} of ${progress.total_items}.` });
         if (progress.automation_startup_retry === true) events.log(result,{event:'browser_startup_retry',level:'warning',message:'Reconnecting Playwright MCP once before opening the application.'});
         result.progress = progress; await persist();
       },
-      async event => { events.log(result, event); await persist(); }, { persist });
+      async event => { if (agentPresentation.diagnostics) { events.log(result, event); await persist(); } }, { persist });
     // Native artifact work keeps its revision-bound lineage in the recorded
     // execution checkpoint. The public node output contains only that node's
     // result; downstream native tasks explicitly hydrate the internal context.
     const native = kindOf(node) === "artifactTask" ? returned?.__workflow_result : null;
     const output = native ? native.output : returned;
     if (native && (!native.output || !native.context || typeof native.output !== "object" || typeof native.context !== "object")) throw error("The native task returned an invalid execution checkpoint.", 502);
-    const outputLimit = run.workflow_snapshot.nodes.some(item => item.data?.kind === "artifactTask") ? 2 * 1024 * 1024 : 128 * 1024;
-    if (Buffer.byteLength(JSON.stringify(native || output)) > outputLimit) throw error(`Node output exceeded ${outputLimit / 1024} KB. Reduce the Sprint scope or number of cases per Story.`, 422);
+    assertNodeOutputLimit(run, native || output);
     result.output = output;
     if (native) result.execution_context = native.context;
     else if (["condition", "log", "wait", "aggregator", "output"].includes(kindOf(node))) {
@@ -558,6 +627,10 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
     }
   } catch (failure) {
     failure = events.withNode(failure, run, node);
+    if (![401, 403].includes(failure.statusCode) && kindOf(node) === 'artifactTask' && node.data.artifactTask === 'automation-engineer') {
+      const completed = agentInvocation.completedAutomationDrafts(result.progress?.automation_checkpoint);
+      if (completed) result.output = completed;
+    }
     if (signal.aborted || failure.outcome_unknown || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
     result.status = "failed";
     result.error_details = events.failureInfo(failure);
@@ -583,7 +656,7 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   const settings = run.workflow_snapshot.settings || {};
   if (kindOf(node) === 'artifactTask' && ['test-case-generation', 'automation-engineer'].includes(node.data.artifactTask)
     && !require('../workflows/automationNodeInputs').manualCaseSource(node.data)
-    && settings.template_id === 'sprint-automator' && settings.library_publication_mode === 'automatic') {
+    && isAutomaticSprintPublication(settings)) {
     const recordPublication = publication => {
       result.output.library_publication = publication;
       if (array(publication?.receipts).some(receipt => receipt.saved === true && text(receipt.id))) run.output_payload.project_changes_applied = true;
@@ -819,13 +892,13 @@ async function perform(run, user, controller) {
       }
       const reviews = collectReviews(run.node_results.filter(reviewSource)).map(({ response, citation_ids, ...review }) => review);
       const targetId = run.workflow_snapshot.runtime_contract.target_node_id;
-      const noResult = targetId ? run.node_results.find(item => item.node_id === targetId)?.status === "skipped" : !run.node_results.some(item => item.node_type === "output" && item.status === "completed");
+      const noResult = targetId ? run.node_results.find(item => item.node_id === targetId)?.status === "skipped" : !run.node_results.some(item => item.node_type === "output" && scheduling.providesOutput(item));
       const limited = noResult || reviews.some(review => review.readiness?.status !== "ready_for_review") || run.node_results.some(needsAttention);
       if (signal.aborted) throw execution.abortError();
       await persistTerminal(run, limited ? "needs_review" : "completed", run.node_results, { ...run.output_payload, status: limited ? "needs_review" : "completed",
         summary: noResult ? "The selected branch did not reach an output or the requested step. Check the condition and its connections." : run.node_results.some(item => item.status === "failed") ? "Workflow finished through its error recovery path. Inspect the failed steps and recovery results before acting." : limited ? "Review workflow finished with evidence limitations. Inspect each review before acting." : targetId ? "Selected step and its preceding steps completed. Downstream steps were not executed." : "Review workflow completed. Evidence and proposed next actions are ready for human review.",
         reviews, review_session_ids: reviews.map(review => review.session_id).filter(Boolean),
-        results: run.node_results.filter(item => item.node_type === "output" && item.status === "completed").map(item => ({ node_id: item.node_id, output: item.output })) });
+        results: run.node_results.filter(item => item.node_type === "output" && scheduling.providesOutput(item)).map(item => ({ node_id: item.node_id, output: item.output })) });
     }, { timeoutMs: Math.max(1, Date.parse(run.workflow_snapshot.runtime_contract.deadline_at) - Date.now()), signal: controller.signal });
   } catch (failure) {
     if (failure.code === 'WORKFLOW_TERMINAL_PERSISTENCE') throw failure;
@@ -865,19 +938,20 @@ async function start(workflow, input = {}, user, trusted = {}) {
   const report = await checkReadiness(workflow, targetNodeId, user, payload);
   if (!report.ready) throw Object.assign(error(report.blockers.map(item => item.message).join(" "), 422), { readiness: report });
   const durationMs = workflowDuration(workflow);
-  const needsRequestSource = report.steps.some(step => step.kind === "repositoryAgent" && workflow.edges.filter(edge => edge.target === step.node_id).every(edge => kindOf(workflow.nodes.find(node => node.id === edge.source)) === "trigger"));
+  const activeSteps = report.steps.filter(step => !step.disabled);
+  const needsRequestSource = activeSteps.some(step => step.kind === "repositoryAgent" && workflow.edges.filter(edge => edge.target === step.node_id).every(edge => kindOf(workflow.nodes.find(node => node.id === edge.source)) === "trigger"));
   if (needsRequestSource && (object(payload.source).type !== "github" || !text(object(payload.source).repository_url))) throw error("Add source.type = github and source.repository_url to Workflow input before starting source analysis.");
   workflow = structuredClone(workflow);
   for (const node of workflow.nodes) {
     delete node.data.agentSnapshot;
     delete node.data.mcpToolHash;
-    if (kindOf(node) === "mcpTool" && report.steps.some(step => step.node_id === node.id)) {
+    if (kindOf(node) === "mcpTool" && activeSteps.some(step => step.node_id === node.id)) {
       const { connection } = await require("../workflows/connections").resolve(node.data.connectionId, workflow.project_id, null, "mcp");
       const tool = connection.toolDefinitions?.find(item => item.name === node.data.mcpTool);
       if (!tool) throw error("Discover and save the MCP tool catalog in Integrations before running this workflow.", 422);
       node.data.mcpToolHash = require("../workflows/mcpClient")._internals.schemaHash(tool);
     }
-    if (report.steps.some(step => step.node_id === node.id) && String(node.data.agentId || "").startsWith("agent-")) {
+    if (activeSteps.some(step => step.node_id === node.id) && String(node.data.agentId || "").startsWith("agent-")) {
       const pinned = await agentRegistry.resolve(node.data.agentId, node.data.agentVersion, workflow.project_id);
       agentContract.validateInputs(pinned.definition, payload);
       node.data = { ...agentContract.toNodeData(pinned.definition), ...node.data, agentVersion: pinned.version, agentSnapshot: pinned };
@@ -895,13 +969,13 @@ async function start(workflow, input = {}, user, trusted = {}) {
     return reconcile(existing);
   }
   const durable = require("../workflows/temporal/control");
-  const automaticLibraryPublication = workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic';
+  const automaticLibraryPublication = isAutomaticSprintPublication(workflow.settings);
   const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false,
     scheduler_version: trusted.resume ? 3 : 2,
     ...(trusted.resume ? {resume:{source_run_id:trusted.resume.source_run_id,node_id:trusted.resume.node_id,source_hash:trusted.resume.source_hash,reconciliations:trusted.resume.reconciliations}} : {}),
     ...(automaticLibraryPublication ? { automatic_library_publication: true, initial_project_changes_applied: false } : { project_changes_applied: false }),
     processing: processing(workflow),
-    external_write_tools: report.steps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: durationMs, target_node_id: targetNodeId || null,
+    external_write_tools: activeSteps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: durationMs, target_node_id: targetNodeId || null,
     deadline_at: new Date(Date.now() + durationMs).toISOString(), request_fingerprint: requestFingerprint,
     orchestrator: durable.enabled() ? "temporal" : "local",
     recovery: durable.enabled() ? "Temporal resumes from durable step receipts. Uncertain operations require reconciliation." : "Interrupted work is preserved; it is never automatically replayed." };
@@ -909,7 +983,7 @@ async function start(workflow, input = {}, user, trusted = {}) {
     created_by: user.id, execution_mode: MODE, status: "running", trigger_kind: trusted.triggerKind || "manual", input_payload: payload,
     workflow_snapshot: { ...structuredClone(workflow), execution_mode: MODE, runtime_contract: runtime, execution_order: report.steps.map(step => step.node_id), snapped_at: new Date().toISOString() },
     node_results: report.steps.map(step => ({ node_id: step.node_id, node_name: step.name, node_type: step.kind, specialist_id: step.specialist_id, status: "queued", execution_mode: MODE, attempts: 0, logs: [] })),
-    output_payload: { execution_mode: MODE, status: "running", project_changes_applied: false, completed_steps: 0, total_steps: report.steps.length, summary: "Review workflow started.", requires_human_review: true, runtime_contract: runtime } };
+    output_payload: { execution_mode: MODE, status: "running", project_changes_applied: false, completed_steps: 0, total_steps: activeSteps.length, summary: "Review workflow started.", requires_human_review: true, runtime_contract: runtime } };
   if(trusted.resume){
     run.resume_seeds=trusted.resume.seeds;
     run.node_results=run.node_results.map(result=>{const seed=trusted.resume.seeds.find(row=>row.node_id===result.node_id);return seed ? {...seed.result,reused_from_run:trusted.resume.source_run_id} : result;});

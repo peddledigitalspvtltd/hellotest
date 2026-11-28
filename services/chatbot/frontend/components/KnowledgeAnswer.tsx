@@ -1,9 +1,13 @@
+import { memo } from "react";
 import type { KnowledgeAssistantMessage, KnowledgeCitation } from "@hellotest/platform/frontend/src/types";
 import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
 import { KnowledgeFormattedText } from "./KnowledgeFormattedText";
 
-export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: KnowledgeAssistantMessage; onEvidenceOpen: (citation: KnowledgeCitation) => void }) {
-  const answer = validateKnowledgeAnswer(message);
+export const KnowledgeAnswer = memo(function KnowledgeAnswer({ message, answer = validateKnowledgeAnswer(message), onEvidenceOpen }: {
+  message: KnowledgeAssistantMessage;
+  answer?: ReturnType<typeof validateKnowledgeAnswer>;
+  onEvidenceOpen: (citation: KnowledgeCitation, messageId: string) => void;
+}) {
   if (!answer) return null;
   const sources = Array.from(answer.citations.values());
   const excerptsOnly = message.safety?.extractive_grounded_fallback === true;
@@ -14,7 +18,7 @@ export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: Knowledg
     const href = knowledgeCitationHref(citation);
     const number = sources.findIndex((source) => (source.evidence_id || source.id) === id) + 1;
     const title = [citation.title || citation.label || "Source", knowledgeCitationLocation(citation)].filter(Boolean).join(" · ");
-    return href && !href.startsWith("/knowledge-repo?") ? <a aria-label={`Source ${number}: ${title}`} href={href} key={id} rel="noreferrer" target={href.startsWith("/") ? undefined : "_blank"} title={title}>[{number}]</a> : <button aria-label={`Show source ${number}: ${title}`} key={id} onClick={() => onEvidenceOpen(citation)} title={title} type="button">[{number}]</button>;
+    return href && !href.startsWith("/knowledge-repo?") ? <a aria-label={`Source ${number}: ${title}`} href={href} key={id} rel="noreferrer" target={href.startsWith("/") ? undefined : "_blank"} title={title}>[{number}]</a> : <button aria-label={`Show source ${number}: ${title}`} key={id} onClick={() => onEvidenceOpen(citation, message.id)} title={title} type="button">[{number}]</button>;
   })}</span>;
   const payload = answer.presentation.payload;
   const tableColumns = (payload.columns || []) as Array<{ key: string; label: string }>;
@@ -48,4 +52,4 @@ export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: Knowledg
     {evidenceNotes.length ? <details className="knowledge-answer-limitations"><summary>Evidence information · {evidenceNotes.length}</summary><ul>{evidenceNotes.map((gap, index) => <li key={index}>{gap}</li>)}</ul></details> : null}
     {sources.some((source) => source.freshness) ? <div className="knowledge-answer-freshness">{sources.filter((source) => source.freshness?.current === false || source.freshness?.stale).map((source) => <span key={source.id}>{source.title || source.label || "Source"} · {source.freshness?.stale ? "May be out of date" : "Historical revision"}{source.freshness?.effective_from ? ` · ${new Date(source.freshness.effective_from).toLocaleDateString()}` : ""}</span>)}</div> : null}
   </div>;
-}
+});

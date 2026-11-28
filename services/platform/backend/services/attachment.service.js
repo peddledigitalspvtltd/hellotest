@@ -4,6 +4,7 @@ const { PassThrough, Transform } = require("stream");
 const { pipeline } = require("stream/promises");
 const { createGunzip, createGzip, constants: zlibConstants } = require("zlib");
 const { randomUUID: uuid } = require("crypto");
+const attachmentDocuments = require("@hellotest/platform/shared/attachmentDocuments.json");
 const db = require("../src/db");
 const { config } = require("../src/config");
 const objectStorage = require("../src/services/objectStorage.service");
@@ -25,6 +26,15 @@ const shouldCompress = (mimeType, fileName) => {
   return mime.startsWith("text/")
     || /^(application\/(?:json|xml|javascript|x-javascript|sql|x-ndjson)|image\/svg\+xml)$/.test(mime)
     || /\.(?:txt|log|csv|json|jsonl|ndjson|xml|yaml|yml|md|sql|js|css|svg)$/i.test(fileName);
+};
+
+const attachmentMimeType = (fileName, mimeType) => {
+  const mime = String(mimeType || "").split(";", 1)[0].trim().toLowerCase();
+  const extension = path.extname(fileName).slice(1).toLowerCase();
+  if ((!mime || mime === "application/octet-stream") && Object.hasOwn(attachmentDocuments, extension)) {
+    return attachmentDocuments[extension];
+  }
+  return String(mimeType || "application/octet-stream").slice(0, 200);
 };
 
 const assertKnowledgeSourceAttachmentAccess = async ({ user, entityType, entityId, permissionCode, operation }) => {
@@ -157,10 +167,11 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
 const storeScopedAttachment = async ({ user, scope, fileName, mimeType, stream, maxBytes, onStored, expectedSha256 }) => {
   const id = uuid();
   const normalizedFileName = safeFileName(fileName);
+  const storedMimeType = attachmentMimeType(normalizedFileName, mimeType);
   const objectName = `${scope.projectId}/${scope.entityType}/${scope.entityId}/${id}-${normalizedFileName}`;
   const hash = crypto.createHash("sha256");
   const byteLimit = Math.min(config.objectStorage.maxAttachmentBytes, Number(maxBytes) > 0 ? Number(maxBytes) : config.objectStorage.maxAttachmentBytes);
-  const compression = shouldCompress(mimeType, normalizedFileName) ? "gzip" : "none";
+  const compression = shouldCompress(storedMimeType, normalizedFileName) ? "gzip" : "none";
   let bytes = 0;
   const monitored = new Transform({
     transform(chunk, _encoding, callback) {
@@ -180,7 +191,7 @@ const storeScopedAttachment = async ({ user, scope, fileName, mimeType, stream, 
   let stored;
   try {
     const [object] = await Promise.all([
-      objectStorage.putObject({ objectName, stream: storageStream, mimeType: compression === "gzip" ? "application/gzip" : mimeType }),
+      objectStorage.putObject({ objectName, stream: storageStream, mimeType: compression === "gzip" ? "application/gzip" : storedMimeType }),
       pipeline(stream, monitored, storageStream)
     ]);
     stored = object;
@@ -210,7 +221,7 @@ const storeScopedAttachment = async ({ user, scope, fileName, mimeType, stream, 
       stored.bucket,
       objectName,
       normalizedFileName,
-      String(mimeType || "application/octet-stream").slice(0, 200),
+      storedMimeType,
       bytes,
       stored.size,
       compression,

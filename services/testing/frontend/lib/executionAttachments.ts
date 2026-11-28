@@ -1,4 +1,5 @@
 import { platformApi } from "@hellotest/platform/frontend/api.client";
+import attachmentDocuments from "@hellotest/platform/shared/attachmentDocuments.json";
 import { testingApi } from "../api.client";
 
 export const MAX_EXECUTION_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -6,15 +7,21 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
   bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", svg: "image/svg+xml", avif: "image/avif",
   heic: "image/heic", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", avi: "video/x-msvideo",
-  mpeg: "video/mpeg", mpg: "video/mpeg", ogv: "video/ogg", pdf: "application/pdf", json: "application/json",
-  xml: "application/xml", txt: "text/plain", log: "text/plain", csv: "text/csv", zip: "application/zip"
+  mpeg: "video/mpeg", mpg: "video/mpeg", ogv: "video/ogg", json: "application/json",
+  xml: "application/xml", txt: "text/plain", log: "text/plain", csv: "text/csv", zip: "application/zip",
+  ...attachmentDocuments
 };
 const ALLOWED_MIME_TYPES = new Set([...Object.values(MIME_BY_EXTENSION), "text/xml", "application/x-zip-compressed"]);
+export const EXECUTION_ATTACHMENT_ACCEPT = [
+  "image/*", "video/*",
+  ...Object.keys(MIME_BY_EXTENSION).map(extension => `.${extension}`),
+  ...ALLOWED_MIME_TYPES
+].join(",");
 
 export function executionAttachmentMimeType(file: Pick<File, "name" | "type">) {
   const mime = file.type.split(";", 1)[0].trim().toLowerCase();
   const resolved = !mime || mime === "application/octet-stream" ? MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] : mime;
-  if (!ALLOWED_MIME_TYPES.has(resolved)) throw new Error("Use an image, video, PDF, text, JSON, XML, CSV, or ZIP evidence file.");
+  if (!ALLOWED_MIME_TYPES.has(resolved)) throw new Error("Use an image, video, PDF, Word, Excel, text, JSON, XML, CSV, or ZIP evidence file.");
   return resolved;
 }
 

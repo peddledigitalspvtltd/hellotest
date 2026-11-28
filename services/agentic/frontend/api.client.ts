@@ -46,9 +46,11 @@ export const agenticApi = {
   },
   mcp: {
     status: (projectId:string) => request<{status:string;tool_count:number;checked_at:string;external_transport?:{public_endpoint_configured:boolean;request_host_allowed:boolean;request_origin_allowed:boolean}}>(`/agentic-workflows/mcp/status${toQueryString({project_id:projectId})}`,{cache:"no-store"},10000),
-    server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;protocol_versions?:string[];authentication?:string;client_contract?:{authentication:string;credential_ttl_seconds:number;project_id:string;accept:string;stateless:boolean;standalone_get_supported:boolean;oauth_supported:boolean;oauth_issuer?:string;oauth_authorization_server_metadata?:string;oauth_resource_metadata?:string;oauth_registration_endpoint?:string;credential_issuance_enabled?:boolean;manual_bearer_supported?:boolean;scopes_supported?:string[];default_scopes?:string[]};tool_sets?:McpToolSet[];discovery?:{tools:number;resources:string[];resource_templates:string[];prompts:string[]};tools:Array<{name:string;title?:string;description:string;tool_set?:string;read_only:boolean;input_schema?:Record<string,unknown>;output_schema?:Record<string,unknown>}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
-    credentials: (projectId:string) => request<Array<{id:string;client_id:string;scopes?:string[];expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
-    issue: (projectId:string,scopes?:string[]) => request<{id:string;token:string;expires_at:string;scopes?:string[]}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host",...(scopes?{scopes}:{})})}),
+    server: (projectId: string) => request<McpBuiltinServer>(`/agentic-workflows/mcp/server${toQueryString({ project_id: projectId })}`, { cache: "no-store" }),
+    credentials: (projectId: string) => request<McpHostCredential[]>(`/agentic-workflows/mcp/credentials${toQueryString({ project_id: projectId })}`, { cache: "no-store" }),
+    issue: (projectId: string, input: McpCredentialInput) => request<McpIssuedHostCredential>("/agentic-workflows/mcp/credentials", {
+      method: "POST", cache: "no-store", body: JSON.stringify({ project_id: projectId, client_id: "external-host", expires_in: input.expires_in, tool_names: input.tool_names })
+    }),
     revoke: (projectId:string,id:string) => request(`/agentic-workflows/mcp/credentials/${encodeURIComponent(id)}${toQueryString({project_id:projectId})}`,{method:"DELETE"}),
     plans: (projectId:string) => request<Array<{id:string;client_id:string;operation_id:string;operation:{method:string;path:string;permission:string};arguments:Record<string,unknown>;digest:string;state:string;expires_at:string;receipt?:Record<string,unknown>}>>(`/agentic-workflows/mcp/plans${toQueryString({project_id:projectId})}`),
     authorize: (projectId:string,id:string,digest:string) => request(`/agentic-workflows/mcp/plans/${encodeURIComponent(id)}/authorize`,{method:"POST",body:JSON.stringify({project_id:projectId,digest})}),
@@ -206,6 +208,64 @@ agenticWorkflows: {
 };
 
 export type McpToolSet = { id: string; title: string; description: string; read_only: boolean; requires: string[]; default: boolean; tool_count: number };
+export const MCP_CREDENTIAL_LIFETIMES = [
+  { seconds: 3_600, label: "1 hour" },
+  { seconds: 86_400, label: "1 day" },
+  { seconds: 604_800, label: "1 week" },
+  { seconds: 2_592_000, label: "1 month" },
+  { seconds: 7_776_000, label: "90 days" },
+] as const;
+export type McpCredentialLifetime = typeof MCP_CREDENTIAL_LIFETIMES[number]["seconds"];
+export type McpCredentialInput = { expires_in: McpCredentialLifetime; tool_names: string[] };
+export type McpHostCredential = {
+  id: string;
+  client_id: string;
+  scopes?: string[];
+  tool_names?: string[] | null;
+  expires_at: string;
+  revoked_at: string | null;
+  created_at?: string;
+};
+export type McpIssuedHostCredential = Pick<McpHostCredential, "id" | "expires_at" | "scopes" | "tool_names"> & { token: string; issued_at: string };
+export type McpBuiltinTool = {
+  name: string;
+  title?: string;
+  description: string;
+  tool_set?: string;
+  read_only: boolean;
+  credential_selectable?: boolean;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+};
+export type McpBuiltinServer = {
+  id: string;
+  name: string;
+  endpoint: string;
+  operation_count: number;
+  protocol_versions?: string[];
+  authentication?: string;
+  client_contract?: {
+    authentication: string;
+    credential_ttl_seconds: number;
+    credential_expiry_options_seconds?: McpCredentialLifetime[];
+    project_id: string;
+    accept: string;
+    stateless: boolean;
+    standalone_get_supported: boolean;
+    oauth_supported: boolean;
+    oauth_issuer?: string;
+    oauth_authorization_server_metadata?: string;
+    oauth_resource_metadata?: string;
+    oauth_registration_endpoint?: string;
+    credential_issuance_enabled?: boolean;
+    manual_bearer_supported?: boolean;
+    scopes_supported?: string[];
+    default_scopes?: string[];
+  };
+  tool_sets?: McpToolSet[];
+  discovery?: { tools: number; resources: string[]; resource_templates: string[]; prompts: string[] };
+  tools: McpBuiltinTool[];
+};
 export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; authType?: "none" | "bearer" | "basic" | "header"; username?: string; builtin?: boolean; authenticationMode?: "current-user" | "managed-credential"; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
 export type WorkflowConnectionSettingsInput = {
   name: string; kind: "mcp" | "http"; url: string; project_id: string; tools: string[]; methods: string[];

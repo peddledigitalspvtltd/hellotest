@@ -9,7 +9,7 @@ import { AutomationOverlay } from '../../components/AutomationOverlay';
 import { emptyAutomationStepDraft, buildAutomationStepAction, buildAutomationApiRequest, buildAutomationCodeFromDraft } from '../../lib/automationStepDraft';
 import { automationMappingIsComplete, isAutomationPrecondition } from '../../lib/automationPlan';
 import { cacheCreatedAutomationStep, getAutomationStepInsertion, isAutomationStepMapped, refreshCreatedAutomationStep } from '../../lib/automationStepPersistence';
-import { getDefaultAutomationStepType } from '../../lib/automationRuntime';
+import { AUTOMATION_RUNTIMES, getDefaultAutomationStepType } from '../../lib/automationRuntime';
 import { automationQueryKeys } from '../../lib/automationQueryKeys';
 import type { AutomationCaseDetailController } from './useAutomationCaseDetailController';
 export type NewSectionRequest={precondition:boolean;placement:Parameters<typeof getAutomationStepInsertion>[1]};
@@ -76,10 +76,20 @@ const newStepPlacementLabel=target?`${newStepPlacement.mode==='before'?'Insert b
         },
         onError: (error) => showError(error, "Unable to add automation step.")
     });
-return <AutomationOverlay title={newStepIsPrecondition ? "Add precondition" : "Add section"} subtitle={newStepPlacementLabel ? richTextToPlainText(newStepPlacementLabel) : "Describe the action and expected outcome."} icon={<AddIcon size={20}/>} closeDisabled={createAutomationStep.isPending} onClose={onClose} variant="dialog"><section className="automation-new-section" id="automation-new-step-composer" aria-label="Add plan section">
-                      <div className="automation-plan-heading"><strong>{newStepIsPrecondition ? "New precondition" : "New section"}</strong><select aria-label="New step section" onChange={(event) => { setNewStepIsPrecondition(event.target.value === "precondition"); setNewStepPlacement({ mode: "end", stepId: "" }); }} value={newStepIsPrecondition ? "precondition" : "step"}><option value="step">Test section</option><option value="precondition" disabled={automatedSteps.some(isAutomationPrecondition)}>Precondition</option></select></div>
-                      {newStepPlacementLabel ? <span className="muted">{richTextToPlainText(newStepPlacementLabel)} <button className="ghost-button compact" onClick={() => setNewStepPlacement({ mode: "end", stepId: "" })} type="button">Reset placement</button></span> : null}
-                      <div className="automation-plan-behavior-fields"><label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel="New step action" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => setNewStepDraft((current) => ({ ...current, name }))} placeholder="For example, sign in with valid credentials" value={newStepDraft.name}/></label><label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel="New step expected result" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => setNewStepDraft((current) => ({ ...current, expected_result }))} placeholder="Describe the outcome" value={newStepDraft.expected_result}/></label></div>
-                      <div className="automation-plan-actions"><select aria-label="New step type" onChange={(event) => setNewStepDraft((current) => ({ ...emptyAutomationStepDraft(event.target.value as TestStepType), name: current.name, expected_result: current.expected_result }))} value={newStepDraft.step_type}>{allowedStepTypes.map((type) => <option key={type} value={type}>{type.toUpperCase()}</option>)}</select><button className="primary-button compact" disabled={!newStepDraft.name.trim() || createAutomationStep.isPending} onClick={() => createAutomationStep.mutate()} type="button"><AddIcon size={14}/>{createAutomationStep.isPending ? "Adding…" : newStepIsPrecondition ? "Add precondition" : "Add section"}</button></div>
-                    </section></AutomationOverlay>;
+    const submitLabel = newStepIsPrecondition ? "Add precondition" : "Add section";
+    return <AutomationOverlay title={submitLabel} icon={<AddIcon size={20}/>} closeDisabled={createAutomationStep.isPending} onClose={onClose} variant="dialog">
+      <section className="automation-new-section-form" id="automation-new-step-composer" aria-label="Add plan section">
+        <div className="automation-new-section-settings">
+          <label className="form-field"><span>Section</span><select aria-label="New step section" onChange={event => { setNewStepIsPrecondition(event.target.value === "precondition"); setNewStepPlacement({ mode: "end", stepId: "" }); }} value={newStepIsPrecondition ? "precondition" : "step"}><option value="step">Test section</option><option value="precondition" disabled={automatedSteps.some(isAutomationPrecondition)}>Precondition</option></select></label>
+          <label className="form-field"><span>Step type</span><select aria-label="New step type" onChange={event => setNewStepDraft(current => ({ ...emptyAutomationStepDraft(event.target.value as TestStepType), name: current.name, expected_result: current.expected_result }))} value={newStepDraft.step_type}>{allowedStepTypes.map(type => <option key={type} value={type}>{AUTOMATION_RUNTIMES[type].label}</option>)}</select></label>
+        </div>
+        {newStepPlacementLabel ? <div className="automation-new-section-placement"><span>{richTextToPlainText(newStepPlacementLabel)}</span><button className="ghost-button compact" onClick={() => setNewStepPlacement({ mode: "end", stepId: "" })} type="button">Reset placement</button></div> : null}
+        <label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel="New step action" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={name => setNewStepDraft(current => ({ ...current, name }))} value={newStepDraft.name}/></label>
+        <label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel="New step expected result" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={expected_result => setNewStepDraft(current => ({ ...current, expected_result }))} value={newStepDraft.expected_result}/></label>
+        <div className="automation-case-details-actions">
+          <button className="ghost-button compact" disabled={createAutomationStep.isPending} onClick={onClose} type="button">Cancel</button>
+          <button className="primary-button compact" disabled={!newStepDraft.name.trim() || createAutomationStep.isPending} onClick={() => createAutomationStep.mutate()} type="button">{createAutomationStep.isPending ? "Adding…" : submitLabel}</button>
+        </div>
+      </section>
+    </AutomationOverlay>;
 }

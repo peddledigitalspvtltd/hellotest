@@ -12,6 +12,7 @@ function validateWorkflowGraph(nodes, edges, { requireNodes = false } = {}) {
     const id = normalizeText(node?.id);
     if (!id || id.length > 160 || byId.has(id)) throw workflowError("Every workflow step needs a unique ID of at most 160 characters.");
     if (id !== node.id) throw workflowError("Workflow step IDs cannot contain surrounding whitespace.");
+    if (node.data?.disabled !== undefined && typeof node.data.disabled !== 'boolean') throw workflowError("Node enabled state must be a boolean.");
     byId.set(id, node);
   }
   const indegree = new Map(nodes.map((node) => [node.id, 0]));
@@ -61,7 +62,7 @@ function loopBodies(nodes, edges) {
       forward.filter(edge => edge.source === id).forEach(edge => visit(edge.target));
     };
     starts.forEach(visit);
-    if (!starts.length || !returns.length) throw workflowError('Connect the Loop output to its body and return the final body step to Continue.');
+    if (loop.data?.disabled !== true && (!starts.length || !returns.length)) throw workflowError('Connect the Loop output to its body and return the final body step to Continue.');
     if (forward.some(edge => edge.source === loop.id && !['loop', 'done'].includes(edge.sourceHandle))) throw workflowError('Choose the Loop or Done output on Loop Over Items.');
     if (returns.some(edge => !body.has(edge.source))) throw workflowError('A Continue connection must come from that loop’s body.');
     if (forward.some(edge => body.has(edge.target) && !body.has(edge.source) && !(edge.source === loop.id && edge.sourceHandle === 'loop'))) throw workflowError('A loop body may only receive data through its Loop output.');
@@ -70,7 +71,7 @@ function loopBodies(nodes, edges) {
       changed = false;
       for (const edge of edges) if (body.has(edge.source) && body.has(edge.target) && reachingReturn.has(edge.target) && !reachingReturn.has(edge.source)) { reachingReturn.add(edge.source); changed = true; }
     }
-    if ([...body].some(id => !reachingReturn.has(id))) throw workflowError('Every loop body branch must return to Continue. Use the Done output for steps after the loop.');
+    if (loop.data?.disabled !== true && [...body].some(id => !reachingReturn.has(id))) throw workflowError('Every loop body branch must return to Continue. Use the Done output for steps after the loop.');
     if (nodes.some(node => body.has(node.id) && (node.data?.kind || node.type) === 'output')) throw workflowError('Place Output after the loop’s Done port.');
     bodies[loop.id] = [...body];
   }

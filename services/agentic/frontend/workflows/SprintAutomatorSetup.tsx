@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { IconChevronDown, IconX } from "@tabler/icons-react";
 import { agenticApi } from "../api.client";
+import { SprintRepositorySetup } from "./SprintRepositorySetup";
 import "./SprintAutomatorSetup.css";
 
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
   canRun?: boolean;
   busy: boolean;
   canViewSprints: boolean;
+  repositorySource?: { canViewConnections: boolean };
   onConfigureAutomation?: () => void;
 };
 function configuration(input: string): { value: Record<string, unknown> | null; error: string } {
@@ -97,6 +99,8 @@ export function SprintAutomatorSetup(props: Props) {
     </div>
     {parsed.error && <p className="sprint-setup-error" role="alert">{parsed.error}</p>}
     {!props.projectId ? <p role="status">Choose a project to load Sprints.</p> : !props.canViewSprints ? <p role="status">Sprint access is required to browse this project's Sprints.</p> : null}
-    {props.onConfigureAutomation && <p className="sprint-automation-guidance">Select the reviewed Test Environment to supply the application URL and protected variables. <button type="button" onClick={props.onConfigureAutomation}>Configure AI Automation Engineer</button>. API-only cases can use their supplied API URLs.</p>}
+    {props.repositorySource && parsed.value && <SprintRepositorySetup projectId={props.projectId} input={parsed.value} onInput={props.onInput}
+      disabled={disabled} canViewConnections={props.repositorySource.canViewConnections} />}
+    {props.onConfigureAutomation && <p className="sprint-automation-guidance">Choose a Test Environment for the application URL and protected inputs. <button type="button" onClick={props.onConfigureAutomation}>Configure Automation Build Agent</button></p>}
   </section>;
 }

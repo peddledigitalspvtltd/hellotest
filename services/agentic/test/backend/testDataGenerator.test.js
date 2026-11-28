@@ -64,6 +64,31 @@ test('synthetic generation never invents authentication credentials', async t =>
   assert.equal(JSON.stringify(result).includes('invented-password'), false);
 });
 
+test('authored static inputs and runtime generators stay in their original scopes', async t => {
+  const model = t.mock.method(synthetic, 'preview', async () => { throw new Error('These authored values must be preserved.'); });
+  const draft = { title: 'Create department records', parameter_values: { 't.department': 'Operations', 't.alias': '{{randomString:12}}' },
+    steps: [{ action: 'Enter @t.department, @t.alias and @random', expected_result: 'The department is saved.' }] };
+  const result = await generator.prepareCase({ run: run(), node: { data: { testDataSource: 'synthetic' } },
+    user: { id: 'actor-1' }, access: async () => {}, story, draft, steps: draft.steps });
+  assert.equal(result.status, 'ready');
+  assert.equal(model.mock.callCount(), 0);
+  assert.deepEqual(result.parameter_sources, { 't.department': { source: 'case' }, 't.alias': { source: 'case_template' }, 'r.random': { source: 'case_template' } });
+  assert.deepEqual(result.parameter_values, {});
+  assert.deepEqual(generator.automationDraftWithData(draft, result).steps, draft.steps);
+});
+
+test('an unresolved authored AI data request needs review even when a dataset supplies a value', async t => {
+  const raw = '{{aiData:fictional registrant email}}';
+  const draft = { title: 'Register a customer', parameter_values: { 't.email': raw }, test_data_set_ids: ['fixture'],
+    steps: [{ step_order: 2, action: 'Enter @t.email', expected_result: 'The email is accepted.' }] };
+  t.mock.method(dataSets, 'getTestDataSet', async id => ({ id, project_id: 'project-1', app_type_id: 'app-1', mode: 'table', rows: [{ email: 'data@example.test' }] }));
+  const result = await generator.prepareCase({ run: run(), node: { data: {} }, user: { id: 'actor-1' }, access: async () => {}, story, draft, steps: draft.steps });
+  assert.equal(result.status, 'needs_input');
+  assert.deepEqual(result.missing_parameter_details, [{ parameter: 't.email', reason: 'ai_data_generation_required', step_orders: [2] }]);
+  assert.deepEqual(result.parameter_bindings, {});
+  assert.doesNotMatch(JSON.stringify(result), /registrant email|data@example/);
+});
+
 test('Automation Engineer takes a unique safe application URL from the pinned Story when no URL was configured', () => {
   assert.equal(automationInputs.storyStartUrl({ description: '<p>Use https://hr.example.test/client/ for this flow.</p>' }),
     'https://hr.example.test/client/');
@@ -91,6 +116,101 @@ test('dataset readiness checks every runtime row and does not accept a missing m
   assert.deepEqual(result.missing_parameters, ['t.department']);
   assert.equal(result.dataset_row_count, 2);
   assert.deepEqual(result.parameter_values, {});
+});
+
+test('a linked manual-case dataset supplies only missing references and preserves explicit blank case data', async t => {
+  const updatedAt = new Date('2026-11-28T14:30:00.000Z');
+  const lookup = t.mock.method(dataSets, 'getTestDataSet', async id => ({ id, project_id: 'project-1', name: 'Regional fixtures', mode: 'table',
+    updated_at: updatedAt, rows: [{ 't.alias': 'dataset-default', region: 'east' }, { 't.alias': 'other-default', region: 'west' }] }));
+  const model = t.mock.method(synthetic, 'preview', async () => { throw new Error('The linked dataset owns preparation.'); });
+  const draft = { client_id: 'linked-case', title: 'Use a blank alias in a configured region', test_data_set_ids: ['manual-set'],
+    parameter_values: { alias: '', unrelated: '[missing: unused]', 't.region': '[missing: fixture]' },
+    steps: [{ step_order: 3, action: 'Leave @alias blank and choose @t.region', expected_result: 'The alias is optional.' }] };
+  const input = { run: run(), node: { data: { testDataSource: 'synthetic' } }, user: { id: 'actor-1' },
+    access: async () => {}, story, packet, draft, steps: draft.steps };
+  const result = await generator.prepareCase(input);
+  assert.equal(model.mock.callCount(), 0);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.dataset_selection, 'manual_case');
+  assert.equal(result.dataset_row_count, 2);
+  assert.equal(result.test_data_set_revision, updatedAt.toISOString());
+  assert.deepEqual(result.parameter_sources, { 't.alias': { source: 'case' }, 't.region': {
+    source: 'test_data_set', test_data_set_id: 'manual-set', parameter_name: 'r.region' } });
+  assert.deepEqual(result.parameter_step_orders, { 't.alias': [3], 't.region': [3] });
+  const bound = generator.automationDraftWithData(draft, result);
+  assert.equal(bound.parameter_values.alias, '');
+  assert.deepEqual(bound.test_data_options.parameter_overrides, ['t.alias']);
+  assert.equal(bound.steps[0].action, 'Leave @t.alias blank and choose @r.region');
+  assert.doesNotMatch(JSON.stringify(result), /dataset-default|other-default|\beast\b|\bwest\b/);
+  await assert.rejects(generator.prepareCase({ ...input, node: { data: { testDataSource: 'dataset', testDataSetId: 'other-set' } } }), { code: 'TEST_DATA_SOURCE_CONFLICT' });
+  assert.equal(lookup.mock.callCount(), 1);
+});
+
+test('dataset columns can differ in formatting while ambiguous matches and unconfigured secrets need input', async t => {
+  t.mock.method(dataSets, 'getTestDataSet', async id => ({ id, project_id: 'project-1', mode: 'key_value', rows: [
+    { key: 'Department Name', value: 'Support' },
+    { key: 'Employee Id', value: 'employee-a' }, { key: 'Employee-Id', value: 'employee-b' },
+    { key: 'Password', value: '', is_secret: true, has_stored_value: false },
+  ] }));
+  const draft = { title: 'Set a department for an employee', steps: [
+    { action: 'Sign in with @t.password and choose @t.employee_id', expected_result: 'The employee is selected.' },
+    { action: 'Choose @t.department_name', expected_result: 'The department is saved.' },
+  ] };
+  const result = await generator.prepareCase({ run: run(), node: { data: { testDataSource: 'dataset', testDataSetId: 'data-1' } },
+    user: { id: 'actor-1' }, access: async () => {}, story, packet, draft, steps: draft.steps });
+  assert.deepEqual(result.missing_parameters, ['t.employee_id', 't.password']);
+  assert.deepEqual(result.parameter_bindings, { 't.department_name': 'r.department name' });
+  assert.equal(generator.automationDraftWithData(draft, result).steps[1].action, 'Choose @r.[department name]');
+});
+
+test('generation uses only referenced case inputs, with bounded and private-value-redacted step context', async t => {
+  const model = t.mock.method(synthetic, 'preview', async () => ({ suggestions: [{ value: 'Sample department' }] }));
+  const draft = { client_id: 'focused', title: 'Create a department', parameter_values: { 't.opaque': 'sensitive-material', unused: '[missing: ignored]' },
+    test_data_options: { private_parameter_names: ['t.opaque'] }, steps: [
+      { step_order: 2, action: 'Choose the existing region @t.region', expected_result: 'The region is available.' },
+      { step_order: 4, action: 'Enter @department and note sensitive-material', expected_result: 'The new department is visible.' },
+      { step_order: 5, action: 'Sign out', expected_result: 'Unrelated logout screen is visible.' },
+    ] };
+  const result = await generator.prepareCase({ run: run(), node: { data: {} }, user: { id: 'actor-1' },
+    access: async () => {}, story, packet, draft, steps: draft.steps });
+  assert.equal(model.mock.callCount(), 1);
+  const prompt = model.mock.calls[0].arguments[0];
+  assert.match(prompt.fieldContext, /4\. Enter @department/);
+  assert.doesNotMatch(JSON.stringify(prompt), /sensitive-material|Unrelated logout|Choose the existing region/);
+  assert.deepEqual(result.parameter_values, { 't.department': 'Sample department' });
+  assert.deepEqual(result.missing_parameter_details, [{ parameter: 't.region', reason: 'reviewed_fixture_required', step_orders: [2] }]);
+  assert.equal(generator.automationDraftWithData(draft, result).steps[1].action.includes('@t.department'), true);
+});
+
+test('model-free analysis recognizes prior captured parameters and ignores unused declarations', () => {
+  const draft = { title: 'Read the created record', parameter_values: { unused: '[missing: ignored]', name: '' }, steps: [
+    { step_order: 1, action: 'Create @t.name', api_request: { method: 'POST', url: 'https://example.test/orders', captures: [{ parameter: 'r.order_id', path: '$.id' }] } },
+    { step_order: 2, action: 'Read @order_id in @t.region', expected_result: 'The record is visible.' },
+  ] };
+  const result = generator.analyzeCase({ draft, steps: draft.steps });
+  assert.equal(result.source, 'manual_case');
+  assert.equal(result.referenced_parameter_count, 3);
+  assert.equal(result.model_calls_attempted, 0);
+  assert.equal(result.parameter_sources['t.name'].source, 'case');
+  assert.deepEqual(result.parameter_sources['r.order_id'], { source: 'prior_step_capture', step_order: 1 });
+  assert.deepEqual(result.missing_parameter_details, [{ parameter: 't.region', reason: 'reviewed_input_required', step_orders: [2] }]);
+});
+
+test('explicit empty inputs are preserved without inventing expected values or boundary data', async t => {
+  const model = t.mock.method(synthetic, 'preview', async () => { throw new Error('These case constraints need no model.'); });
+  const draft = { title: 'Check required inputs', steps: [
+    { step_order: 1, action: 'Leave @t.password blank', expected_result: 'The form displays @t.error_message.' },
+    { step_order: 2, action: 'Enter @t.display_name', expected_result: 'The length boundary warning appears.' },
+  ] };
+  const result = await generator.prepareCase({ run: run(), node: { data: {} }, user: { id: 'actor-1' },
+    access: async () => {}, story, packet, draft, steps: draft.steps });
+  assert.equal(model.mock.callCount(), 0);
+  assert.deepEqual(result.parameter_values, { 't.password': '' });
+  assert.equal(result.parameter_sources['t.password'].source, 'case_instruction');
+  assert.deepEqual(result.missing_parameter_details, [
+    { parameter: 't.error_message', reason: 'reviewed_expectation_required', step_orders: [1] },
+    { parameter: 't.display_name', reason: 'synthetic_input_requires_review', step_orders: [2] },
+  ]);
 });
 
 test('synthetic preparation preserves authored empty values and reports placeholder credentials as missing', async t => {
@@ -136,6 +256,25 @@ test('synthetic preparation shares a bounded model-call budget and labels fallba
   assert.equal(Object.keys(result.parameter_values).length, 4);
 });
 
+test('data preparation avoids repeated provider failures and rejects returned generator directives as synthetic samples', async t => {
+  const seen = [];
+  t.mock.method(synthetic, 'preview', async ({ fieldContext }) => {
+    seen.push(fieldContext);
+    if (seen.length === 1) return { suggestions: [{ value: '{{aiData:run another generation}}' }] };
+    throw Object.assign(new Error('Provider did not complete the assessment.'), { code: 'AI_ASSESSMENT_FAILED', statusCode: 502 });
+  });
+  const draft = { title: 'Create departments', steps: [
+    { action: 'Enter @t.department_a, @t.department_b and @t.department_c', expected_result: 'The form is saved.' }
+  ] };
+  const result = await generator.prepareCase({ run: run(), node: { data: {} }, user: { id: 'actor-1' }, access: async () => {}, story, draft, steps: draft.steps });
+  assert.equal(result.status, 'ready');
+  assert.equal(seen.length, 2);
+  assert.equal(result.model_calls_attempted, 2);
+  assert.equal(result.deterministic_fallbacks.length, 3);
+  assert.match(result.deterministic_fallbacks.at(-1).reason, /unavailable earlier/);
+  assert.doesNotMatch(JSON.stringify(result), /run another generation/);
+});
+
 test('cancelled or denied data generation cannot become fallback success or dispatch later parameters', async t => {
   const controller = new AbortController();
   const model = t.mock.method(synthetic, 'preview', async input => { assert.equal(input.signal, controller.signal); controller.abort(); return { suggestions: [{ value: 'Late value' }] }; });
@@ -174,6 +313,33 @@ test('selected environment metadata supplies missing matching parameters without
   assert.equal(supplied.draft.test_data_options.test_environment_id, 'env');
   assert.deepEqual(supplied.availableParameterNames, ['r.username', 'r.password']);
   assert.equal(JSON.stringify(supplied.draft).includes('environment-user'), false);
+});
+
+test('node test data fills empty case bindings alongside a selected environment', async t => {
+  const environment = require('@hellotest/testing/backend/services/testEnvironment.service');
+  t.mock.method(environment, 'getTestEnvironment', async id => ({ id, project_id: 'project-1', app_type_id: 'app-1',
+    base_url: 'https://app.example.test/', variables: [
+      { key: 'region', value: 'environment-region' },
+      { key: 'password', value: '', is_secret: true, has_stored_value: true },
+    ] }));
+  const node = { data: { testEnvironmentId: 'env', automationData: {
+    region: 'node-region', department: 'node-department', 'r.region': 'must-not-override-environment', password: '@r.password',
+  } } };
+  const permissions = [];
+  const input = { run: run(), node, user: { id: 'actor-1' }, access: async (_user, _project, keys) => permissions.push(...keys) };
+  const resolved = await automationInputs.resolveNodeInputs(input);
+  assert.deepEqual(permissions, ['data.view', 'environment.view']);
+  assert.deepEqual(resolved.values, { 't.region': 'node-region', 't.department': 'node-department' });
+  const supplied = automationInputs.caseInputs({ parameter_values: { region: '[required: test region]', department: '' } }, [
+    { action: 'Select @t.region, fill @t.department and enter @t.password', expected_result: 'The form is ready.' },
+  ], resolved);
+  assert.deepEqual(supplied.publicInputs.parameter_values, { 't.region': 'node-region', 't.department': '' });
+  assert.deepEqual(supplied.draft.parameter_values, { 't.region': 'node-region', department: '' });
+  assert.match(supplied.draft.steps[0].action, /@r.password/);
+  assert.doesNotMatch(JSON.stringify({ draft: supplied.draft, values: supplied.runtimeValues }), /environment-region|must-not-override-environment|node-department/);
+  await assert.rejects(automationInputs.resolveNodeInputs({ ...input, access: async (_user, _project, [permission]) => {
+    if (permission === 'data.view') throw Object.assign(new Error('Test data is unavailable'), { statusCode: 403 });
+  } }), { statusCode: 403 });
 });
 
 test('source binding rewrites authored references once while all parameter values remain literal', () => {

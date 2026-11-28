@@ -389,6 +389,7 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
     const { index } = nodesById.get(node.id);
     const data = normalizeObject(node.data);
     const nodeKind = data.kind || node.type || "agent";
+    const disabled = data.disabled === true;
     const outputKey = getNodeOutputKey(node, index);
     const incomingEdges = incoming[node.id] || [];
     const outgoingEdges = outgoing[node.id] || [];
@@ -405,23 +406,26 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
       };
     });
     const sample = boundedPreviewValue(data.sampleOutput ?? data.sample_output ?? null);
+    const declarations = sources.map(source => source.output?.[source.source_output_key]);
     const output = {
       [outputKey]: nodeKind === "trigger" ? previewInput
+        : disabled ? declarations.length === 1 ? declarations[0] : declarations
         : nodeKind === "aggregator" ? { merge_mode: dataPolicy.merge_mode || "waitAllAppend", source_count: sources.length, sources }
           : sample,
       node_kind: nodeKind, source_node_ids: sources.map((source) => source.source_node_id),
       execution_mode: "preview", sample_only: true,
-      ...(sample == null && !["trigger", "aggregator"].includes(nodeKind) ? { note: "No sample output configured. This step has not been executed." } : {})
+      ...(!disabled && sample == null && !["trigger", "aggregator"].includes(nodeKind) ? { note: "No sample output configured. This step has not been executed." } : {})
     };
     const result = {
       node_id: node.id, node_name: data.label || data.name || `Step ${index + 1}`,
-      node_type: nodeKind, status: "previewed", execution_mode: "preview",
+      node_type: nodeKind, status: disabled ? "skipped" : "previewed", execution_mode: "preview",
+      ...(disabled ? { skip_reason: "Node disabled. Connected preview data passed through." } : {}),
       started_at: snappedAt, completed_at: snappedAt, attempts: 0,
       retry_policy: { max_retries: runtimePolicy.retry_count, max_attempts: runtimePolicy.retry_count + 1, delay_ms: runtimePolicy.retry_delay_ms, timeout_ms: runtimePolicy.timeout_ms, applied: false },
       error_policy: runtimePolicy.on_error, loop_policy: { ...buildNodeLoopPolicy(data), applied: false },
       tool_policy: { ...buildNodeToolPolicy(data), applied: false }, data_policy: dataPolicy,
       incoming_edges: incomingEdges, outgoing_edges: outgoingEdges,
-      logs: [{ at: snappedAt, level: "info", node_id: node.id, message: "Previewed declared inputs and sample output. No model, tool, expression, or external action was executed." }],
+      logs: disabled ? [] : [{ at: snappedAt, level: "info", node_id: node.id, message: "Previewed declared inputs and sample output. No model, tool, expression, or external action was executed." }],
       input: incomingEdges.length ? { mode: dataPolicy.input_mode, expression: dataPolicy.input_expression, sources } : { mode: "workflowInput", payload: previewInput },
       output
     };
@@ -441,16 +445,26 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
   };
 }
 
+function validateExecutableNodeOptions(nodes) {
+  for (const node of nodes) {
+    const data = node.data || {};
+    if (data.disabled === true) continue;
+    nodeAiConfiguration.normalize(data.aiConfiguration);
+    nodeAiConfiguration.reviewCriteria(data);
+    if (data.kind !== 'artifactTask') continue;
+    if (data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(data);
+    if (data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(data);
+    if (data.artifactTask === 'test-data-generator') require('../workflows/testDataGenerator').validateNodeOptions(data);
+  }
+}
+
 exports.createWorkflow = async (input = {}, actorId = null) => {
   workflowCredentialPolicy.assertDefinition(input);
   const record = workflowCredentialPolicy.safeDefinition(buildWorkflowRecord(input, null, actorId));
   validateWorkflowGraph(record.nodes, record.edges);
   const registryIssues=require("../workflows/nodeRegistry").validateDraft(record.nodes);
   if(registryIssues.length)throw workflowError(registryIssues.join(" "),422);
-  for (const node of record.nodes) { nodeAiConfiguration.normalize(node.data?.aiConfiguration); nodeAiConfiguration.reviewCriteria(node.data || {}); }
-  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
-  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
-  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-data-generator') require('../workflows/testDataGenerator').validateNodeOptions(node.data);
+  validateExecutableNodeOptions(record.nodes);
   require("../workflows/triggerPolicy").config(record);
   await validateWorkflowScope(record.project_id, record.app_type_id);
 
@@ -482,10 +496,7 @@ exports.updateWorkflow = async (id, input = {}, actorId = null) => {
   validateWorkflowGraph(record.nodes, record.edges);
   const registryIssues=require("../workflows/nodeRegistry").validateDraft(record.nodes);
   if(registryIssues.length)throw workflowError(registryIssues.join(" "),422);
-  for (const node of record.nodes) { nodeAiConfiguration.normalize(node.data?.aiConfiguration); nodeAiConfiguration.reviewCriteria(node.data || {}); }
-  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
-  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
-  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-data-generator') require('../workflows/testDataGenerator').validateNodeOptions(node.data);
+  validateExecutableNodeOptions(record.nodes);
   require("../workflows/triggerPolicy").config(record);
   await validateWorkflowScope(record.project_id, record.app_type_id);
 

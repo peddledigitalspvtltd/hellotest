@@ -1,14 +1,13 @@
 @import "../../../platform/frontend/src/shared/components/ui-tokens.css";
 
 .automation-agent-activity-list { width:100%; min-width:0; max-width:100%; grid-column:1/-1; box-sizing:border-box; }
-.automation-agent-history-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-top:16px; min-width:0; }
+.automation-agent-history-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-bottom:12px; min-width:0; }
 .automation-agent-history-toolbar label { display:grid; gap:6px; font-size:12px; flex:1; min-width:0; }
 .automation-agent-history-toolbar select { width:100%; min-width:0; max-width:100%; }
-.automation-agent-activity { margin-top:12px; border:1px solid var(--app-border); border-radius:12px; background:var(--app-surface); min-width:0; max-width:100%; box-sizing:border-box; }
+.automation-agent-activity { border:1px solid var(--app-border); border-radius:12px; background:var(--app-surface); min-width:0; max-width:100%; box-sizing:border-box; }
 .automation-agent-activity-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px; }
 .automation-agent-activity-identity { display:grid; gap:4px; min-width:0; flex:1; }
 .automation-agent-activity-identity > strong { font-size:16px; }
-.automation-agent-activity-identity > span { color:var(--app-text-muted); font-size:12px; overflow-wrap:anywhere; }
 .automation-agent-activity-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .automation-agent-activity-actions > button { font-size:11px; }
 .automation-agent-activity-status { display:inline-flex; align-items:center; gap:8px; font-size:12px; border:1px solid var(--app-border); border-radius:999px; padding:5px 10px; }

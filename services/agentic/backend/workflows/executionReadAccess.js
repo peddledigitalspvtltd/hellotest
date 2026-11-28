@@ -1,4 +1,5 @@
 const evidenceAccess = require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
+const agentInvocation = require('../agents/agentInvocation');
 const requiredPermissions = ['automation.view', 'automation.code.view'];
 const hidden = () => ({ automation_source_hidden: true, required_permissions: requiredPermissions,
   message: 'Automation output requires permission to view automation and generated code.' });
@@ -45,14 +46,30 @@ function withoutPrivateState(value) {
   return result;
 }
 
+const lifecycleEvents = new Set(['node_started', 'node_completed', 'node_failed', 'node_failure_observed',
+  'node_cancelled', 'node_interrupted', 'node_skipped', 'error_routed', 'library_publication_completed']);
+function omitAgentProgress(result, definitions) {
+  const data = definitions.get(result.node_id)?.data;
+  const kind = result.node_type || data?.kind || (data?.artifactTask ? 'artifactTask' : undefined);
+  if (agentInvocation.forWorkflowNode(kind, data).progress) return;
+  const snapshots = [result];
+  while (snapshots.length) {
+    const snapshot = snapshots.pop();
+    delete snapshot.progress;
+    if (Array.isArray(snapshot.logs)) snapshot.logs = snapshot.logs.filter(event => lifecycleEvents.has(event?.event));
+    if (Array.isArray(snapshot.iterations)) snapshots.push(...snapshot.iterations.filter(item => item && typeof item === 'object'));
+  }
+}
+
 async function publicRun(run, user, accessCache = new Map(), { includeManualAutomationSaves = false } = {}) {
   if (!run) return run;
   const nodes = withoutPrivateState(run.node_results || []);
   const visibleRun = { ...run, node_results: nodes,
     ...(run.output_payload !== undefined ? { output_payload: withoutPrivateState(run.output_payload) } : {}) };
   const snapshotNodes = run.workflow_snapshot?.nodes || [];
+  const definitions = new Map(snapshotNodes.map(node => [node.id, node]));
   const origins = new Set(nodes.filter(result => {
-    const data = snapshotNodes.find(node => node.id === result.node_id)?.data || {};
+    const data = definitions.get(result.node_id)?.data || {};
     return data.artifactTask === 'automation-engineer' || data.agentId === 'automation-engineer'
       || result.specialist_id === 'automation-engineer' || hasAutomationSource(result);
   }).map(result => result.node_id));
@@ -69,6 +86,9 @@ async function publicRun(run, user, accessCache = new Map(), { includeManualAuto
   }
   const needsAccess = protectedNodes.size || nodes.some(node => hasAutomationSource(node.input) || hasAutomationSource(node.progress))
     || hasAutomationSource(visibleRun.output_payload);
+  // Existing runs can still carry the old live payload. Strip it after source
+  // classification and only from the response copy, never from replay state.
+  nodes.forEach(result => omitAgentProgress(result, definitions));
   if (!needsAccess) return visibleRun;
   if (!accessCache.has(run.project_id)) accessCache.set(run.project_id,
     evidenceAccess.getOptionalEvidenceAccess(user, run.project_id, requiredPermissions));

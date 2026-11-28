@@ -15,6 +15,7 @@
 // error, the evidence was discarded, and a retry repeated planning and retrieval.
 
 const { auditedClaimVerifier, specificsVerifier, verificationMode, verifyWithModel } = require("./claimVerification");
+const { applyAccessRecheck } = require("./validation");
 
 const createSynthesis = (deps) => {
   const { execution, createDeterministicLiveAnswer, createGroundedExtractiveFallback, respondWithoutModel, requestGroundedAnswer,
@@ -52,18 +53,12 @@ const createSynthesis = (deps) => {
       // A failed authorization read must stop synthesis rather than send stale
       // passages to a provider.
       const preflight = await authorizeEvidence(hits);
-      const allowedEvidenceIds = new Set(preflight.allowed.map(hit => hit.citation?.id).filter(Boolean));
       const deniedCount = Math.max(0, hits.length - preflight.allowed.length);
       hits = preflight.allowed;
-      contextPacket.evidence = (contextPacket.evidence || []).filter(item => allowedEvidenceIds.has(item.evidence_id));
-      contextPacket.relationships = (contextPacket.relationships || []).filter(edge =>
-        Array.isArray(edge.evidence_ids) && edge.evidence_ids.length && edge.evidence_ids.every(id => allowedEvidenceIds.has(id)));
-      contextPacket.relationship_evidence = contextPacket.relationships;
+      applyAccessRecheck({ contextPacket, retrieval, access: preflight, question });
       if (deniedCount) {
         retrieval.pre_model_access_rechecked = true;
         retrieval.pre_model_access_denied_count = deniedCount;
-        contextPacket.limitations.authorization_partial = true;
-        contextPacket.limitations.retrieval_status = "PARTIAL";
       }
       if (!hits.length) {
         outcome = respondWithoutModel({ status: "insufficient_context", reason: "The selected evidence is no longer available under your current permissions." });

@@ -23,11 +23,12 @@ function fixture(allowed=true){
   if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
   if(id==='./automationRepairContext')return require('../../../automation/backend/services/automationRepairContext');
+  if(id==='./automationRepairEvidence')return require('../../../automation/backend/services/automationRepairEvidence');
   if(id==='../lib/verification/automationApiRepair')return require('../../../automation/backend/lib/verification/automationApiRepair');
   if(id.endsWith('/testStepAutomation'))return require(id);
   throw new Error(`Unexpected module ${id}`);
  }});
- return {...module.exports,reads,step};
+ return {...module.exports,reads,step,failed};
 }
 test('repair context preserves complete intent and exact failure scope while sanitizing diagnostic prose',async()=>{
  const f=fixture();
@@ -43,4 +44,25 @@ test('repair context preserves complete intent and exact failure scope while san
 test('repair context omits unavailable evidence before touching the database',async()=>{
  const f=fixture(false),prepared=await f.prepare({projectId:'project',appTypeId:'app',user:{id:'reviewer'},input:{test_case_id:'case'}});
  assert.equal(prepared.status,'needs_evidence');assert.equal(f.reads.length,0);
+});
+test('repair context routes a busy-page failure with redacted first-failure evidence and no patch',async()=>{
+ const f=fixture();
+ f.failed.failure_logs.stepWebDetails={snapshot:{url:'https://fixture.test/order?private_value=hidden-query',provider:'playwright',readiness_waits:[{state:'navigation',status:'timed_out',duration_ms:2400,timeout_ms:2200,message:'private wait text'}],first_failure:{schema:'web-failure-report/1',code:'locator_missing',line:3,operation_duration_ms:1200,page:{at_environment_start:false,document_state:'interactive',document_busy:true,value:'private DOM value',candidates:[{test_id:'order-submit',control:'button'},{test_id:'account-0123456789',control:'input'}]}}}};
+ f.failed.failure_logs.stepNotes.unrelated='other section '.repeat(50_000);
+ const prepared=await f.prepare({projectId:'project',appTypeId:'app',user:{id:'reviewer'},input:{test_case_id:'case'}});
+ assert.equal(prepared.status,'triaged');
+ assert.equal(prepared.triage.route,'timing');
+ assert.equal(prepared.triage.line,3);
+ assert.equal(prepared.triage.observed_candidate_count,1);
+ const report=prepared.projection.observed_failure.web_failure;
+ assert.deepEqual(report.page.candidates,[{method:'getByTestId',value:'order-submit',control:'button'}]);
+ assert.deepEqual(report.readiness_timeout,{state:'navigation',duration_ms:2400,timeout_ms:2200});
+ assert.doesNotMatch(JSON.stringify(prepared.projection),/hidden-query|private DOM value|private wait text|0123456789|other section/);
+ assert.equal((await f.save('project',{id:'reviewer'},'session',prepared,null)).status,'triaged');
+ assert.equal((await f.save('project',{id:'reviewer'},'session',prepared,{kind:'replace_locator'})).status,'triaged');
+ f.failed.failure_logs.stepWebDetails.snapshot.first_failure.page.document_busy=false;
+ const locator=await f.prepare({projectId:'project',appTypeId:'app',user:{id:'reviewer'},input:{test_case_id:'case'}});
+ assert.equal(locator.status,'eligible');
+ assert.equal(locator.triage.route,'locator_review');
+ assert.equal(locator.base.steps[0].automation_code,f.step.automation_code);
 });

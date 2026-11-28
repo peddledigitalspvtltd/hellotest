@@ -11,7 +11,7 @@ export function nativeTaskDefaults(id: string): AgenticWorkflowNodeData {
   return profile ? { artifactTask: id, label: profile.label, summary: profile.description,
     task: profile.task, instructions: profile.instructions, guardrails: profile.guardrails,
     ...("readinessPolicy" in profile ? { readinessPolicy: profile.readinessPolicy } : {}),
-    ...(id === "automation-engineer" ? { automationRuntime: 'auto', inspectBrowser: true, automationBrowserMode: "perform_steps", automationSource: "manual_case" } : {}) } : {};
+    ...(id === "automation-engineer" ? { automationRuntime: 'auto', inspectBrowser: true, automationBrowserMode: "read_only", automationSource: "manual_case" } : {}) } : {};
 }
 
 export function automationAgentDefaults(preset: typeof automationAgentPresets[number]): AgenticWorkflowNodeData {

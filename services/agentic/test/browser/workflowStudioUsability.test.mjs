@@ -19,6 +19,7 @@ test('workflow edits are recoverable, invalid JSON cannot execute, and narrow sc
     await writeFile(tsx, base.replace("createRoot(document.getElementById('root'))", "api.agenticWorkflows.getRun = async () => structuredClone(window.previewRecord); window.refreshHistory = () => client.invalidateQueries();\ncreateRoot(document.getElementById('root'))"));
     browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await page.route(/\/agent-runs(?:\?|$)/, route => route.fulfill({ json: { items: [], has_more: false, coverage: [] } }));
     page.setDefaultTimeout(12000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5179'}/${name}.html`);
@@ -26,8 +27,8 @@ test('workflow edits are recoverable, invalid JSON cannot execute, and narrow sc
     await page.screenshot({ path: output + '/01-agent-library-desktop.png', fullPage: true });
     const card = page.locator('.agent-library-card').filter({ hasText: 'Test Design Agent' });
     assert.equal(await card.locator('details').getAttribute('open'), null);
-    await card.getByText('Inputs & output', { exact: true }).click();
-    await card.getByText('Uses', { exact: true }).waitFor();
+    await card.getByText('Requirements and result', { exact: true }).click();
+    await card.getByText('Needs', { exact: true }).waitFor();
     await page.evaluate(() => window.navigateWorkspace('/agentic-workflows?view=workflows'));
     assert.equal(await page.getByRole('button', {name:'Executions', exact:true}).count(), 0);
     assert.equal(await page.getByRole('button', {name:'Clear all', exact:true}).count(), 1);
@@ -54,6 +55,16 @@ test('workflow edits are recoverable, invalid JSON cannot execute, and narrow sc
     assert.notEqual(await page.getByRole('textbox', { name: 'Node name', exact: true }).inputValue(), 'Shape checkout evidence');
     await page.getByRole('button', { name: 'Redo graph edit', exact: true }).click();
     assert.equal(await page.getByRole('textbox', { name: 'Node name', exact: true }).inputValue(), 'Shape checkout evidence');
+    const enableNode = page.getByRole('switch', { name: 'Enable node', exact: true });
+    const mappedNode = page.locator('.studio-node').filter({ hasText: 'Shape checkout evidence' });
+    assert.equal(await enableNode.getAttribute('aria-checked'), 'true');
+    await enableNode.click();
+    assert.equal(await enableNode.getAttribute('aria-checked'), 'false');
+    assert.equal(await mappedNode.getAttribute('data-disabled'), 'true');
+    assert.equal(await page.getByRole('button', { name: 'Execute step', exact: true }).count(), 0);
+    await enableNode.click();
+    assert.equal(await enableNode.getAttribute('aria-checked'), 'true');
+    assert.equal(await mappedNode.getAttribute('data-disabled'), null);
     await page.getByRole('button', { name: 'Workflow input', exact: true }).click();
     const input = page.getByRole('textbox', { name: 'Workflow input JSON', exact: true });
     await input.fill('[]');
@@ -82,7 +93,7 @@ test('workflow edits are recoverable, invalid JSON cannot execute, and narrow sc
     await page.evaluate(() => {
       window.enablePreviewFixture();
       window.previewWorkflow = {id:'history-workflow',project_id:'project',app_type_id:'app',name:'History workflow',description:'',nodes:[],edges:[],status:'draft',variables:{},run_policy:{}};
-      window.previewRecord = {id:'history-run',workflow_id:'history-workflow',workflow_name:'History workflow',project_id:'project',app_type_id:'app',status:'completed',trigger_kind:'manual',workflow_snapshot:structuredClone(window.previewWorkflow),node_results:[],input_payload:{},output_payload:{},created_at:'2026-09-10T10:00:00Z',started_at:'2026-09-10T10:00:00Z',completed_at:'2026-09-10T10:00:01Z'};
+      window.previewRecord = {id:'history-run',workflow_id:'history-workflow',workflow_name:'History workflow',project_id:'project',app_type_id:'app',status:'completed',execution_mode:'review',trigger_kind:'manual',workflow_snapshot:structuredClone(window.previewWorkflow),node_results:[],input_payload:{},output_payload:{},created_at:'2026-09-10T10:00:00Z',started_at:'2026-09-10T10:00:00Z',completed_at:'2026-09-10T10:00:01Z'};
     });
     await page.evaluate(() => window.refreshHistory());
     await page.getByRole('button', {name:'Back to workflows',exact:true}).click();

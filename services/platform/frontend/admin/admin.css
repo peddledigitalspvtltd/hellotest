@@ -81,6 +81,8 @@ button,input,select,textarea { font: inherit; } button { cursor:pointer; }
 .feature-detail-dependencies { padding-top: 18px; }
 .feature-detail-dependencies li { display: flex; align-items: center; gap: 12px; font-size: 12px; }
 .feature-detail-dependencies li > span { color: #61737d; }
+.form-grid .integration-preferred-checkbox { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.form-grid .integration-preferred-checkbox input { width: auto; }
 @media (max-width: 600px) {
   .feature-detail { padding: 18px; }
   .feature-detail-columns { grid-template-columns: minmax(0, 1fr); gap: 20px; }

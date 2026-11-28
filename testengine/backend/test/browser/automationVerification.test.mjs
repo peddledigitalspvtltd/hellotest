@@ -16,14 +16,39 @@ async function fixture(t,register=false){
  const before=process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;process.env.RECORDER_ALLOWED_PRIVATE_HOSTS='127.0.0.1';
  const directory=await mkdtemp(path.join(tmpdir(),'qaira-verifier-'));const app=Fastify();let submissions=0;
  app.get('/form',async(_req,reply)=>reply.type('text/html').send('<!doctype html><title>Name form</title><label>Full name<input id="name" required></label><label>Literal<input id="literal"></label><button id="review" onclick="document.getElementById(\'status\').textContent=\'Review ready\'">Review</button><button id="submit" onclick="fetch(\'/submit\',{method:\'POST\'})">Save</button><p id="status">Ready</p>'));
+ app.get('/slow-form',async(_req,reply)=>reply.type('text/html').send(`<!doctype html><title>Slow form</title>
+  <p role="status" id="placeholder">Loading</p><p role="status" id="result">Ready</p>
+  <script>setTimeout(() => {
+    const submit = document.createElement('button');
+    submit.textContent = 'Save';
+    submit.onclick = () => {
+      fetch('/submit', { method: 'POST' });
+      setTimeout(() => {
+        document.getElementById('placeholder').remove();
+        document.getElementById('result').textContent = 'Saved';
+      }, 350);
+    };
+    document.body.append(submit);
+  }, 3600);</script>`));
  app.post('/submit',async()=>{submissions++;return {ok:true};});if(register)await registerAutomationVerification(app,async()=>{},{artifactRoot:directory});const base=await app.listen({host:'127.0.0.1',port:0});
  t.after(async()=>{await app.close();await rm(directory,{recursive:true,force:true});if(before===undefined)delete process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;else process.env.RECORDER_ALLOWED_PRIVATE_HOSTS=before;});
- return {url:base+'/form',directory,app,submissions:()=>submissions};
+ return {url:base+'/form',slowUrl:base+'/slow-form',directory,app,submissions:()=>submissions};
 }
 test('fresh Chromium runs exact saved sections with fixed, empty and literal inputs', {timeout:60000},async t=>{
  const f=await fixture(t),rows=[section([op('browser_fill',{locator:'#name',value:'@r.name'}),op('browser_assert',{assertion:'value',locator:'#name',value:'@r.name'}),op('browser_assert',{assertion:'field_valid',locator:'#name'}),op('browser_fill',{locator:'#literal',value:'Contact @not_a_binding'}),op('browser_assert',{assertion:'value',locator:'#literal',value:'Contact @not_a_binding'})])];
  const result=await runAutomationVerification(request(f.url,rows,{'r.name':'Fixed name'}),{artifactRoot:f.directory});assert.equal(result.status,'passed',JSON.stringify(result));assert.equal(result.completed_interactions,2);assert.equal(result.assertion_count,3);assert.equal(f.submissions(),0);
  const empty=[section([op('browser_fill',{locator:'#name',value:'@r.name'}),op('browser_assert',{assertion:'value',locator:'#name',value:'@r.name'})])];assert.equal((await runAutomationVerification(request(f.url,empty,{'r.name':''}),{artifactRoot:f.directory})).status,'passed');
+});
+test('isolated verification waits for a late control and a unique postcondition before a single submission receipt', {timeout:60000},async t=>{
+ const f=await fixture(t),rows=[section([
+  op('browser_click',{locator:'getByRole("button", {name:"Save", exact:true})'}),
+  op('browser_assert',{assertion:'text',locator:'getByRole("status")',value:'Saved'})
+ ])];
+ const result=await runAutomationVerification({...request(f.slowUrl,rows),assertion_timeout_ms:2500},{artifactRoot:f.directory});
+ assert.equal(result.status,'passed',JSON.stringify(result));
+ assert.equal(result.completed_interactions,1);
+ assert.equal(result.assertion_count,1);
+ assert.equal(f.submissions(),1);
 });
 test('real click lookup repair saves only after the unchanged independent business assertion passes', {timeout:60000},async t=>{
  const f=await fixture(t),rows=[{...section([op('browser_click',{locator:'#old-review'}),op('browser_assert',{assertion:'text',locator:'#status',value:'Review ready'})]),action:'Open the review',expected_result:'The review result reads Review ready'}];let calls=0,diagnoses=0,writes=0;

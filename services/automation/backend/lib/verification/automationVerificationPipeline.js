@@ -6,11 +6,13 @@ const { applyLocatorRepair } = require("./automationVerificationLocatorRepair");
 const { isCriticalAutomationError } = require("../build/automationProgressDiagnostics");
 /** One explicit verification, at most one diagnosis and one bounded repair.
  * No whole-case provider regeneration, silent data changes or uncertain replay. */
-async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp', executionDriver = 'native', sections, parameters, startUrl, signal, run, prepareRun, diagnose, commitRepair, assertCurrent = async () => { }, onProgress = async () => { } }) {
+async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp', executionDriver = 'native', sourceState = 'saved', sections, parameters, startUrl, signal, run, prepareRun, diagnose, commitRepair, assertCurrent = async () => { }, onProgress = async () => { } }) {
     if (!['native', 'playwright_test_cli'].includes(executionDriver))
         throw fail('AUTOMATION_VERIFICATION_DRIVER_INVALID', 'Choose a supported isolated execution driver.');
-    let current = structuredClone(sections), attempts = 0, repairs = 0;
-    let summary = { mode, status: 'not_requested', phase: 'complete', attempts, repair_count: repairs, driver, execution_driver: executionDriver, browser: 'chromium', source_fingerprint: fingerprint(current), message: 'Instructions are saved; a separate run has not been requested.' };
+    const draft = sourceState === 'draft';
+    const originalAvailable = draft ? 'The generated draft remains available.' : 'Confirmed generation remains saved.';
+    let current = structuredClone(sections), attempts = 0, repairs = 0, receiptPending = false;
+    let summary = { mode, status: 'not_requested', phase: 'complete', attempts, repair_count: repairs, driver, execution_driver: executionDriver, browser: 'chromium', source_fingerprint: fingerprint(current), message: draft ? 'The generated draft is available for review.' : 'Instructions are saved; a separate run has not been requested.' };
     if (mode === 'generate_only')
         return summary;
     const assertActiveCurrent = async () => {
@@ -23,21 +25,26 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
         await assertActiveCurrent();
         attempts++;
         const verificationId = randomUUID();
-        await report('running', attempts === 1 ? 'verify' : 'rerun', attempts === 1 ? 'Running the saved instructions in a fresh browser.' : 'Running the bounded locator repair in a fresh browser.', { verification_id: verificationId });
+        // The current receipt fields must never describe an earlier run while a
+        // new attempt is being dispatched or its outcome is unavailable.
+        for (const key of ['execution_status', 'replay_safe', 'completed_operations', 'assertion_count', 'duration_ms', 'failure', 'outcome_unknown']) delete summary[key];
+        await report('running', attempts === 1 ? 'verify' : 'rerun', attempts === 1 ? `Running the ${draft ? 'draft' : 'saved'} instructions in a fresh browser.` : 'Running the bounded locator repair in a fresh browser.', { verification_id: verificationId });
         // Resolve read-only transport dependencies before the final freshness
         // check. Progress persistence and integration lookup can both await.
         const dispatch = prepareRun ? await prepareRun() : run;
         await assertActiveCurrent();
+        receiptPending = true;
         const receipt = await dispatch({ schema_version: 1, verification_id: verificationId, lease_token: randomUUID(), start_url: startUrl, execution_driver: executionDriver, parameters: structuredClone(parameters), sections: current.map(({ step_id, automation_code, operations }) => ({ step_id, automation_code, operations })), timeout_ms: 60000, replay_policy: policy });
-        await assertActiveCurrent();
         validateVerificationReceipt(receipt, verificationId, current, executionDriver);
+        receiptPending = false;
         const failure = receipt.failure;
         summary = { ...summary, ...(attempts===1?{first_attempt_status:receipt.status}:{}), execution_status: receipt.status, replay_safe: receipt.replay_safe, completed_operations: Number(receipt.completed_operations) || 0, assertion_count: Number(receipt.assertion_count) || 0, duration_ms: Number(receipt.duration_ms) || 0, ...(failure ? { failure: { step_id: failure.step_id, operation_index: failure.operation_index, code: failure.code, action_outcome: failure.action_outcome } } : { failure: undefined }) };
+        await assertActiveCurrent();
         return receipt;
     };
     const incompleteResult = receipt => {
         const uncertain = ['unknown', 'timed_out', 'cancelled'].includes(receipt.status);
-        const original = repairs ? 'Original saved instructions were retained.' : 'Confirmed generation remains saved.';
+        const original = repairs && !draft ? 'Original saved instructions were retained.' : originalAvailable;
         return {
             status: uncertain || receipt.status === 'skipped' ? 'blocked' : 'failed',
             message: uncertain
@@ -50,7 +57,7 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
     try {
         let receipt = await execute({ mode: 'authorized_run', allow_mutations: true });
         if (receipt.status === 'passed' && receipt.verification_status === 'verified') {
-            await report('passed', 'complete', 'The exact saved instructions passed an isolated Chromium run.');
+            await report('passed', 'complete', `The exact ${draft ? 'draft' : 'saved'} instructions passed an isolated Chromium run.`);
             return summary;
         }
         if (mode !== 'verify_repair' || !receipt.failure || ['unknown', 'cancelled', 'timed_out'].includes(receipt.status)) {
@@ -96,7 +103,7 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
             await assertActiveCurrent();
             await commitRepair({ before: previous, after: current });
             await assertActiveCurrent();
-            await report('passed', 'complete', 'The bounded locator repair passed an isolated run and was saved.', { source_fingerprint: fingerprint(current) });
+            await report('passed', 'complete', draft ? 'The bounded locator repair passed an isolated run. The repaired draft is available for review.' : 'The bounded locator repair passed an isolated run and was saved.', { source_fingerprint: fingerprint(current) });
         }
         else {
             const result = incompleteResult(receipt);
@@ -107,7 +114,10 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
     catch (error) {
         if (signal?.aborted || isCriticalAutomationError(error))
             throw signal?.reason || error;
-        await report('blocked', 'complete', 'Verification could not establish a current execution result. Saved generation remains available.', { error_code: /^[A-Z][A-Z0-9_]{1,99}$/.test(error?.code || '') ? error.code : 'AUTOMATION_VERIFICATION_UNAVAILABLE' });
+        await report('blocked', 'complete', receiptPending
+            ? `The isolated run did not return a trustworthy receipt. Reconcile its application outcome before another run. ${originalAvailable}`
+            : `Verification could not establish a result for the current instructions. ${originalAvailable}`,
+        { ...(receiptPending ? { outcome_unknown: true } : {}), error_code: /^[A-Z][A-Z0-9_]{1,99}$/.test(error?.code || '') ? error.code : 'AUTOMATION_VERIFICATION_UNAVAILABLE' });
         return summary;
     }
 }

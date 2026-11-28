@@ -327,6 +327,41 @@ test("a chat turn is idempotent, grounded, degrades gracefully and rechecks acce
       `model and retrieval work stay inside the shared budget: ${JSON.stringify(budget)}`);
   });
 
+  await t.test("the original question and evidence from both retrieval rounds reach one synthesis", async (context) => {
+    fx.reset();
+    const contracts = require('@hellotest/knowledge/backend/services/knowledgeContracts.service');
+    const question = 'Summarize the checkout refund rule and the regression suite test data guidance';
+    const refund = 'Checkout refunds are issued within five business days.';
+    const suites = 'A stable regression suite avoids shared state, isolates test data per run and retries only infrastructure failures.';
+    const chunks = await db.prepare(`SELECT chunks.id, chunks.content, chunks.source_id, chunks.document_id
+      FROM ai_knowledge_chunks chunks WHERE chunks.source_id IN (?, ?)`).all(fx.sources.refunds, fx.sources.suites);
+    const hits = new Map(chunks.map(chunk => [chunk.source_id, { ...chunk, chunk_id: chunk.id, source_kind: 'text', is_current: true,
+      citation: { id: `K-${chunk.id}`, source_id: chunk.source_id, chunk_id: chunk.id } }]));
+    context.mock.method(gateway, 'retrieveContext', async ({ request, intentPlan }) => {
+      const evidence = [hits.get(intentPlan ? fx.sources.suites : fx.sources.refunds)];
+      const budget = new contracts.RetrievalBudget(request.budgets);
+      budget.consumeRound(1, 1);
+      const packet = contracts.buildContextPacket({ retrievalRequest: request, evidence, budget,
+        authorization: { project_scope_enforced: true, source_acl_enforced: true }, retrieval: { retrieval_round_count: 1, query_chain: [request.query] } });
+      return gateway.contextFromPacket(packet, request);
+    });
+    fx.script.plan = () => ({ search_queries: ['regression suite test data isolation'], source_kinds: ['text'],
+      information_needs: ['regression suite test data isolation'], retrieval_strategy: 'hybrid_evidence' });
+    fx.script.synthesize = (input) => {
+      const received = JSON.parse(input.messages[1].content);
+      assert.equal(received.question, question);
+      assert.deepEqual(received.context_packet.evidence.map(item => item.source_id), [fx.sources.refunds, fx.sources.suites]);
+      assert.equal(received.retrieval_outcome.rounds_completed, 2);
+      const citation_ids = received.context_packet.evidence.map(item => item.evidence_id);
+      return { status: 'answered', executive_summary: refund, findings: [suites], recommendations: [], evidence_gaps: [], citation_ids,
+        supported_claims: [refund, suites].map((statement, index) => ({ statement, citation_ids: [citation_ids[index]] })) };
+    };
+    const result = await assistant.respond({ sessionId: await fx.newSession(), message: question, user, clientTurnId: 'turn-combined' });
+    assert.deepEqual(calls.map(call => call.kind), ['plan', 'synthesize']);
+    assert.equal(result.assistant_message.status, 'answered');
+    assert.deepEqual(result.answer_contract.claims.map(claim => claim.statement), [refund, suites]);
+  });
+
   await t.test("a refinement is skipped when the budget cannot also fund the draft and its repair", async (context) => {
     fx.reset();
     const reads = spyOnReads(context);

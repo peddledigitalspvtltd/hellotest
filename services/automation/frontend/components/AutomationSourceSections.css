@@ -8,6 +8,12 @@
 .automation-source-section[open] > summary .automation-source-chevron { transform: rotate(90deg); }
 .automation-source-section-title { display: grid; gap: 4px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .automation-source-section-title strong { font-size: 13px; font-weight: 600; }
-.automation-source-section-title small, .automation-source-language { color: var(--text-muted); font-size: 11px; }
+.automation-source-section-title small { color: var(--text-muted); font-size: 11px; }
+.automation-source-section-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .automation-source-section-code { margin: 0; padding: 16px; overflow: auto; border-top: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); tab-size: 2; }
-@media (max-width: 600px) { .automation-source-section > summary { flex-wrap: wrap; padding: 10px; } .automation-source-language { margin-left: 22px; } .automation-source-section-code { padding: 12px; } }
+@media (max-width: 600px) {
+  .automation-source-section > summary { gap: 6px; padding: 10px; }
+  .automation-source-section > summary > button { flex: none; }
+  .automation-source-copy-label { display: none; }
+  .automation-source-section-code { padding: 12px; }
+}

@@ -646,9 +646,12 @@ CREATE TABLE integrations (
   username TEXT,
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_active BOOLEAN DEFAULT TRUE,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT integrations_default_llm_check CHECK (NOT is_default OR (type = 'llm' AND is_active IS TRUE))
 );
+CREATE UNIQUE INDEX idx_integrations_default_llm ON integrations (is_default) WHERE is_default;
 
 CREATE TABLE auth_verification_codes (
   id TEXT PRIMARY KEY,

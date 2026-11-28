@@ -1,7 +1,7 @@
 @import "../../../platform/frontend/src/shared/components/ui-tokens.css";
 
 .automation-metadata-form { display: grid; gap: 16px; min-width: 0; }
-.automation-metadata-primary { display: grid; grid-template-columns: minmax(0, 1fr) 110px 85px; gap: 12px; }
+.automation-metadata-primary { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; gap: 12px; }
 .automation-metadata-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 8px; }
 .automation-record-links { min-width: 0; border: 1px solid var(--border, var(--ui-border)); border-radius: 7px; background: var(--surface, var(--ui-surface)); }
 .automation-record-links > summary { cursor: pointer; padding: 11px 12px; font-size: 12px; }
@@ -23,11 +23,6 @@
 .automation-draft-behavior > summary > span { margin: 0 8px; color: var(--text-secondary); }
 .automation-draft-behavior > summary > small { margin-left: 10px; color: var(--text-secondary); }
 .automation-draft-behavior-fields { display: grid; gap: 10px; padding: 0 14px 14px; }
-.automation-create-dialog.automation-authoring-create { width: min(1050px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; }
-.automation-authoring-create .resource-form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.automation-authoring-create .resource-form-body { min-height: 0; overflow-y: auto; padding: 20px 24px; }
-.automation-create-columns { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(260px, 1fr); gap: 24px; align-items: start; }
-.automation-create-plan-panel { display: grid; gap: 18px; padding-left: 22px; border-left: 1px solid var(--border, var(--ui-border)); }
 .automation-build-methods { display: flex; gap: 6px; flex-wrap: wrap; }
 .automation-build-methods button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 11px; border: 1px solid var(--border, var(--ui-border)); border-radius: 6px; background: var(--surface, var(--ui-surface)); color: var(--text-primary); cursor: pointer; font: inherit; font-size: 12px; }
 .automation-build-methods button[aria-pressed="true"] { color: var(--primary, var(--ui-blue-text)); border-color: currentColor; background: color-mix(in srgb, var(--primary, var(--ui-blue-solid)) 6%, var(--surface, var(--ui-surface))); }
@@ -78,8 +73,7 @@
 .automation-batch-agent-dialog .modal-header p { margin: 0; font-size: 12px; color: var(--text-secondary); }
 .automation-batch-agent-dialog .automation-agent-brief { margin: 0 20px; }
 .automation-batch-agent-dialog .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px; }
-@media (max-width: 800px) { .automation-create-columns { grid-template-columns: 1fr; } .automation-create-plan-panel { padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--border, var(--ui-border)); } }
-@media (max-width: 560px) { .automation-metadata-primary { grid-template-columns: 1fr 1fr; } .automation-metadata-primary > :first-child { grid-column: 1 / -1; } .automation-metadata-links, .automation-plan-behavior-fields { grid-template-columns: 1fr; } .automation-plan-editor { padding-left: 8px; } .automation-plan-summary { gap: 5px; } .automation-plan-state { white-space: normal; } }
+@media (max-width: 560px) { .automation-metadata-primary, .automation-metadata-links, .automation-plan-behavior-fields { grid-template-columns: 1fr; } .automation-plan-editor { padding-left: 8px; } .automation-plan-summary { gap: 5px; } .automation-plan-state { white-space: normal; } }
 
 /* The plan reads as a document: named behavior sections and actual source lines. */
 .automation-program-workspace { container-type: inline-size; gap: 14px; min-width: 0; }
@@ -369,15 +363,6 @@
 @media (max-width: 640px) { .automation-engineer-brief > summary { flex-wrap: wrap; } .automation-engineer-brief > summary > span { display: none; } }
 @container (max-width: 900px) { .automation-ai-layout { grid-template-columns: minmax(0,1fr); } }
 @media (max-width: 950px) { .automation-ai-layout { grid-template-columns: minmax(0,1fr); } }
-.automation-creation-method { display: grid; gap: 14px; }
-.automation-creation-method > strong { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
-.automation-creation-method > .automation-build-methods { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
-.automation-creation-method > .automation-build-methods > button { justify-content: center; flex-wrap: wrap; padding: 14px 8px; border-radius: 9px; font-size: 11px; box-shadow: none; }
-.automation-creation-method > .automation-build-methods > button[aria-pressed="true"] { border-color: var(--primary, var(--ui-blue-border)); background: color-mix(in srgb, var(--primary, var(--ui-blue-solid)) 5%, var(--surface, var(--ui-surface))); }
-.automation-create-ai { padding: 14px; border-radius: 11px; background: color-mix(in srgb, var(--ui-purple-solid) 3%, var(--surface, var(--ui-surface))); }
-.automation-create-ai .form-field { margin: 0; }
-.automation-create-ai > .form-field > textarea { min-height: 100px; }
-.automation-create-ai .repository-field-check { white-space: normal; font-size: 12px; }
 .page-content--automation .automation-catalog-toolbar { align-items: center; gap: 14px; }
 .page-content--automation .automation-case-tile { border-radius: 12px; box-shadow: none; }
 .page-content--automation .automation-detail-page-header { padding: 14px 18px; }
@@ -395,9 +380,6 @@
   .page-content--automation .automation-case-commandbar .automation-ai-header-action > span { display: none; }
   .page-content--automation .automation-case-commandbar > .primary-button { padding: 8px 10px; }
 }
-.automation-authoring-create .resource-modal-header { display: flex; flex-direction: row; align-items: flex-start; gap: 16px; }
-.automation-authoring-create .resource-modal-header > .resource-modal-title { flex: 1; min-width: 0; }
-.automation-authoring-create .resource-modal-header > .dialog-close-button { flex: 0 0 auto; width: 32px; }
 
 .automation-build-header-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .page-content--automation .automation-build-header .automation-quality-launch { float:none; margin:0; width:auto; }

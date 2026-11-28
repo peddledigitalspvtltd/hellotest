@@ -31,6 +31,15 @@ window.makeRun = input => {
 window.finishRun = () => { const run = window.executionRecords[0]; run.status='completed'; run.completed_at=new Date().toISOString();run.output_payload.summary='Review completed with cited evidence.';run.node_results=run.node_results.map(step=>({...step,status:'completed',output:{response:'Checkout acceptance needs one boundary review.',citation_ids:['story-checkout'],data:[{name:'Checkout',passed:false}],session_id:'review-'+step.node_id,specialist_id:'story-architect',readiness:{status:'ready_for_review',evidence_count:1}},logs:[{at:new Date().toISOString(),level:'warning',message:'Temporary model error; retry scheduled',attempt:1,retry_delay_ms:0},{at:new Date().toISOString(),level:'info',message:'Review saved'}]})); };
 if (readOnly) window.previewWorkflow={id:'readonly-workflow',name:'Readonly review',project_id:'project',app_type_id:'app',status:'draft',trigger_kind:'manual',settings:{},nodes:[{id:'request',type:'agenticStep',position:{x:70,y:140},data:{kind:'trigger',label:'Read request'}}],edges:[]};
 window.queryClient = client;
+window.loadSavedStoryWorkflow = async () => {
+ const {buildNodeDefaults,createFlowEdge} = await import('/services/agentic/frontend/workflows/workflowGraph.ts');
+ const {specialistDefaults} = await import('/services/agentic/frontend/workflows/specialistProfiles.ts');
+ const node = (id,kind,index,data={}) => ({id,type:'agenticStep',position:{x:70+index*350,y:140},data:{...buildNodeDefaults(kind,index),...data}});
+ window.previewWorkflow={id:'saved-story-workflow',name:'Story assurance',project_id:'project',app_type_id:'app',status:'draft',trigger_kind:'manual',settings:{},
+  nodes:[node('request','trigger',0),node('task-story','agent',1,{...specialistDefaults('story-architect'),label:'Story assurance',agentId:'story-architect'}),node('output','output',2)],
+  edges:[createFlowEdge('request','task-story'),createFlowEdge('task-story','output')]};
+ await client.invalidateQueries({queryKey:['agentic-workflows']});
+};
 `;
 const fixture = base.replace('const realAsk =', 'const realExecute = api.agenticWorkflows.execute; const realAsk =').replace('function RouteObserver()', setup+'\nfunction RouteObserver()');
 
@@ -45,9 +54,9 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.route('**/api/**', route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Unexpected API request in isolated fixture'})}));
   await page.route('**/agentic-workflows/*/executions**',async route=>{const input=route.request().postDataJSON();requests.push(input);if(rejectFirst){rejectFirst=false;return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Worker temporarily unavailable. Retry execution.'})});} const run=await page.evaluate(input=>window.makeRun(input),input);return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify(run)});});
   const url=`${process.env.VITE_TEST_URL||'http://127.0.0.1:5294'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`;
-  await page.goto(url);await page.getByRole('heading',{name:'Workflows',exact:true}).waitFor();assert.equal(await page.locator('.studio-template-card').count(),10);
+  await page.goto(url);await page.getByRole('heading',{name:'Workflows',exact:true}).waitFor();assert.equal(await page.locator('.studio-template-card').count(),2);
   await page.screenshot({path:output+'/01-template-gallery.png',fullPage:true});
-  await page.getByRole('button',{name:'Start from scratch',exact:true}).click();
+  await page.getByRole('button',{name:'Create Agentic Workflow',exact:true}).click();
   assert.equal(await page.locator('.studio-node').count(),0);
   await page.getByRole('button',{name:'Add manual trigger',exact:true}).click();
   assert.equal(await page.locator('.studio-node').count(),1);
@@ -93,7 +102,7 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.evaluate(()=>{delete document.documentElement.dataset.theme;});
   await page.setViewportSize({width:1512,height:1050});
   await page.getByText('Tools and guardrails',{exact:true}).click();
-  await page.getByLabel('Additional guardrails',{exact:true}).fill('Do not invent business rules.');
+  await page.getByLabel(/^Additional guardrails/).fill('Do not invent business rules.');
   await page.getByRole('button',{name:'Save changes',exact:true}).click();
   await page.waitForFunction(()=>window.previewWorkflow.nodes.some(node=>node.data.skills?.some(skill=>skill.name==='Checkout policy')));
   const savedSkills=await page.evaluate(()=>window.previewWorkflow.nodes.find(node=>node.data.kind==='customAI').data.skills);
@@ -101,19 +110,14 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   assert.ok(savedSkills.findIndex(skill=>skill.name==='Checkout policy')<savedSkills.findIndex(skill=>skill.name==='Review boundaries'));
   await page.screenshot({path:output+'/06-skills-and-insertion.png',fullPage:true});
   await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
-  await page.getByRole('button',{name:/Data flow Process a list of items/}).click();
-  await page.locator('.studio-node').filter({hasText:'Loop over items'}).click();
-  assert.equal(await page.getByLabel('Items path',{exact:true}).inputValue(),'input.items');
-  await page.getByLabel('Action for each item').selectOption('customAI');await page.getByLabel('Task for each item').fill('Review this item');
-  await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
-  await page.getByRole('button',{name:/Reviews Your own AI review/}).click();await page.locator('.studio-node').filter({hasText:'Custom AI review'}).click();
-  assert.match(await page.getByLabel('Your AI task',{exact:true}).inputValue(),/connected input/);
+  await page.getByText('Untitled workflow',{exact:true}).click();await page.locator('.studio-node').filter({hasText:'Custom AI review'}).click();
   await page.getByRole('button',{name:'Add node',exact:true}).click();await page.getByRole('textbox',{name:'Search nodes'}).fill('mcp');await page.locator('.studio-library-list').getByRole('button',{name:/MCP server tool/}).click();
   await page.getByLabel('MCP server',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Load server tools',exact:true}).isDisabled(),true);
   await page.getByLabel('MCP server',{exact:true}).selectOption('mcp-fixture');await page.getByRole('button',{name:'Load server tools',exact:true}).click();await page.getByLabel('Server tool',{exact:true}).selectOption('read_status');await page.getByText('Read the current status',{exact:true}).waitFor();await page.getByLabel('Tool arguments JSON').fill('{"id":"$input.id"}');
   await page.screenshot({path:output+'/05-mcp-node.png',fullPage:true});
   await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
-  await page.getByRole('button',{name:/Reviews Story assurance/}).click();
+  await page.evaluate(()=>window.loadSavedStoryWorkflow());
+  await page.getByText('Story assurance',{exact:true}).click();
   await page.getByRole('button',{name:'Execute workflow',exact:true}).waitFor();assert.equal(await page.locator('.rovo-provider-status').count(),0);
   await page.getByRole('button',{name:'Add node',exact:true}).click();await page.getByRole('textbox',{name:'Search nodes'}).fill('merge');await page.locator('.studio-library-list').getByRole('button',{name:/Merge/}).click();
   assert.equal(await page.locator('.studio-node').count(),4);await page.getByRole('button',{name:'Delete selected node'}).click();
@@ -156,7 +160,8 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await execution.getByRole('button',{name:'JSON',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('textarea[aria-label="Node output JSON"]')?.value==='null');
   await page.getByRole('button',{name:'Back to workflow editor',exact:true}).click();await page.getByRole('button',{name:'Executions (1)',exact:true}).click();await page.locator('.studio-history-row').waitFor();await page.getByLabel('Filter execution status',{exact:true}).selectOption('failed');assert.equal(await page.locator('.studio-history-row').count(),0);await page.getByLabel('Filter execution status',{exact:true}).selectOption('completed');await page.locator('.studio-history-row').waitFor();
-  await page.getByRole('button',{name:'Back to workflows',exact:true}).click();await page.getByRole('button',{name:/Source agents Build API test cases/}).click();await page.getByRole('button',{name:'Workflow input',exact:true}).click();assert.match(await page.getByRole('textbox',{name:'Workflow input JSON'}).inputValue(),/repository_url/);
+  await page.getByRole('button',{name:'Back to workflows',exact:true}).click();await page.getByRole('button',{name:'Create Workflow from SpecToScript',exact:true}).click();
+  await page.getByRole('button',{name:'Workflow input',exact:true}).click();assert.match(await page.getByRole('textbox',{name:'Workflow input JSON'}).inputValue(),/sprint_id/);
   await page.setViewportSize({width:390,height:900});await page.evaluate(()=>{document.documentElement.dataset.theme='dark';getComputedStyle(document.body).backgroundColor;document.getAnimations().forEach(animation=>{try{animation.finish();}catch{}});});await page.screenshot({path:output+'/04-mobile-dark.png',fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
   await page.close();
   const readonly=await browser.newPage({viewport:{width:1200,height:900}});readonly.on('pageerror',err=>errors.push(err.message));await readonly.goto(url+'&readonly=true');await readonly.getByRole('heading',{name:'Workflows',exact:true}).waitFor();assert.equal(await readonly.getByRole('button',{name:'Create Agentic Workflow',exact:true}).count(),0);assert.equal(await readonly.locator('.studio-template-card').count(),0);await readonly.getByText('Readonly review',{exact:true}).click();await readonly.getByRole('region',{name:'Workflow editor',exact:true}).waitFor();assert.equal(await readonly.getByRole('button',{name:'Save changes',exact:true}).count(),0);assert.equal(await readonly.getByRole('button',{name:'Add node',exact:true}).count(),0);assert.equal(await readonly.getByRole('button',{name:'Execute workflow',exact:true}).count(),0);assert.equal(await readonly.getByRole('textbox',{name:'Node name',exact:true}).isDisabled(),true);assert.deepEqual(errors,[]);

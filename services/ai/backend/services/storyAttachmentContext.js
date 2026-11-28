@@ -2,7 +2,7 @@ const attachments = require('@hellotest/platform/backend/services/attachment.ser
 const execution = require('@hellotest/knowledge/backend/services/knowledgeExecution.service');
 
 const isTextAttachment = item => /^(?:text\/|application\/(?:json|xml|javascript|x-ndjson|yaml))/i.test(String(item.mime_type || ''));
-async function excerpt({ item, projectId, user, timeoutMs = 600 }) {
+async function excerpt({ item, projectId, user, timeoutMs = 600, signal: parentSignal }) {
   if (!isTextAttachment(item)) return { id:item.id, status:'metadata_only', reason:'Use authorized indexed extraction or supplied compressed images for this file type.' };
   if (Number(item.size_bytes) > 64000) return { id:item.id, status:'metadata_only', reason:'File exceeds the bounded live attachment read; use indexed extraction.' };
   try {
@@ -28,10 +28,28 @@ async function excerpt({ item, projectId, user, timeoutMs = 600 }) {
           excerpt_truncated:truncated||content.length>600, checksum_sha256:row.checksum_sha256||null,
           limitation:'Only this bounded text excerpt was read; omitted content is unknown.' };
       } finally { signal.removeEventListener('abort',stop);stream.destroy(); }
-    }, { timeoutMs });
+    }, { timeoutMs, signal: parentSignal });
   } catch (error) {
+    parentSignal?.throwIfAborted();
     execution.assertActive();
     return { id:item.id, story_id:item.story_id, status:'unavailable', reason:error.code==='ATTACHMENT_SCOPE_MISMATCH'?'Attachment scope changed.':'Attachment text could not be read within the authorized retrieval budget.' };
   }
 }
-module.exports = { excerpt, isTextAttachment };
+
+async function readStoryAttachments({ storyId, projectId, user, signal }) {
+  signal?.throwIfAborted();
+  const access = await require('@hellotest/platform/backend/services/optionalEvidenceAccess.service')
+    .getOptionalEvidenceAccess(user, projectId, ['requirement.view', 'attachment.view']);
+  if (!access['requirement.view'] || !access['attachment.view']) return [];
+  const rows = await require('@hellotest/platform/backend/src/db').prepare(`
+    SELECT id, entity_id AS story_id, file_name, mime_type, size_bytes
+    FROM attachments WHERE project_id = ? AND entity_type = 'requirement' AND entity_id = ?
+    ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 3
+  `).all(projectId, storyId);
+  return await Promise.all(rows.map(async item => ({
+    story_id: storyId, name: String(item.file_name || '').slice(0, 160), media_type: item.mime_type,
+    ...await excerpt({ item, projectId, user, signal })
+  })));
+}
+
+module.exports = { excerpt, isTextAttachment, readStoryAttachments };

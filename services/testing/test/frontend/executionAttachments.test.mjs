@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+
+const require = createRequire(import.meta.url);
+const documentMimes = require("@hellotest/platform/shared/attachmentDocuments.json");
 
 const load = () => {
   const state = { enabled: true, uploads: [] };
@@ -11,7 +15,7 @@ const load = () => {
   } };
   const exports = {};
   const source = ts.transpileModule(readFileSync(new URL("../../frontend/lib/executionAttachments.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(source, { exports, require: () => ({ platformApi: api, testingApi: api }), File, Uint8Array, DataView, Blob, Set, URL });
+  vm.runInNewContext(source, { exports, require: name => name === "@hellotest/platform/shared/attachmentDocuments.json" ? { default: documentMimes } : ({ platformApi: api, testingApi: api }), File, Uint8Array, DataView, Blob, Set, URL });
   return { helper: exports, state };
 };
 
@@ -35,6 +39,20 @@ test("small evidence and media keep their original bytes; invalid size rejects b
   await assert.rejects(helper.prepareExecutionAttachment(new File([], "empty.txt", { type: "text/plain" })), /non-empty/);
   await assert.rejects(helper.prepareExecutionAttachment({ size: helper.MAX_EXECUTION_ATTACHMENT_BYTES + 1 }), /25 MB/);
   await assert.rejects(helper.prepareExecutionAttachment(new File(["0123456789"], "size.txt", { type: "text/plain" }), 5), /1 KB/);
+});
+
+test("Office and PDF files are selectable and keep their exact bytes when browsers send a generic MIME type", async () => {
+  const { helper } = load();
+  const types = helper.EXECUTION_ATTACHMENT_ACCEPT.split(",");
+  for (const [extension, mime] of Object.entries(documentMimes)) {
+    assert.ok(types.includes(`.${extension}`));
+    assert.ok(types.includes(mime));
+    const file = new File([new Uint8Array([0, 1, 99, 255])], `document.${extension.toUpperCase()}`, { type: "application/octet-stream" });
+    assert.equal(helper.executionAttachmentMimeType(file), mime);
+    const prepared = await helper.prepareExecutionAttachment(file);
+    assert.equal(prepared.type, mime);
+    assert.deepEqual(await prepared.bytes(), await file.bytes());
+  }
 });
 
 test("animated PNG detection walks metadata chunks without confusing static image data", () => {
